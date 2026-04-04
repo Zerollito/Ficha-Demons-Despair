@@ -1,0 +1,43 @@
+{
+  "vitals": {
+    "baseVida": 0,
+    "vidaPerCon": 2,
+    "baseMana": 0,
+    "manaPerApr": 2,
+    "baseCarga": 200,
+    "cargaPerRes": 5,
+    "baseDeslocamento": 3,
+    "dexPerDeslocamento": 3
+  },
+  "bonuses": {
+    "statDivisor": 2,
+    "proficiencySingleThreshold": 10,
+    "proficiencyDualThreshold": 5
+  },
+  "knowledge": {
+    "baseXp": 5,
+    "xpIncrement": 5
+  },
+  "scales": {
+    "C": 0.25,
+    "B": 0.5,
+    "A": 0.75,
+    "S": 1.0
+  },
+  "penalties": {
+    "loadThresholds": [
+      {
+        "excess": 0,
+        "deslocamentoMult": 1.0,
+        "acertoPenalty": 0,
+        "mentalidadePenalty": 0
+      },
+      {
+        "excess": 1,
+        "deslocamentoMult": 0.5,
+        "acertoPenalty": -2,
+        "mentalidadePenalty": -5
+      }
+    ]
+  }
+}
