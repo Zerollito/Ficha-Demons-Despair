@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Plus, Trash2, Save, Download, Upload, Copy, ChevronDown, ChevronUp, 
   Shield, Sword, Backpack, BookOpen, Activity, Coins, User, MapPin, 
-  Thermometer, Utensils, Droplets, Battery, Weight, Package, Gem, Zap
+  Thermometer, Utensils, Droplets, Battery, Weight, Package, Gem, Zap,
+  MoreVertical
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -66,8 +67,11 @@ export default function App() {
 
   const [clipboard, setClipboard] = useState<{ type: 'Arma' | 'Armadura' | 'Item' | 'Magia' | 'Habilidade', data: any } | null>(null);
 
-  const copyToClipboard = (type: any, data: any) => {
-    setClipboard({ type, data: { ...data, id: crypto.randomUUID() } });
+  const copyToClipboard = (type: 'Arma' | 'Armadura' | 'Item' | 'Magia' | 'Habilidade', data: any) => {
+    const dataWithTipo = { ...data, id: crypto.randomUUID() };
+    if (type === 'Arma') dataWithTipo.tipo = 'Arma';
+    if (type === 'Armadura') dataWithTipo.tipo = 'Armadura';
+    setClipboard({ type, data: dataWithTipo });
   };
 
   const activeChar = useMemo(() => 
@@ -190,46 +194,78 @@ export default function App() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-2 sm:px-4 py-3 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
-          <select 
-            value={state.activeCharacterId || ''} 
-            onChange={(e) => setState(prev => ({ ...prev, activeCharacterId: e.target.value }))}
-            className="bg-zinc-800 border border-zinc-700 rounded-md px-2 sm:px-3 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 truncate max-w-[140px] sm:max-w-none"
-          >
-            {state.characters.map(c => (
-              <option key={c.id} value={c.id}>{c.nome}</option>
-            ))}
-          </select>
-          <button 
-            onClick={() => {
-              const nc = createEmptyCharacter();
-              setState(prev => ({ characters: [...prev.characters, nc], activeCharacterId: nc.id }));
-            }}
-            className="p-1.5 hover:bg-zinc-800 rounded-md transition-colors flex-shrink-0"
-            title="Novo Personagem"
-          >
-            <Plus size={18} className="text-amber-500" />
-          </button>
+      <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
+            <User size={20} className="text-zinc-950" />
+          </div>
+          <h1 className="text-lg font-black tracking-tighter uppercase italic text-zinc-100 hidden sm:block">RPG System X</h1>
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-          <button onClick={duplicateChar} className="p-1.5 sm:p-2 hover:bg-zinc-800 rounded-md transition-colors" title="Duplicar">
-            <Copy size={16} className="sm:w-[18px] sm:h-[18px]" />
+        <div className="flex items-center gap-2 relative group/menu">
+          <button className="w-10 h-10 flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 rounded-full transition-all border border-zinc-700 shadow-lg">
+            <MoreVertical size={20} className="text-amber-500" />
           </button>
-          <button onClick={exportJSON} className="p-1.5 sm:p-2 hover:bg-zinc-800 rounded-md transition-colors" title="Exportar JSON">
-            <Download size={16} className="sm:w-[18px] sm:h-[18px]" />
-          </button>
-          <label className="p-1.5 sm:p-2 hover:bg-zinc-800 rounded-md transition-colors cursor-pointer" title="Importar JSON">
-            <Upload size={16} className="sm:w-[18px] sm:h-[18px]" />
-            <input type="file" className="hidden" onChange={importJSON} accept=".json" />
-          </label>
-          <button onClick={exportPDF} className="p-1.5 sm:p-2 hover:bg-zinc-800 rounded-md transition-colors" title="Exportar PDF">
-            <Activity size={16} className="sm:w-[18px] sm:h-[18px]" />
-          </button>
-          <button onClick={() => setShowDeleteConfirm(true)} className="p-1.5 sm:p-2 hover:bg-zinc-800 rounded-md transition-colors text-red-400" title="Excluir">
-            <Trash2 size={16} className="sm:w-[18px] sm:h-[18px]" />
-          </button>
+          
+          <div className="absolute right-0 top-full mt-2 w-64 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-all duration-200 z-[60] p-2 space-y-1">
+            <div className="px-3 py-2 border-b border-zinc-800 mb-1">
+              <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Escolha de Ficha</label>
+              <select 
+                value={state.activeCharacterId || ''} 
+                onChange={(e) => setState(prev => ({ ...prev, activeCharacterId: e.target.value }))}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 truncate"
+              >
+                {state.characters.map(c => (
+                  <option key={c.id} value={c.id}>{c.nome}</option>
+                ))}
+              </select>
+            </div>
+
+            <button 
+              onClick={() => {
+                const nc = createEmptyCharacter();
+                setState(prev => ({ characters: [...prev.characters, nc], activeCharacterId: nc.id }));
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
+            >
+              <Plus size={18} className="text-amber-500" /> Adicionar Nova Ficha
+            </button>
+
+            <button 
+              onClick={duplicateChar}
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
+            >
+              <Copy size={18} className="text-amber-500" /> Copiar Ficha
+            </button>
+
+            <button 
+              onClick={exportJSON}
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
+            >
+              <Download size={18} className="text-amber-500" /> Exportar JSON
+            </button>
+
+            <label className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300 cursor-pointer">
+              <Upload size={18} className="text-amber-500" /> Importar JSON
+              <input type="file" className="hidden" onChange={importJSON} accept=".json" />
+            </label>
+
+            <button 
+              onClick={exportPDF}
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
+            >
+              <Activity size={18} className="text-amber-500" /> Exportar PDF
+            </button>
+
+            <div className="pt-1 border-t border-zinc-800 mt-1">
+              <button 
+                onClick={() => setShowDeleteConfirm(true)}
+                className="w-full flex items-center gap-3 px-3 py-2 hover:bg-red-500/10 rounded-lg transition-colors text-sm font-medium text-red-400"
+              >
+                <Trash2 size={18} /> Excluir Ficha
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Delete Confirmation Modal */}
@@ -496,25 +532,27 @@ export default function App() {
              <div className="space-y-6">
                {/* Armas Section */}
                <div className="space-y-3">
-                 <div className="flex justify-between items-center">
-                   <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armas</h4>
-                   <div className="flex items-center gap-2">
-                     {clipboard?.type === 'Arma' && (
-                       <button 
-                         onClick={() => updateChar({ armas: [...(activeChar?.armas || []), { ...clipboard.data, id: crypto.randomUUID() }] })}
-                         className="text-emerald-500 hover:text-emerald-400 flex items-center gap-1 text-[10px] font-bold uppercase"
-                       >
-                         <Plus size={12} /> Colar
-                       </button>
-                     )}
-                     <button 
-                       onClick={() => updateChar({ armas: [...(activeChar?.armas || []), { id: crypto.randomUUID(), nome: 'Nova Arma', dano: '0', acerto: 0, tipo: '', escala: 'C', atributoBase: 'FOR', peso: 0, volume: 0, durabilidade: 0, maxDurabilidade: 0, corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 }] })}
-                       className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
-                     >
-                       <Plus size={16} />
-                     </button>
-                   </div>
-                 </div>
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armas</h4>
+                    <button 
+                      onClick={() => updateChar({ armas: [...(activeChar?.armas || []), { id: crypto.randomUUID(), nome: 'Nova Arma', dano: '0', acerto: 0, tipo: 'Arma', escala: 'C', atributoBase: 'FOR', peso: 0, volume: 0, durabilidade: 0, maxDurabilidade: 0, corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 }] })}
+                      className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
+                  
+                  {clipboard && (clipboard.type === 'Arma' || (clipboard.type === 'Item' && clipboard.data.tipo === 'Arma')) && (
+                    <button 
+                      onClick={() => {
+                        updateChar({ armas: [...(activeChar?.armas || []), { ...clipboard.data, id: crypto.randomUUID() }] });
+                        setClipboard(null);
+                      }}
+                      className="w-full py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
+                    >
+                      Colar Arma
+                    </button>
+                  )}
                  <div className="space-y-3">
                    {armas.map((w, idx) => (
                      <div key={w.id} className="bg-zinc-900 p-3 rounded-lg border border-zinc-800 text-xs relative group space-y-2">
@@ -528,32 +566,31 @@ export default function App() {
                           }}
                           className="bg-transparent font-bold focus:outline-none flex-1 text-amber-500"
                          />
-                         <button 
-                          onClick={() => updateChar({ armas: armas.filter(a => a.id !== w.id) })}
-                          className="text-red-500 hover:text-red-400"
-                         >
-                           <Trash2 size={12} />
-                         </button>
+                         <div className="flex items-center gap-2">
+                           <button 
+                             onClick={() => copyToClipboard('Arma', w)}
+                             className="text-zinc-500 hover:text-zinc-300 p-1"
+                             title="Copiar Arma"
+                           >
+                             <Copy size={20} />
+                           </button>
+                           <button 
+                            onClick={() => updateChar({ armas: armas.filter(a => a.id !== w.id) })}
+                            className="text-red-500 hover:text-red-400 p-1"
+                           >
+                             <Trash2 size={20} />
+                           </button>
+                         </div>
                        </div>
                        
-                       <div className="grid grid-cols-3 gap-2">
-                         <MiniInput label="Dano" value={w.dano} onChange={v => { const na = [...armas]; na[idx].dano = v; updateChar({ armas: na }); }} />
-                         <MiniInput label="Acerto" value={w.acerto} type="number" onChange={v => { const na = [...armas]; na[idx].acerto = parseInt(v) || 0; updateChar({ armas: na }); }} />
-                         <MiniInput label="Escala" value={w.escala} onChange={v => { const na = [...armas]; na[idx].escala = v as any; updateChar({ armas: na }); }} />
-                       </div>
-
-                       <div className="grid grid-cols-3 gap-2">
-                         <MiniInput label="Corte" value={w.corte} type="number" onChange={v => { const na = [...armas]; na[idx].corte = parseInt(v) || 0; updateChar({ armas: na }); }} />
-                         <MiniInput label="Impacto" value={w.impacto} type="number" onChange={v => { const na = [...armas]; na[idx].impacto = parseInt(v) || 0; updateChar({ armas: na }); }} />
-                         <MiniInput label="Perf." value={w.perfuracao} type="number" onChange={v => { const na = [...armas]; na[idx].perfuracao = parseInt(v) || 0; updateChar({ armas: na }); }} />
-                       </div>
-
-                       <div className="grid grid-cols-4 gap-2">
-                         <MiniInput label="Resist." value={w.resistencia} type="number" onChange={v => { const na = [...armas]; na[idx].resistencia = parseInt(v) || 0; updateChar({ armas: na }); }} />
-                         <MiniInput label="Durab." value={w.durabilidade} type="number" onChange={v => { const na = [...armas]; na[idx].durabilidade = parseInt(v) || 0; updateChar({ armas: na }); }} />
-                         <MiniInput label="Peso" value={w.peso} type="number" onChange={v => { const na = [...armas]; na[idx].peso = parseFloat(v) || 0; updateChar({ armas: na }); }} />
-                         <MiniInput label="Vol" value={w.volume} type="number" onChange={v => { const na = [...armas]; na[idx].volume = parseFloat(v) || 0; updateChar({ armas: na }); }} />
-                       </div>
+                        <WeaponProperties 
+                          item={w} 
+                          onChange={updates => {
+                            const na = [...armas];
+                            na[idx] = { ...na[idx], ...updates };
+                            updateChar({ armas: na });
+                          }} 
+                        />
                      </div>
                    ))}
                  </div>
@@ -561,25 +598,27 @@ export default function App() {
 
                {/* Armaduras Section */}
                <div className="space-y-3">
-                 <div className="flex justify-between items-center">
-                   <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armaduras</h4>
-                   <div className="flex items-center gap-2">
-                     {clipboard?.type === 'Armadura' && (
-                       <button 
-                         onClick={() => updateChar({ armaduras: [...(activeChar?.armaduras || []), { ...clipboard.data, id: crypto.randomUUID() }] })}
-                         className="text-emerald-500 hover:text-emerald-400 flex items-center gap-1 text-[10px] font-bold uppercase"
-                       >
-                         <Plus size={12} /> Colar
-                       </button>
-                     )}
-                     <button 
-                       onClick={() => updateChar({ armaduras: [...(activeChar?.armaduras || []), { id: crypto.randomUUID(), nome: 'Nova Armadura', corte: 0, impacto: 0, perfuracao: 0, durabilidade: 0, peso: 0, volume: 0, reducaoDano: 0, efeito: '' }] })}
-                       className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
-                     >
-                       <Plus size={16} />
-                     </button>
-                   </div>
-                 </div>
+                   <div className="flex justify-between items-center">
+                    <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armaduras</h4>
+                    <button 
+                      onClick={() => updateChar({ armaduras: [...(activeChar?.armaduras || []), { id: crypto.randomUUID(), nome: 'Nova Armadura', tipo: 'Armadura', corte: 0, impacto: 0, perfuracao: 0, durabilidade: 0, peso: 0, volume: 0, reducaoDano: 0, efeito: '' }] })}
+                      className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
+
+                  {clipboard && (clipboard.type === 'Armadura' || (clipboard.type === 'Item' && clipboard.data.tipo === 'Armadura')) && (
+                    <button 
+                      onClick={() => {
+                        updateChar({ armaduras: [...(activeChar?.armaduras || []), { ...clipboard.data, id: crypto.randomUUID() }] });
+                        setClipboard(null);
+                      }}
+                      className="w-full py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
+                    >
+                      Colar Armadura
+                    </button>
+                  )}
                  <div className="space-y-3">
                    {(activeChar?.armaduras || []).map((a, idx) => (
                      <div key={a.id} className="bg-zinc-900 p-3 rounded-lg border border-zinc-800 text-xs relative group space-y-2">
@@ -593,28 +632,31 @@ export default function App() {
                           }}
                           className="bg-transparent font-bold focus:outline-none flex-1 text-amber-500"
                          />
-                         <button 
-                          onClick={() => updateChar({ armaduras: (activeChar?.armaduras || []).filter(arm => arm.id !== a.id) })}
-                          className="text-red-500 hover:text-red-400"
-                         >
-                           <Trash2 size={12} />
-                         </button>
+                         <div className="flex items-center gap-2">
+                           <button 
+                             onClick={() => copyToClipboard('Armadura', a)}
+                             className="text-zinc-500 hover:text-zinc-300 p-1"
+                             title="Copiar Armadura"
+                           >
+                             <Copy size={20} />
+                           </button>
+                           <button 
+                            onClick={() => updateChar({ armaduras: (activeChar?.armaduras || []).filter(arm => arm.id !== a.id) })}
+                            className="text-red-500 hover:text-red-400 p-1"
+                           >
+                             <Trash2 size={20} />
+                           </button>
+                         </div>
                        </div>
                        
-                       <div className="grid grid-cols-3 gap-2">
-                         <MiniInput label="Corte" value={a.corte} type="number" onChange={v => { const na = [...(activeChar?.armaduras || [])]; na[idx].corte = parseInt(v) || 0; updateChar({ armaduras: na }); }} />
-                         <MiniInput label="Impacto" value={a.impacto} type="number" onChange={v => { const na = [...(activeChar?.armaduras || [])]; na[idx].impacto = parseInt(v) || 0; updateChar({ armaduras: na }); }} />
-                         <MiniInput label="Perf." value={a.perfuracao} type="number" onChange={v => { const na = [...(activeChar?.armaduras || [])]; na[idx].perfuracao = parseInt(v) || 0; updateChar({ armaduras: na }); }} />
-                       </div>
-
-                       <div className="grid grid-cols-4 gap-2">
-                         <MiniInput label="Durab." value={a.durabilidade} type="number" onChange={v => { const na = [...(activeChar?.armaduras || [])]; na[idx].durabilidade = parseInt(v) || 0; updateChar({ armaduras: na }); }} />
-                         <MiniInput label="Peso" value={a.peso} type="number" onChange={v => { const na = [...(activeChar?.armaduras || [])]; na[idx].peso = parseFloat(v) || 0; updateChar({ armaduras: na }); }} />
-                         <MiniInput label="Vol" value={a.volume} type="number" onChange={v => { const na = [...(activeChar?.armaduras || [])]; na[idx].volume = parseFloat(v) || 0; updateChar({ armaduras: na }); }} />
-                         <MiniInput label="Redução de Dano" value={a.reducaoDano} type="number" onChange={v => { const na = [...(activeChar?.armaduras || [])]; na[idx].reducaoDano = parseInt(v) || 0; updateChar({ armaduras: na }); }} />
-                       </div>
-
-                       <TextArea label="Efeito" value={a.efeito} onChange={v => { const na = [...(activeChar?.armaduras || [])]; na[idx].efeito = v; updateChar({ armaduras: na }); }} />
+                        <ArmorProperties 
+                          item={a} 
+                          onChange={updates => {
+                            const na = [...(activeChar?.armaduras || [])];
+                            na[idx] = { ...na[idx], ...updates };
+                            updateChar({ armaduras: na });
+                          }} 
+                        />
                      </div>
                    ))}
                  </div>
@@ -652,7 +694,7 @@ export default function App() {
                          </div>
                          <div className="flex items-center gap-2">
                            <div className="flex items-center gap-1">
-                             <span className="text-[10px] text-zinc-500 font-bold">MAX:</span>
+                             <span className="text-xs text-zinc-500 font-bold">CAPACIDADE MÁXIMA:</span>
                              <input 
                                type="number" 
                                value={comp.volumeMax} 
@@ -661,105 +703,184 @@ export default function App() {
                                  nc[cIdx].volumeMax = parseInt(e.target.value) || 0;
                                  updateChar({ compartimentos: nc });
                                }}
-                               className="w-12 bg-transparent text-right text-sm focus:outline-none text-amber-500 font-bold"
+                               className="w-16 bg-transparent text-right text-lg focus:outline-none text-amber-500 font-bold"
                              />
                            </div>
                            <button 
                             onClick={() => updateChar({ compartimentos: compartimentos.filter(c => c.id !== comp.id) })}
-                            className="text-red-500 hover:text-red-400"
+                            className="text-red-500 hover:text-red-400 p-1"
                            >
-                             <Trash2 size={14} />
+                             <Trash2 size={20} />
                            </button>
                          </div>
                        </div>
 
                        <div className="p-2 space-y-2">
-                         <div className="flex justify-between text-xs mb-1 font-bold">
+                         <div className="flex justify-between text-xs mb-1 font-bold px-1">
                            <span className="text-zinc-500 uppercase">VOLUME OCUPADO</span>
                            <span className={cn(compVolume > comp.volumeMax ? "text-red-400" : "text-zinc-400")}>
                              {compVolume.toFixed(1)} / {comp.volumeMax}
                            </span>
                          </div>
                          
-                         {(comp.itens || []).map((item, iIdx) => (
-                           <div key={item.id} className="bg-zinc-900 p-2 rounded border border-zinc-800 group relative space-y-2">
-                             <div className="flex justify-between items-center mb-1">
-                               <input 
-                                value={item.nome} 
-                                onChange={e => {
-                                  const nc = [...compartimentos];
-                                  nc[cIdx].itens[iIdx].nome = e.target.value;
-                                  updateChar({ compartimentos: nc });
-                                }}
-                                className="bg-transparent text-sm font-bold focus:outline-none flex-1 text-amber-500"
-                               />
-                               <div className="flex items-center gap-2">
-                                 <button 
-                                   onClick={() => copyToClipboard('Item', item)}
-                                   className="text-zinc-500 hover:text-zinc-300"
-                                   title="Copiar Item"
-                                 >
-                                   <Copy size={12} />
-                                 </button>
-                                 <button 
-                                  onClick={() => {
-                                    const nc = [...compartimentos];
-                                    nc[cIdx].itens = nc[cIdx].itens.filter(it => it.id !== item.id);
-                                    updateChar({ compartimentos: nc });
-                                  }}
-                                  className="text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                 >
-                                   <Trash2 size={14} />
-                                 </button>
+                         <div className="space-y-2">
+                           <SubSection title="Armas" icon={<Sword size={14} />} defaultCollapsed={false}>
+                             {(comp.itens || []).map((item, iIdx) => item.tipo === 'Arma' ? (
+                               <div key={item.id} className="bg-zinc-900 p-2 rounded border border-zinc-800 group relative space-y-2">
+                                 <div className="flex justify-between items-center mb-1">
+                                   <input 
+                                    value={item.nome} 
+                                    onChange={e => {
+                                      const nc = [...compartimentos];
+                                      nc[cIdx].itens[iIdx].nome = e.target.value;
+                                      updateChar({ compartimentos: nc });
+                                    }}
+                                    className="bg-transparent text-sm font-bold focus:outline-none flex-1 text-amber-500"
+                                   />
+                                   <div className="flex items-center gap-2">
+                                     <button 
+                                       onClick={() => copyToClipboard(item.tipo === 'Arma' ? 'Arma' : item.tipo === 'Armadura' ? 'Armadura' : 'Item', item)}
+                                       className="text-zinc-500 hover:text-zinc-300 p-1"
+                                       title="Copiar Item"
+                                     >
+                                       <Copy size={20} />
+                                     </button>
+                                     <button 
+                                      onClick={() => {
+                                        const nc = [...compartimentos];
+                                        nc[cIdx].itens = nc[cIdx].itens.filter(it => it.id !== item.id);
+                                        updateChar({ compartimentos: nc });
+                                      }}
+                                      className="text-red-500 transition-opacity p-1"
+                                     >
+                                       <Trash2 size={20} />
+                                     </button>
+                                   </div>
+                                 </div>
+                                 
+                                 <div className="grid grid-cols-4 gap-2">
+                                   <MiniInput label="Qtd" type="number" value={item.quantidade} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].quantidade = parseInt(v) || 1; updateChar({ compartimentos: nc }); }} />
+                                   <div className="flex flex-col">
+                                     <span className="text-[10px] text-zinc-600 uppercase tracking-tighter font-bold">Total</span>
+                                     <span className="text-xs font-bold text-zinc-400">{(item.peso * item.quantidade).toFixed(1)}kg</span>
+                                   </div>
+                                 </div>
+
+                                 <WeaponProperties 
+                                   item={item} 
+                                   onChange={updates => {
+                                     const nc = [...compartimentos];
+                                     nc[cIdx].itens[iIdx] = { ...nc[cIdx].itens[iIdx], ...updates };
+                                     updateChar({ compartimentos: nc });
+                                   }} 
+                                 />
                                </div>
-                             </div>
-                             
-                             <div className="grid grid-cols-4 gap-2">
-                               <MiniInput label="Qtd" type="number" value={item.quantidade} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].quantidade = parseInt(v) || 1; updateChar({ compartimentos: nc }); }} />
-                               <MiniInput label="Kg" type="number" value={item.peso} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].peso = parseFloat(v) || 0; updateChar({ compartimentos: nc }); }} />
-                               <MiniInput label="Vol" type="number" value={item.volume} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].volume = parseFloat(v) || 0; updateChar({ compartimentos: nc }); }} />
-                               <div className="flex flex-col">
-                                 <span className="text-[10px] text-zinc-600 uppercase tracking-tighter font-bold">Total</span>
-                                 <span className="text-xs font-bold text-zinc-400">{(item.peso * item.quantidade).toFixed(1)}kg</span>
+                             ) : null)}
+                           </SubSection>
+
+                           <SubSection title="Armaduras" icon={<Shield size={14} />} defaultCollapsed={false}>
+                             {(comp.itens || []).map((item, iIdx) => item.tipo === 'Armadura' ? (
+                               <div key={item.id} className="bg-zinc-900 p-2 rounded border border-zinc-800 group relative space-y-2">
+                                 <div className="flex justify-between items-center mb-1">
+                                   <input 
+                                    value={item.nome} 
+                                    onChange={e => {
+                                      const nc = [...compartimentos];
+                                      nc[cIdx].itens[iIdx].nome = e.target.value;
+                                      updateChar({ compartimentos: nc });
+                                    }}
+                                    className="bg-transparent text-sm font-bold focus:outline-none flex-1 text-amber-500"
+                                   />
+                                   <div className="flex items-center gap-2">
+                                     <button 
+                                       onClick={() => copyToClipboard(item.tipo === 'Arma' ? 'Arma' : item.tipo === 'Armadura' ? 'Armadura' : 'Item', item)}
+                                       className="text-zinc-500 hover:text-zinc-300 p-1"
+                                       title="Copiar Item"
+                                     >
+                                       <Copy size={20} />
+                                     </button>
+                                     <button 
+                                      onClick={() => {
+                                        const nc = [...compartimentos];
+                                        nc[cIdx].itens = nc[cIdx].itens.filter(it => it.id !== item.id);
+                                        updateChar({ compartimentos: nc });
+                                      }}
+                                      className="text-red-500 transition-opacity p-1"
+                                     >
+                                       <Trash2 size={20} />
+                                     </button>
+                                   </div>
+                                 </div>
+                                 
+                                 <div className="grid grid-cols-4 gap-2">
+                                   <MiniInput label="Qtd" type="number" value={item.quantidade} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].quantidade = parseInt(v) || 1; updateChar({ compartimentos: nc }); }} />
+                                   <div className="flex flex-col">
+                                     <span className="text-[10px] text-zinc-600 uppercase tracking-tighter font-bold">Total</span>
+                                     <span className="text-xs font-bold text-zinc-400">{(item.peso * item.quantidade).toFixed(1)}kg</span>
+                                   </div>
+                                 </div>
+
+                                 <ArmorProperties 
+                                   item={item} 
+                                   onChange={updates => {
+                                     const nc = [...compartimentos];
+                                     nc[cIdx].itens[iIdx] = { ...nc[cIdx].itens[iIdx], ...updates };
+                                     updateChar({ compartimentos: nc });
+                                   }} 
+                                 />
                                </div>
-                             </div>
+                             ) : null)}
+                           </SubSection>
 
-                             {item.tipo === 'Arma' && (
-                               <>
-                                 <div className="grid grid-cols-3 gap-2">
-                                   <MiniInput label="Dano" value={item.dano || '0'} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].dano = v; updateChar({ compartimentos: nc }); }} />
-                                   <MiniInput label="Acerto" value={item.acerto || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].acerto = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
-                                   <MiniInput label="Escala" value={item.escala || 'C'} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].escala = v; updateChar({ compartimentos: nc }); }} />
+                           <SubSection title="Itens" icon={<Package size={14} />} defaultCollapsed={false}>
+                             {(comp.itens || []).map((item, iIdx) => (item.tipo !== 'Arma' && item.tipo !== 'Armadura') ? (
+                               <div key={item.id} className="bg-zinc-900 p-2 rounded border border-zinc-800 group relative space-y-2">
+                                 <div className="flex justify-between items-center mb-1">
+                                   <input 
+                                    value={item.nome} 
+                                    onChange={e => {
+                                      const nc = [...compartimentos];
+                                      nc[cIdx].itens[iIdx].nome = e.target.value;
+                                      updateChar({ compartimentos: nc });
+                                    }}
+                                    className="bg-transparent text-sm font-bold focus:outline-none flex-1 text-amber-500"
+                                   />
+                                   <div className="flex items-center gap-2">
+                                     <button 
+                                       onClick={() => copyToClipboard(item.tipo === 'Arma' ? 'Arma' : item.tipo === 'Armadura' ? 'Armadura' : 'Item', item)}
+                                       className="text-zinc-500 hover:text-zinc-300 p-1"
+                                       title="Copiar Item"
+                                     >
+                                       <Copy size={20} />
+                                     </button>
+                                     <button 
+                                      onClick={() => {
+                                        const nc = [...compartimentos];
+                                        nc[cIdx].itens = nc[cIdx].itens.filter(it => it.id !== item.id);
+                                        updateChar({ compartimentos: nc });
+                                      }}
+                                      className="text-red-500 transition-opacity p-1"
+                                     >
+                                       <Trash2 size={20} />
+                                     </button>
+                                   </div>
                                  </div>
-                                 <div className="grid grid-cols-3 gap-2">
-                                   <MiniInput label="Corte" value={item.corte || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].corte = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
-                                   <MiniInput label="Impacto" value={item.impacto || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].impacto = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
-                                   <MiniInput label="Perf." value={item.perfuracao || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].perfuracao = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
+                                 
+                                 <div className="grid grid-cols-4 gap-2">
+                                   <MiniInput label="Qtd" type="number" value={item.quantidade} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].quantidade = parseInt(v) || 1; updateChar({ compartimentos: nc }); }} />
+                                   <MiniInput label="Kg" type="number" value={item.peso} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].peso = parseFloat(v) || 0; updateChar({ compartimentos: nc }); }} />
+                                   <MiniInput label="Vol" type="number" value={item.volume} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].volume = parseFloat(v) || 0; updateChar({ compartimentos: nc }); }} />
+                                   <div className="flex flex-col">
+                                     <span className="text-[10px] text-zinc-600 uppercase tracking-tighter font-bold">Total</span>
+                                     <span className="text-xs font-bold text-zinc-400">{(item.peso * item.quantidade).toFixed(1)}kg</span>
+                                   </div>
                                  </div>
-                                 <div className="grid grid-cols-2 gap-2">
-                                   <MiniInput label="Resist." value={item.resistencia || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].resistencia = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
-                                   <MiniInput label="Atrib. Base" value={item.atributoBase || 'FOR'} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].atributoBase = v; updateChar({ compartimentos: nc }); }} />
-                                 </div>
-                               </>
-                             )}
 
-                             {item.tipo === 'Armadura' && (
-                               <>
-                                 <div className="grid grid-cols-3 gap-2">
-                                   <MiniInput label="Corte" value={item.corte || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].corte = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
-                                   <MiniInput label="Impacto" value={item.impacto || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].impacto = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
-                                   <MiniInput label="Perf." value={item.perfuracao || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].perfuracao = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
-                                 </div>
-                                 <div className="grid grid-cols-1 gap-2">
-                                   <MiniInput label="Redução de Dano" value={item.reducaoDano || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].reducaoDano = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
-                                   <TextArea label="Efeito" value={item.efeito || ''} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].efeito = v; updateChar({ compartimentos: nc }); }} />
-                                 </div>
-                               </>
-                             )}
-
-                             <TextArea label="Descrição" value={item.descricao || ''} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].descricao = v; updateChar({ compartimentos: nc }); }} />
-                           </div>
-                         ))}
+                                 <TextArea label="Descrição" value={item.descricao || ''} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].descricao = v; updateChar({ compartimentos: nc }); }} />
+                               </div>
+                             ) : null)}
+                           </SubSection>
+                         </div>
                          
                          <div className="flex gap-2">
                            <button 
@@ -799,6 +920,7 @@ export default function App() {
                                const nc = [...compartimentos];
                                nc[cIdx].itens.push({ ...clipboard.data, id: crypto.randomUUID() });
                                updateChar({ compartimentos: nc });
+                               setClipboard(null);
                              }}
                              className="w-full py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
                            >
@@ -820,7 +942,10 @@ export default function App() {
                  <div className="flex items-center gap-2">
                    {clipboard?.type === 'Magia' && (
                      <button 
-                       onClick={() => updateChar({ magias: [...(activeChar?.magias || []), { ...clipboard.data, id: crypto.randomUUID() }] })}
+                       onClick={() => {
+                         updateChar({ magias: [...(activeChar?.magias || []), { ...clipboard.data, id: crypto.randomUUID() }] });
+                         setClipboard(null);
+                       }}
                        className="text-emerald-500 hover:text-emerald-400 flex items-center gap-1 text-[10px] font-bold uppercase"
                      >
                        <Plus size={12} /> Colar
@@ -849,9 +974,9 @@ export default function App() {
                        />
                        <button 
                         onClick={() => updateChar({ magias: (activeChar?.magias || []).filter(mag => mag.id !== m.id) })}
-                        className="text-red-500 hover:text-red-400"
+                        className="text-red-500 hover:text-red-400 p-1"
                        >
-                         <Trash2 size={12} />
+                         <Trash2 size={20} />
                        </button>
                      </div>
                      
@@ -894,9 +1019,9 @@ export default function App() {
                        />
                        <button 
                         onClick={() => updateChar({ habilidades: (activeChar?.habilidades || []).filter(hab => hab.id !== h.id) })}
-                        className="text-red-500 hover:text-red-400"
+                        className="text-red-500 hover:text-red-400 p-1"
                        >
-                         <Trash2 size={12} />
+                         <Trash2 size={20} />
                        </button>
                      </div>
                      
@@ -909,11 +1034,11 @@ export default function App() {
           <Section title="Conhecimentos" icon={<BookOpen size={18}/>} collapsible defaultCollapsed>
             <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
               {(activeChar?.conhecimentos || []).map((k, idx) => (
-                <div key={k.name} className="bg-zinc-900/50 p-2 rounded border border-zinc-800/50">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-xs font-bold uppercase tracking-tighter">{k.name}</span>
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-zinc-500">NV</span>
+                <div key={k.name} className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold uppercase tracking-widest text-zinc-300">{k.name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[12px] text-zinc-500 font-bold">NÍVEL</span>
                       <input 
                         type="number" 
                         value={k.nivel} 
@@ -922,35 +1047,37 @@ export default function App() {
                           newKs[idx].nivel = parseInt(e.target.value) || 0;
                           updateChar({ conhecimentos: newKs });
                         }}
-                        className="w-6 bg-transparent text-amber-500 text-[10px] font-bold focus:outline-none"
+                        className="w-14 bg-zinc-800 border border-zinc-700 rounded text-amber-500 text-lg font-bold focus:outline-none text-center py-1"
                       />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-3 bg-zinc-800 rounded-full overflow-hidden border border-zinc-700/50">
                       <div 
-                        className="h-full bg-amber-500 transition-all" 
+                        className="h-full bg-amber-500 transition-all shadow-[0_0_10px_rgba(245,158,11,0.3)]" 
                         style={{ width: `${(k.xp / getXpToNextLevel(k.nivel)) * 100}%` }}
                       />
                     </div>
-                    <input 
-                      type="number" 
-                      value={k.xp} 
-                      onChange={e => {
-                        const newXp = parseInt(e.target.value) || 0;
-                        const nextXp = getXpToNextLevel(k.nivel);
-                        let updatedK = { ...k, xp: newXp };
-                        if (newXp >= nextXp) {
-                          updatedK.nivel += 1;
-                          updatedK.xp = 0;
-                        }
-                        const newKs = [...(activeChar?.conhecimentos || [])];
-                        newKs[idx] = updatedK;
-                        updateChar({ conhecimentos: newKs });
-                      }}
-                      className="w-8 bg-transparent text-right text-[10px] focus:outline-none"
-                    />
-                    <span className="text-[10px] text-zinc-600">/ {getXpToNextLevel(k.nivel)}</span>
+                    <div className="flex items-center gap-1">
+                      <input 
+                        type="number" 
+                        value={k.xp} 
+                        onChange={e => {
+                          const newXp = parseInt(e.target.value) || 0;
+                          const nextXp = getXpToNextLevel(k.nivel);
+                          let updatedK = { ...k, xp: newXp };
+                          if (newXp >= nextXp) {
+                            updatedK.nivel += 1;
+                            updatedK.xp = 0;
+                          }
+                          const newKs = [...(activeChar?.conhecimentos || [])];
+                          newKs[idx] = updatedK;
+                          updateChar({ conhecimentos: newKs });
+                        }}
+                        className="w-16 bg-zinc-800 border border-zinc-700 rounded text-right text-sm font-bold focus:outline-none px-2 py-1"
+                      />
+                      <span className="text-sm text-zinc-500 font-bold">/ {getXpToNextLevel(k.nivel)}</span>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -965,6 +1092,42 @@ export default function App() {
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b; }
       `}</style>
+    </div>
+  );
+}
+
+function SubSection({ title, icon, children, defaultCollapsed = true }: { title: string, icon: React.ReactNode, children: React.ReactNode, defaultCollapsed?: boolean }) {
+  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
+  const hasChildren = React.Children.toArray(children).some(child => child !== null);
+  
+  if (!hasChildren) return null;
+
+  return (
+    <div className="border border-zinc-800 rounded-lg overflow-hidden bg-zinc-900/20">
+      <div 
+        className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-zinc-800/30 transition-colors bg-zinc-800/20"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-amber-500/70">{icon}</span>
+          <h4 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{title}</h4>
+        </div>
+        {isCollapsed ? <ChevronDown size={14} className="text-zinc-500" /> : <ChevronUp size={14} className="text-zinc-500" />}
+      </div>
+      <AnimatePresence initial={false}>
+        {!isCollapsed && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="p-2 space-y-2 border-t border-zinc-800">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1004,7 +1167,7 @@ function Input({ label, value, onChange, className }: { label: string, value: st
     <div className={className}>
       <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">{label}</label>
       <textarea 
-        value={value} 
+        value={value ?? ''} 
         onChange={e => onChange(e.target.value)}
         rows={1}
         className="w-full bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all break-words whitespace-normal resize-none overflow-hidden min-h-[38px]"
@@ -1023,7 +1186,7 @@ function TextArea({ label, value, onChange, className }: { label: string, value:
     <div className={className}>
       <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">{label}</label>
       <textarea 
-        value={value} 
+        value={value ?? ''} 
         onChange={e => onChange(e.target.value)}
         rows={2}
         className="w-full bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all break-words whitespace-normal resize-none"
@@ -1041,7 +1204,7 @@ function ProgressBar({ label, current, max, color, onChange }: { label: string, 
         <div className="flex items-center gap-1">
           <input 
             type="number" 
-            value={current} 
+            value={current ?? 0} 
             onChange={e => onChange(parseInt(e.target.value) || 0)}
             className="w-12 bg-transparent text-right font-bold text-sm focus:outline-none"
           />
@@ -1068,7 +1231,7 @@ function MiniBar({ label, value, max = 100, color, onChange }: { label: string, 
       <div className="flex items-center gap-2">
         <input 
           type="number" 
-          value={value} 
+          value={value ?? 0} 
           onChange={e => onChange(parseInt(e.target.value) || 0)}
           className="w-full bg-transparent text-xs font-bold focus:outline-none"
         />
@@ -1080,13 +1243,58 @@ function MiniBar({ label, value, max = 100, color, onChange }: { label: string, 
   );
 }
 
+function WeaponProperties({ item, onChange }: { item: any, onChange: (updates: any) => void }) {
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-3 gap-2">
+        <MiniInput label="Dano" value={item.dano || '0'} onChange={v => onChange({ dano: v })} />
+        <MiniInput label="Acerto" value={item.acerto || 0} type="number" onChange={v => onChange({ acerto: parseInt(v) || 0 })} />
+        <MiniInput label="Escala" value={item.escala || 'C'} onChange={v => onChange({ escala: v })} />
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <MiniInput label="Corte" value={item.corte || 0} type="number" onChange={v => onChange({ corte: parseInt(v) || 0 })} />
+        <MiniInput label="Impacto" value={item.impacto || 0} type="number" onChange={v => onChange({ impacto: parseInt(v) || 0 })} />
+        <MiniInput label="Perf." value={item.perfuracao || 0} type="number" onChange={v => onChange({ perfuracao: parseInt(v) || 0 })} />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <MiniInput label="Resist." value={item.resistencia || 0} type="number" onChange={v => onChange({ resistencia: parseInt(v) || 0 })} />
+        <MiniInput label="Durab." value={item.durabilidade || 0} type="number" onChange={v => onChange({ durabilidade: parseInt(v) || 0 })} />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <MiniInput label="Peso" value={item.peso || 0} type="number" onChange={v => onChange({ peso: parseFloat(v) || 0 })} />
+        <MiniInput label="Vol" value={item.volume || 0} type="number" onChange={v => onChange({ volume: parseFloat(v) || 0 })} />
+      </div>
+      <TextArea label="Descrição" value={item.descricao || item.efeito || ''} onChange={v => onChange({ descricao: v, efeito: v })} />
+    </div>
+  );
+}
+
+function ArmorProperties({ item, onChange }: { item: any, onChange: (updates: any) => void }) {
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-3 gap-2">
+        <MiniInput label="Corte" value={item.corte || 0} type="number" onChange={v => onChange({ corte: parseInt(v) || 0 })} />
+        <MiniInput label="Impacto" value={item.impacto || 0} type="number" onChange={v => onChange({ impacto: parseInt(v) || 0 })} />
+        <MiniInput label="Perf." value={item.perfuracao || 0} type="number" onChange={v => onChange({ perfuracao: parseInt(v) || 0 })} />
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        <MiniInput label="Durab." value={item.durabilidade || 0} type="number" onChange={v => onChange({ durabilidade: parseInt(v) || 0 })} />
+        <MiniInput label="Peso" value={item.peso || 0} type="number" onChange={v => onChange({ peso: parseFloat(v) || 0 })} />
+        <MiniInput label="Vol" value={item.volume || 0} type="number" onChange={v => onChange({ volume: parseFloat(v) || 0 })} />
+        <MiniInput label="Redução de Dano" value={item.reducaoDano || 0} type="number" onChange={v => onChange({ reducaoDano: parseInt(v) || 0 })} />
+      </div>
+      <TextArea label="Descrição" value={item.descricao || item.efeito || ''} onChange={v => onChange({ descricao: v, efeito: v })} />
+    </div>
+  );
+}
+
 function MiniInput({ label, value, type = "text", onChange }: { label: string, value: any, type?: string, onChange: (v: string) => void }) {
   return (
     <div className="flex flex-col">
       <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter mb-0.5">{label}</span>
       {type === "text" ? (
         <textarea 
-          value={value} 
+          value={value ?? ''} 
           onChange={e => onChange(e.target.value)}
           rows={1}
           className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 break-words whitespace-normal resize-none overflow-hidden min-h-[20px]"
@@ -1099,7 +1307,7 @@ function MiniInput({ label, value, type = "text", onChange }: { label: string, v
       ) : (
         <input 
           type={type} 
-          value={value} 
+          value={value ?? (type === 'number' ? 0 : '')} 
           onChange={e => onChange(e.target.value)}
           className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50"
         />

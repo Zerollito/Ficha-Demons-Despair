@@ -18,6 +18,7 @@ export interface Weapon {
   impacto: number;
   perfuracao: number;
   resistencia: number;
+  efeito?: string;
 }
 
 export const getStatBonus = (statValue: number) => Math.floor(statValue / CONFIG.bonuses.statDivisor);
