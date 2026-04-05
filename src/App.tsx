@@ -64,6 +64,12 @@ export default function App() {
     return { characters: [initialChar], activeCharacterId: initialChar.id };
   });
 
+  const [clipboard, setClipboard] = useState<{ type: 'Arma' | 'Armadura' | 'Item' | 'Magia' | 'Habilidade', data: any } | null>(null);
+
+  const copyToClipboard = (type: any, data: any) => {
+    setClipboard({ type, data: { ...data, id: crypto.randomUUID() } });
+  };
+
   const activeChar = useMemo(() => 
     state.characters.find(c => c.id === state.activeCharacterId) || state.characters[0],
   [state]);
@@ -184,12 +190,12 @@ export default function App() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-2 sm:px-4 py-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
           <select 
             value={state.activeCharacterId || ''} 
             onChange={(e) => setState(prev => ({ ...prev, activeCharacterId: e.target.value }))}
-            className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+            className="bg-zinc-800 border border-zinc-700 rounded-md px-2 sm:px-3 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 truncate max-w-[140px] sm:max-w-none"
           >
             {state.characters.map(c => (
               <option key={c.id} value={c.id}>{c.nome}</option>
@@ -200,29 +206,29 @@ export default function App() {
               const nc = createEmptyCharacter();
               setState(prev => ({ characters: [...prev.characters, nc], activeCharacterId: nc.id }));
             }}
-            className="p-1.5 hover:bg-zinc-800 rounded-md transition-colors"
+            className="p-1.5 hover:bg-zinc-800 rounded-md transition-colors flex-shrink-0"
             title="Novo Personagem"
           >
-            <Plus size={20} className="text-amber-500" />
+            <Plus size={18} className="text-amber-500" />
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button onClick={duplicateChar} className="p-2 hover:bg-zinc-800 rounded-md transition-colors" title="Duplicar">
-            <Copy size={18} />
+        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+          <button onClick={duplicateChar} className="p-1.5 sm:p-2 hover:bg-zinc-800 rounded-md transition-colors" title="Duplicar">
+            <Copy size={16} className="sm:w-[18px] sm:h-[18px]" />
           </button>
-          <button onClick={exportJSON} className="p-2 hover:bg-zinc-800 rounded-md transition-colors" title="Exportar JSON">
-            <Download size={18} />
+          <button onClick={exportJSON} className="p-1.5 sm:p-2 hover:bg-zinc-800 rounded-md transition-colors" title="Exportar JSON">
+            <Download size={16} className="sm:w-[18px] sm:h-[18px]" />
           </button>
-          <label className="p-2 hover:bg-zinc-800 rounded-md transition-colors cursor-pointer" title="Importar JSON">
-            <Upload size={18} />
+          <label className="p-1.5 sm:p-2 hover:bg-zinc-800 rounded-md transition-colors cursor-pointer" title="Importar JSON">
+            <Upload size={16} className="sm:w-[18px] sm:h-[18px]" />
             <input type="file" className="hidden" onChange={importJSON} accept=".json" />
           </label>
-          <button onClick={exportPDF} className="p-2 hover:bg-zinc-800 rounded-md transition-colors" title="Exportar PDF">
-            <Activity size={18} />
+          <button onClick={exportPDF} className="p-1.5 sm:p-2 hover:bg-zinc-800 rounded-md transition-colors" title="Exportar PDF">
+            <Activity size={16} className="sm:w-[18px] sm:h-[18px]" />
           </button>
-          <button onClick={() => setShowDeleteConfirm(true)} className="p-2 hover:bg-zinc-800 rounded-md transition-colors text-red-400" title="Excluir">
-            <Trash2 size={18} />
+          <button onClick={() => setShowDeleteConfirm(true)} className="p-1.5 sm:p-2 hover:bg-zinc-800 rounded-md transition-colors text-red-400" title="Excluir">
+            <Trash2 size={16} className="sm:w-[18px] sm:h-[18px]" />
           </button>
         </div>
 
@@ -361,6 +367,33 @@ export default function App() {
             </div>
           </Section>
 
+          <Section title="Bônus de Dano" icon={<Sword size={18}/>} collapsible>
+            <div className="grid grid-cols-2 gap-3">
+              {['FOR', 'DEX', 'INT', 'RIT'].map(stat => (
+                <div key={stat} className="flex justify-between items-center bg-zinc-900/50 p-2 rounded border border-zinc-800">
+                  <span className="text-xs text-zinc-400">{stat}</span>
+                  <span className="font-bold text-amber-500">+{getStatBonus(stats[stat as keyof Stats])}</span>
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          <Section title="Defesa por Membro" icon={<Shield size={18}/>} collapsible>
+            <div className="grid grid-cols-2 gap-3">
+              {Object.entries(activeChar?.defesa || {}).map(([part, val]) => (
+                <div key={part} className="bg-zinc-900 border border-zinc-800 p-2 rounded flex justify-between items-center">
+                  <span className="text-xs text-zinc-400">{part}</span>
+                  <input 
+                    type="number" 
+                    value={val} 
+                    onChange={e => updateChar({ defesa: { ...(activeChar?.defesa || {}), [part]: parseInt(e.target.value) || 0 } })}
+                    className="w-10 bg-transparent text-right font-bold focus:outline-none text-amber-500"
+                  />
+                </div>
+              ))}
+            </div>
+          </Section>
+
           <Section title="Status Primários" icon={<Zap size={18}/>} collapsible>
             <div className="grid grid-cols-3 gap-3">
               {(Object.keys(stats) as (keyof Stats)[]).map(stat => {
@@ -377,46 +410,62 @@ export default function App() {
                       onChange={e => updateChar({ stats: { ...stats, [stat]: parseInt(e.target.value) || 0 } })}
                       className="w-full bg-transparent text-center text-xl font-bold focus:outline-none text-amber-500"
                     />
-                    <div className="flex flex-col items-center mt-1">
-                      <span className="text-[9px] text-zinc-600">XP (Máx {xpLimit})</span>
-                      <input 
-                        type="number"
-                        value={currentXP}
-                        onChange={e => {
-                          const newXP = parseInt(e.target.value) || 0;
-                          if (newXP >= xpLimit) {
-                            updateChar({ 
-                              stats: { ...stats, [stat]: statVal + 1 },
-                              statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: 0 }
-                            });
-                          } else {
-                            updateChar({ 
-                              statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: newXP }
-                            });
-                          }
-                        }}
-                        className="w-12 bg-zinc-800 border border-zinc-700 rounded text-[10px] text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      />
+                    <div className="flex flex-col items-center mt-2">
+                      <span className="text-[10px] text-zinc-600 font-bold uppercase mb-1">XP (Máx {xpLimit})</span>
+                      <div className="flex items-center gap-1">
+                        <button 
+                          onClick={() => {
+                            const newXP = Math.max(0, currentXP - 1);
+                            updateChar({ statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: newXP } });
+                          }}
+                          className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded hover:bg-zinc-700 text-zinc-400 transition-colors"
+                        >
+                          -
+                        </button>
+                        <input 
+                          type="number"
+                          value={currentXP}
+                          onChange={e => {
+                            const newXP = parseInt(e.target.value) || 0;
+                            if (newXP >= xpLimit) {
+                              updateChar({ 
+                                stats: { ...stats, [stat]: statVal + 1 },
+                                statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: 0 }
+                              });
+                            } else {
+                              updateChar({ 
+                                statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: newXP }
+                              });
+                            }
+                          }}
+                          className="w-14 bg-zinc-800 border border-zinc-700 rounded text-sm font-bold text-center focus:outline-none focus:ring-1 focus:ring-amber-500 py-1"
+                        />
+                        <button 
+                          onClick={() => {
+                            const newXP = currentXP + 1;
+                            if (newXP >= xpLimit) {
+                              updateChar({ 
+                                stats: { ...stats, [stat]: statVal + 1 },
+                                statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: 0 }
+                              });
+                            } else {
+                              updateChar({ statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: newXP } });
+                            }
+                          }}
+                          className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded hover:bg-zinc-700 text-zinc-400 transition-colors"
+                        >
+                          +
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
           </Section>
-
-          <Section title="Bônus de Dano" icon={<Sword size={18}/>} collapsible>
-            <div className="grid grid-cols-2 gap-3">
-              {['FOR', 'DEX', 'INT', 'RIT'].map(stat => (
-                <div key={stat} className="flex justify-between items-center bg-zinc-900/50 p-2 rounded border border-zinc-800">
-                  <span className="text-xs text-zinc-400">{stat}</span>
-                  <span className="font-bold text-amber-500">+{getStatBonus(stats[stat as keyof Stats])}</span>
-                </div>
-              ))}
-            </div>
-          </Section>
         </div>
 
-        {/* Center Column: Proficiencies & Defense */}
+        {/* Center Column: Proficiencies */}
         <div className="lg:col-span-4 space-y-6">
           <Section title="Proficiências" icon={<Shield size={18}/>} collapsible>
             <div className="grid grid-cols-1 gap-1 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
@@ -439,22 +488,6 @@ export default function App() {
               })}
             </div>
           </Section>
-
-          <Section title="Defesa por Membro" icon={<Shield size={18}/>} collapsible>
-            <div className="grid grid-cols-2 gap-3">
-              {Object.entries(activeChar?.defesa || {}).map(([part, val]) => (
-                <div key={part} className="bg-zinc-900 border border-zinc-800 p-2 rounded flex justify-between items-center">
-                  <span className="text-xs text-zinc-400">{part}</span>
-                  <input 
-                    type="number" 
-                    value={val} 
-                    onChange={e => updateChar({ defesa: { ...(activeChar?.defesa || {}), [part]: parseInt(e.target.value) || 0 } })}
-                    className="w-10 bg-transparent text-right font-bold focus:outline-none text-amber-500"
-                  />
-                </div>
-              ))}
-            </div>
-          </Section>
         </div>
 
         {/* Right Column: Knowledge & Equipment */}
@@ -465,12 +498,22 @@ export default function App() {
                <div className="space-y-3">
                  <div className="flex justify-between items-center">
                    <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armas</h4>
-                   <button 
-                    onClick={() => updateChar({ armas: [...(activeChar?.armas || []), { id: crypto.randomUUID(), nome: 'Nova Arma', dano: '0', acerto: 0, tipo: '', escala: 'C', atributoBase: 'FOR', peso: 0, volume: 0, durabilidade: 0, maxDurabilidade: 0, corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 }] })}
-                    className="text-amber-500 hover:text-amber-400"
-                   >
-                     <Plus size={14} />
-                   </button>
+                   <div className="flex items-center gap-2">
+                     {clipboard?.type === 'Arma' && (
+                       <button 
+                         onClick={() => updateChar({ armas: [...(activeChar?.armas || []), { ...clipboard.data, id: crypto.randomUUID() }] })}
+                         className="text-emerald-500 hover:text-emerald-400 flex items-center gap-1 text-[10px] font-bold uppercase"
+                       >
+                         <Plus size={12} /> Colar
+                       </button>
+                     )}
+                     <button 
+                       onClick={() => updateChar({ armas: [...(activeChar?.armas || []), { id: crypto.randomUUID(), nome: 'Nova Arma', dano: '0', acerto: 0, tipo: '', escala: 'C', atributoBase: 'FOR', peso: 0, volume: 0, durabilidade: 0, maxDurabilidade: 0, corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 }] })}
+                       className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
+                     >
+                       <Plus size={16} />
+                     </button>
+                   </div>
                  </div>
                  <div className="space-y-3">
                    {armas.map((w, idx) => (
@@ -520,12 +563,22 @@ export default function App() {
                <div className="space-y-3">
                  <div className="flex justify-between items-center">
                    <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armaduras</h4>
-                   <button 
-                    onClick={() => updateChar({ armaduras: [...(activeChar?.armaduras || []), { id: crypto.randomUUID(), nome: 'Nova Armadura', corte: 0, impacto: 0, perfuracao: 0, durabilidade: 0, peso: 0, volume: 0, reducaoDano: 0, efeito: '' }] })}
-                    className="text-amber-500 hover:text-amber-400"
-                   >
-                     <Plus size={14} />
-                   </button>
+                   <div className="flex items-center gap-2">
+                     {clipboard?.type === 'Armadura' && (
+                       <button 
+                         onClick={() => updateChar({ armaduras: [...(activeChar?.armaduras || []), { ...clipboard.data, id: crypto.randomUUID() }] })}
+                         className="text-emerald-500 hover:text-emerald-400 flex items-center gap-1 text-[10px] font-bold uppercase"
+                       >
+                         <Plus size={12} /> Colar
+                       </button>
+                     )}
+                     <button 
+                       onClick={() => updateChar({ armaduras: [...(activeChar?.armaduras || []), { id: crypto.randomUUID(), nome: 'Nova Armadura', corte: 0, impacto: 0, perfuracao: 0, durabilidade: 0, peso: 0, volume: 0, reducaoDano: 0, efeito: '' }] })}
+                       className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
+                     >
+                       <Plus size={16} />
+                     </button>
+                   </div>
                  </div>
                  <div className="space-y-3">
                    {(activeChar?.armaduras || []).map((a, idx) => (
@@ -567,18 +620,219 @@ export default function App() {
                  </div>
                </div>
              </div>
+           </Section>
+           <Section title="Compartimentos" icon={<Backpack size={18}/>} collapsible defaultCollapsed>
+             <div className="space-y-4">
+               <div className="flex justify-between items-center">
+                 <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Compartimentos</h4>
+                 <button 
+                  onClick={() => updateChar({ compartimentos: [...(activeChar?.compartimentos || []), { id: crypto.randomUUID(), nome: 'Novo Compartimento', volumeMax: 0, itens: [] }] })}
+                  className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
+                 >
+                   <Plus size={16} />
+                 </button>
+               </div>
+               
+               <div className="space-y-4">
+                 {compartimentos.map((comp, cIdx) => {
+                   const compVolume = (comp.itens || []).reduce((acc, i) => acc + ((i.volume || 0) * (i.quantidade || 0)), 0);
+                   return (
+                     <div key={comp.id} className="bg-zinc-900/50 rounded-lg border border-zinc-800 overflow-hidden">
+                       <div className="bg-zinc-800/50 px-3 py-2 flex justify-between items-center border-b border-zinc-800">
+                         <div className="flex-1 mr-2">
+                           <input 
+                            value={comp.nome} 
+                            onChange={e => {
+                              const nc = [...compartimentos];
+                              nc[cIdx].nome = e.target.value;
+                              updateChar({ compartimentos: nc });
+                            }}
+                            className="bg-transparent text-sm font-bold focus:outline-none w-full"
+                           />
+                         </div>
+                         <div className="flex items-center gap-2">
+                           <div className="flex items-center gap-1">
+                             <span className="text-[10px] text-zinc-500 font-bold">MAX:</span>
+                             <input 
+                               type="number" 
+                               value={comp.volumeMax} 
+                               onChange={e => {
+                                 const nc = [...compartimentos];
+                                 nc[cIdx].volumeMax = parseInt(e.target.value) || 0;
+                                 updateChar({ compartimentos: nc });
+                               }}
+                               className="w-12 bg-transparent text-right text-sm focus:outline-none text-amber-500 font-bold"
+                             />
+                           </div>
+                           <button 
+                            onClick={() => updateChar({ compartimentos: compartimentos.filter(c => c.id !== comp.id) })}
+                            className="text-red-500 hover:text-red-400"
+                           >
+                             <Trash2 size={14} />
+                           </button>
+                         </div>
+                       </div>
+
+                       <div className="p-2 space-y-2">
+                         <div className="flex justify-between text-xs mb-1 font-bold">
+                           <span className="text-zinc-500 uppercase">VOLUME OCUPADO</span>
+                           <span className={cn(compVolume > comp.volumeMax ? "text-red-400" : "text-zinc-400")}>
+                             {compVolume.toFixed(1)} / {comp.volumeMax}
+                           </span>
+                         </div>
+                         
+                         {(comp.itens || []).map((item, iIdx) => (
+                           <div key={item.id} className="bg-zinc-900 p-2 rounded border border-zinc-800 group relative space-y-2">
+                             <div className="flex justify-between items-center mb-1">
+                               <input 
+                                value={item.nome} 
+                                onChange={e => {
+                                  const nc = [...compartimentos];
+                                  nc[cIdx].itens[iIdx].nome = e.target.value;
+                                  updateChar({ compartimentos: nc });
+                                }}
+                                className="bg-transparent text-sm font-bold focus:outline-none flex-1 text-amber-500"
+                               />
+                               <div className="flex items-center gap-2">
+                                 <button 
+                                   onClick={() => copyToClipboard('Item', item)}
+                                   className="text-zinc-500 hover:text-zinc-300"
+                                   title="Copiar Item"
+                                 >
+                                   <Copy size={12} />
+                                 </button>
+                                 <button 
+                                  onClick={() => {
+                                    const nc = [...compartimentos];
+                                    nc[cIdx].itens = nc[cIdx].itens.filter(it => it.id !== item.id);
+                                    updateChar({ compartimentos: nc });
+                                  }}
+                                  className="text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                 >
+                                   <Trash2 size={14} />
+                                 </button>
+                               </div>
+                             </div>
+                             
+                             <div className="grid grid-cols-4 gap-2">
+                               <MiniInput label="Qtd" type="number" value={item.quantidade} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].quantidade = parseInt(v) || 1; updateChar({ compartimentos: nc }); }} />
+                               <MiniInput label="Kg" type="number" value={item.peso} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].peso = parseFloat(v) || 0; updateChar({ compartimentos: nc }); }} />
+                               <MiniInput label="Vol" type="number" value={item.volume} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].volume = parseFloat(v) || 0; updateChar({ compartimentos: nc }); }} />
+                               <div className="flex flex-col">
+                                 <span className="text-[10px] text-zinc-600 uppercase tracking-tighter font-bold">Total</span>
+                                 <span className="text-xs font-bold text-zinc-400">{(item.peso * item.quantidade).toFixed(1)}kg</span>
+                               </div>
+                             </div>
+
+                             {item.tipo === 'Arma' && (
+                               <>
+                                 <div className="grid grid-cols-3 gap-2">
+                                   <MiniInput label="Dano" value={item.dano || '0'} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].dano = v; updateChar({ compartimentos: nc }); }} />
+                                   <MiniInput label="Acerto" value={item.acerto || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].acerto = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
+                                   <MiniInput label="Escala" value={item.escala || 'C'} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].escala = v; updateChar({ compartimentos: nc }); }} />
+                                 </div>
+                                 <div className="grid grid-cols-3 gap-2">
+                                   <MiniInput label="Corte" value={item.corte || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].corte = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
+                                   <MiniInput label="Impacto" value={item.impacto || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].impacto = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
+                                   <MiniInput label="Perf." value={item.perfuracao || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].perfuracao = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
+                                 </div>
+                                 <div className="grid grid-cols-2 gap-2">
+                                   <MiniInput label="Resist." value={item.resistencia || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].resistencia = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
+                                   <MiniInput label="Atrib. Base" value={item.atributoBase || 'FOR'} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].atributoBase = v; updateChar({ compartimentos: nc }); }} />
+                                 </div>
+                               </>
+                             )}
+
+                             {item.tipo === 'Armadura' && (
+                               <>
+                                 <div className="grid grid-cols-3 gap-2">
+                                   <MiniInput label="Corte" value={item.corte || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].corte = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
+                                   <MiniInput label="Impacto" value={item.impacto || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].impacto = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
+                                   <MiniInput label="Perf." value={item.perfuracao || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].perfuracao = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
+                                 </div>
+                                 <div className="grid grid-cols-1 gap-2">
+                                   <MiniInput label="Redução de Dano" value={item.reducaoDano || 0} type="number" onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].reducaoDano = parseInt(v) || 0; updateChar({ compartimentos: nc }); }} />
+                                   <TextArea label="Efeito" value={item.efeito || ''} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].efeito = v; updateChar({ compartimentos: nc }); }} />
+                                 </div>
+                               </>
+                             )}
+
+                             <TextArea label="Descrição" value={item.descricao || ''} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].descricao = v; updateChar({ compartimentos: nc }); }} />
+                           </div>
+                         ))}
+                         
+                         <div className="flex gap-2">
+                           <button 
+                            onClick={() => {
+                              const nc = [...compartimentos];
+                              nc[cIdx].itens.push({ id: crypto.randomUUID(), nome: 'Novo Item', peso: 0, volume: 0, quantidade: 0, tipo: 'Geral', durabilidade: 0, maxDurabilidade: 0, descricao: '' });
+                              updateChar({ compartimentos: nc });
+                            }}
+                            className="flex-1 py-2 border border-dashed border-zinc-700 rounded text-[10px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all"
+                           >
+                             + Item
+                           </button>
+                           <button 
+                            onClick={() => {
+                              const nc = [...compartimentos];
+                              nc[cIdx].itens.push({ id: crypto.randomUUID(), nome: 'Nova Arma', peso: 0, volume: 0, quantidade: 0, tipo: 'Arma', durabilidade: 0, maxDurabilidade: 0, descricao: '', dano: '0', acerto: 0, escala: 'C', atributoBase: 'FOR', corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 });
+                              updateChar({ compartimentos: nc });
+                            }}
+                            className="flex-1 py-2 border border-dashed border-zinc-700 rounded text-[10px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all"
+                           >
+                             + Arma
+                           </button>
+                           <button 
+                            onClick={() => {
+                              const nc = [...compartimentos];
+                              nc[cIdx].itens.push({ id: crypto.randomUUID(), nome: 'Nova Armadura', peso: 0, volume: 0, quantidade: 0, tipo: 'Armadura', durabilidade: 0, maxDurabilidade: 0, descricao: '', corte: 0, impacto: 0, perfuracao: 0, reducaoDano: 0, efeito: '' });
+                              updateChar({ compartimentos: nc });
+                            }}
+                            className="flex-1 py-2 border border-dashed border-zinc-700 rounded text-[10px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all"
+                           >
+                             + Armadura
+                           </button>
+                         </div>
+                         {clipboard && (
+                           <button 
+                             onClick={() => {
+                               const nc = [...compartimentos];
+                               nc[cIdx].itens.push({ ...clipboard.data, id: crypto.randomUUID() });
+                               updateChar({ compartimentos: nc });
+                             }}
+                             className="w-full py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
+                           >
+                             Colar {clipboard.type}
+                           </button>
+                         )}
+                       </div>
+                     </div>
+                   );
+                 })}
+               </div>
+             </div>
           </Section>
 
           <Section title="Magias" icon={<Zap size={18}/>} collapsible defaultCollapsed>
              <div className="space-y-3">
                <div className="flex justify-between items-center">
                  <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Magias</h4>
-                 <button 
-                  onClick={() => updateChar({ magias: [...(activeChar?.magias || []), { id: crypto.randomUUID(), nome: 'Nova Magia', efeito: '', dano: '0', mana: 0, acerto: 0 }] })}
-                  className="text-amber-500 hover:text-amber-400"
-                 >
-                   <Plus size={14} />
-                 </button>
+                 <div className="flex items-center gap-2">
+                   {clipboard?.type === 'Magia' && (
+                     <button 
+                       onClick={() => updateChar({ magias: [...(activeChar?.magias || []), { ...clipboard.data, id: crypto.randomUUID() }] })}
+                       className="text-emerald-500 hover:text-emerald-400 flex items-center gap-1 text-[10px] font-bold uppercase"
+                     >
+                       <Plus size={12} /> Colar
+                     </button>
+                   )}
+                   <button 
+                    onClick={() => updateChar({ magias: [...(activeChar?.magias || []), { id: crypto.randomUUID(), nome: 'Nova Magia', efeito: '', dano: '0', mana: 0, acerto: 0 }] })}
+                    className="text-amber-500 hover:text-amber-400"
+                   >
+                     <Plus size={14} />
+                   </button>
+                 </div>
                </div>
                <div className="space-y-3">
                  {(activeChar?.magias || []).map((m, idx) => (
@@ -652,130 +906,6 @@ export default function App() {
                </div>
              </div>
           </Section>
-
-          <Section title="Compartimentos" icon={<Backpack size={18}/>} collapsible defaultCollapsed>
-             <div className="space-y-4">
-               <div className="flex justify-between items-center">
-                 <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Compartimentos</h4>
-                 <button 
-                  onClick={() => updateChar({ compartimentos: [...(activeChar?.compartimentos || []), { id: crypto.randomUUID(), nome: 'Novo Compartimento', volumeMax: 0, itens: [] }] })}
-                  className="text-amber-500 hover:text-amber-400"
-                 >
-                   <Plus size={14} />
-                 </button>
-               </div>
-               
-               <div className="space-y-4">
-                 {compartimentos.map((comp, cIdx) => {
-                   const compVolume = (comp.itens || []).reduce((acc, i) => acc + ((i.volume || 0) * (i.quantidade || 0)), 0);
-                   return (
-                     <div key={comp.id} className="bg-zinc-900/50 rounded-lg border border-zinc-800 overflow-hidden">
-                       <div className="bg-zinc-800/50 px-3 py-2 flex justify-between items-center border-b border-zinc-800">
-                         <div className="flex-1 mr-2">
-                           <input 
-                            value={comp.nome} 
-                            onChange={e => {
-                              const nc = [...compartimentos];
-                              nc[cIdx].nome = e.target.value;
-                              updateChar({ compartimentos: nc });
-                            }}
-                            className="bg-transparent text-xs font-bold focus:outline-none w-full"
-                           />
-                         </div>
-                         <div className="flex items-center gap-2">
-                           <div className="flex items-center gap-1">
-                             <span className="text-[9px] text-zinc-500">MAX:</span>
-                             <input 
-                              type="number" 
-                              value={comp.volumeMax} 
-                              onChange={e => {
-                                const nc = [...compartimentos];
-                                nc[cIdx].volumeMax = parseInt(e.target.value) || 0;
-                                updateChar({ compartimentos: nc });
-                              }}
-                              className="w-8 bg-transparent text-right text-[10px] focus:outline-none text-amber-500 font-bold"
-                             />
-                           </div>
-                           <button 
-                            onClick={() => updateChar({ compartimentos: compartimentos.filter(c => c.id !== comp.id) })}
-                            className="text-red-500 hover:text-red-400"
-                           >
-                             <Trash2 size={12} />
-                           </button>
-                         </div>
-                       </div>
-
-                       <div className="p-2 space-y-2">
-                         <div className="flex justify-between text-[9px] mb-1">
-                           <span className="text-zinc-500">VOLUME OCUPADO</span>
-                           <span className={cn(compVolume > comp.volumeMax ? "text-red-400" : "text-zinc-400")}>
-                             {compVolume.toFixed(1)} / {comp.volumeMax}
-                           </span>
-                         </div>
-                         
-                         {(comp.itens || []).map((item, iIdx) => (
-                           <div key={item.id} className="bg-zinc-900 p-2 rounded border border-zinc-800 group relative space-y-2">
-                             <div className="flex justify-between items-center mb-1">
-                               <input 
-                                value={item.nome} 
-                                onChange={e => {
-                                  const nc = [...compartimentos];
-                                  nc[cIdx].itens[iIdx].nome = e.target.value;
-                                  updateChar({ compartimentos: nc });
-                                }}
-                                className="bg-transparent text-xs font-medium focus:outline-none flex-1"
-                               />
-                               <button 
-                                onClick={() => {
-                                  const nc = [...compartimentos];
-                                  nc[cIdx].itens = nc[cIdx].itens.filter(it => it.id !== item.id);
-                                  updateChar({ compartimentos: nc });
-                                }}
-                                className="text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                               >
-                                 <Trash2 size={12} />
-                               </button>
-                             </div>
-                             <div className="grid grid-cols-4 gap-2">
-                               <MiniInput label="Qtd" type="number" value={item.quantidade} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].quantidade = parseInt(v) || 1; updateChar({ compartimentos: nc }); }} />
-                               <MiniInput label="Kg" type="number" value={item.peso} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].peso = parseFloat(v) || 0; updateChar({ compartimentos: nc }); }} />
-                               <MiniInput label="Vol" type="number" value={item.volume} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].volume = parseFloat(v) || 0; updateChar({ compartimentos: nc }); }} />
-                               <div className="flex flex-col">
-                                 <span className="text-[8px] text-zinc-600 uppercase">Total</span>
-                                 <span className="text-[10px] font-bold text-zinc-400">{(item.peso * item.quantidade).toFixed(1)}kg</span>
-                               </div>
-                             </div>
-                             <TextArea label="Descrição" value={item.descricao || ''} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].descricao = v; updateChar({ compartimentos: nc }); }} />
-                           </div>
-                         ))}
-                         
-                             <button 
-                              onClick={() => {
-                                const nc = [...compartimentos];
-                                nc[cIdx].itens.push({ id: crypto.randomUUID(), nome: 'Novo Item', peso: 0, volume: 0, quantidade: 0, tipo: 'Geral', durabilidade: 0, maxDurabilidade: 0, descricao: '' });
-                                updateChar({ compartimentos: nc });
-                              }}
-                              className="flex-1 py-1 border border-dashed border-zinc-700 rounded text-[10px] text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all"
-                             >
-                               + Item
-                             </button>
-                             <button 
-                              onClick={() => {
-                                const nc = [...compartimentos];
-                                nc[cIdx].itens.push({ id: crypto.randomUUID(), nome: 'Nova Arma', peso: 0, volume: 0, quantidade: 0, tipo: 'Arma', durabilidade: 0, maxDurabilidade: 0, descricao: '' });
-                                updateChar({ compartimentos: nc });
-                              }}
-                              className="flex-1 py-1 border border-dashed border-zinc-700 rounded text-[10px] text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all"
-                             >
-                               + Arma
-                             </button>
-                       </div>
-                     </div>
-                   );
-                 })}
-               </div>
-             </div>
-          </Section>
           <Section title="Conhecimentos" icon={<BookOpen size={18}/>} collapsible defaultCollapsed>
             <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
               {(activeChar?.conhecimentos || []).map((k, idx) => (
@@ -842,7 +972,7 @@ export default function App() {
 function Section({ title, icon, children, collapsible = false, defaultCollapsed = false }: { title: string, icon: React.ReactNode, children: React.ReactNode, collapsible?: boolean, defaultCollapsed?: boolean }) {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   return (
-    <div className="bg-zinc-900/30 border border-zinc-800 rounded-xl overflow-hidden">
+    <div className="bg-zinc-900/30 border-y sm:border border-zinc-800 sm:rounded-xl overflow-hidden -mx-4 sm:mx-0">
       <div 
         className={cn("px-4 py-3 flex items-center justify-between border-b border-zinc-800 bg-zinc-900/50", collapsible && "cursor-pointer hover:bg-zinc-800/50")}
         onClick={() => collapsible && setIsCollapsed(!isCollapsed)}
@@ -953,13 +1083,13 @@ function MiniBar({ label, value, max = 100, color, onChange }: { label: string, 
 function MiniInput({ label, value, type = "text", onChange }: { label: string, value: any, type?: string, onChange: (v: string) => void }) {
   return (
     <div className="flex flex-col">
-      <span className="text-[8px] text-zinc-600 uppercase tracking-tighter">{label}</span>
+      <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter mb-0.5">{label}</span>
       {type === "text" ? (
         <textarea 
           value={value} 
           onChange={e => onChange(e.target.value)}
           rows={1}
-          className="bg-transparent text-[10px] font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 break-words whitespace-normal resize-none overflow-hidden min-h-[16px]"
+          className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 break-words whitespace-normal resize-none overflow-hidden min-h-[20px]"
           onInput={(e) => {
             const target = e.target as HTMLTextAreaElement;
             target.style.height = 'auto';
@@ -971,7 +1101,7 @@ function MiniInput({ label, value, type = "text", onChange }: { label: string, v
           type={type} 
           value={value} 
           onChange={e => onChange(e.target.value)}
-          className="bg-transparent text-[10px] font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50"
+          className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50"
         />
       )}
     </div>

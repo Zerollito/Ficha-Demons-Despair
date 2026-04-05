@@ -10,6 +10,18 @@ export interface Item {
   durabilidade: number;
   maxDurabilidade: number;
   descricao: string;
+  // Campos de Arma
+  dano?: string;
+  acerto?: number;
+  escala?: string;
+  atributoBase?: string;
+  corte?: number;
+  impacto?: number;
+  perfuracao?: number;
+  resistencia?: number;
+  // Campos de Armadura
+  reducaoDano?: number;
+  efeito?: string;
 }
 
 export interface Compartment {
