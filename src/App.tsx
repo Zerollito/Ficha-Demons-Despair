@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Plus, Trash2, Save, Download, Upload, Copy, ChevronDown, ChevronUp, 
   Shield, Sword, Backpack, BookOpen, Activity, Coins, User, MapPin, 
   Thermometer, Utensils, Droplets, Battery, Weight, Package, Gem, Zap,
-  MoreVertical
+  MoreVertical, Flame, Skull, Biohazard, Bone, RotateCw, X, Droplet, FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -30,9 +30,9 @@ const createEmptyCharacter = (): Character => ({
   dinheiro: { C: 0, B: 0, P: 0, O: 0 },
   vidaAtual: 0,
   manaAtual: 0,
-  fome: 0,
-  sede: 0,
-  cansaco: 0,
+  fome: 100,
+  sede: 100,
+  cansaco: 8,
   defesa: { Cabeça: 0, Torso: 0, Braços: 0, Pernas: 0 },
   clima: { frio: 0, calor: 0 },
   stats: { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 },
@@ -43,12 +43,25 @@ const createEmptyCharacter = (): Character => ({
   habilidades: [],
   magias: [],
   armaduras: [],
+  acessorios: [],
   compartimentos: [
     { id: crypto.randomUUID(), nome: 'Mochila de Viagem', volumeMax: 30, itens: [] },
     { id: crypto.randomUUID(), nome: 'Bolsa de Cinto', volumeMax: 3, itens: [] }
   ],
   conhecimentos: INITIAL_KNOWLEDGES.map(name => ({ name, nivel: 0, xp: 0, limite: 5 })),
+  efeitosNegativos: [],
+  anotacoes: [{ id: crypto.randomUUID(), titulo: 'Anotações Gerais', conteudo: '' }],
 });
+
+const NEGATIVE_EFFECTS = [
+  { id: 'ossos_quebrados', name: 'Ossos quebrados', icon: Bone, color: 'text-zinc-400', info: 'Ponto fraco\n+3 dano extra\nImobilizado' },
+  { id: 'sangramento', name: 'Sangramento', icon: Droplet, color: 'text-red-500', info: 'Ponto fraco\nDano continuo' },
+  { id: 'hemorragia', name: 'Hemorragia', icon: Droplets, color: 'text-red-600', info: 'Ponto fraco\n-⅓ Deslocamento, esquiva e acurácia\n-2 Defesa com armas' },
+  { id: 'envenenamento', name: 'Envenenamento', icon: Biohazard, color: 'text-emerald-500', info: 'Dano continuo' },
+  { id: 'putrefacao', name: 'Putrefação', icon: Skull, color: 'text-zinc-600', info: 'Ponto fraco\n-1 em todas as proficiências' },
+  { id: 'queimadura', name: 'Queimadura', icon: Flame, color: 'text-orange-500', info: 'Ponto fraco\n+2 de dano' },
+  { id: 'tontura', name: 'Tontura', icon: RotateCw, color: 'text-amber-400', info: 'Ponto fraco\nRedução de acerto e esquiva a 0 por 2 turnos\n-⅔ de deslocamento por 2 turnos\nProficiências e testes tem desvantagem de -2 por 2 turnos' },
+];
 
 export default function App() {
   const [state, setState] = useState<AppState>(() => {
@@ -66,6 +79,20 @@ export default function App() {
   });
 
   const [clipboard, setClipboard] = useState<{ type: 'Arma' | 'Armadura' | 'Item' | 'Magia' | 'Habilidade', data: any } | null>(null);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [vitaisTab, setVitaisTab] = useState<'status' | 'efeitos'>('status');
+  const [activePage, setActivePage] = useState<'sheet' | 'notes'>('sheet');
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const copyToClipboard = (type: 'Arma' | 'Armadura' | 'Item' | 'Magia' | 'Habilidade', data: any) => {
     const dataWithTipo = { ...data, id: crypto.randomUUID() };
@@ -102,11 +129,13 @@ export default function App() {
   const compartimentos = activeChar?.compartimentos || [];
   const armas = activeChar?.armas || [];
   const armaduras = activeChar?.armaduras || [];
+  const acessorios = activeChar?.acessorios || [];
 
   const invTotals = calculateInventoryTotals(compartimentos);
   const weaponPeso = armas.reduce((acc, w) => acc + (w.peso || 0), 0);
   const armorPeso = armaduras.reduce((acc, a) => acc + (a.peso || 0), 0);
-  const pesoTotal = invTotals.peso + weaponPeso + armorPeso;
+  const accessoryPeso = acessorios.reduce((acc, a) => acc + (a.peso || 0), 0);
+  const pesoTotal = invTotals.peso + weaponPeso + armorPeso + accessoryPeso;
   
   const penalties = getLoadPenalties(pesoTotal, cargaMax);
   const deslocamentoFinal = Math.max(0, Math.floor(deslocamentoBase * penalties.deslocamentoMult));
@@ -195,24 +224,55 @@ export default function App() {
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30">
       {/* Header */}
       <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
           <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
             <User size={20} className="text-zinc-950" />
           </div>
-          <h1 className="text-lg font-black tracking-tighter uppercase italic text-zinc-100 hidden sm:block">RPG System X</h1>
+          
+          <div className="flex items-center bg-zinc-950/50 p-1 rounded-lg border border-zinc-800">
+            <button 
+              onClick={() => setActivePage('sheet')}
+              className={cn(
+                "p-2 rounded-md transition-all",
+                activePage === 'sheet' ? "bg-amber-500 text-zinc-950" : "text-zinc-500 hover:text-zinc-300"
+              )}
+              title="Ficha do Personagem"
+            >
+              <User size={18} />
+            </button>
+            <button 
+              onClick={() => setActivePage('notes')}
+              className={cn(
+                "p-2 rounded-md transition-all",
+                activePage === 'notes' ? "bg-amber-500 text-zinc-950" : "text-zinc-500 hover:text-zinc-300"
+              )}
+              title="Anotações"
+            >
+              <FileText size={18} />
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 relative group/menu">
-          <button className="w-10 h-10 flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 rounded-full transition-all border border-zinc-700 shadow-lg">
+        <div className="flex items-center gap-2 relative" ref={menuRef}>
+          <button 
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            className="w-10 h-10 flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 rounded-full transition-all border border-zinc-700 shadow-lg"
+          >
             <MoreVertical size={20} className="text-amber-500" />
           </button>
           
-          <div className="absolute right-0 top-full mt-2 w-64 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-all duration-200 z-[60] p-2 space-y-1">
+          <div className={cn(
+            "absolute right-0 top-full mt-2 w-64 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl transition-all duration-200 z-[60] p-2 space-y-1",
+            isMenuOpen ? "opacity-100 visible translate-y-0" : "opacity-0 invisible -translate-y-2 pointer-events-none"
+          )}>
             <div className="px-3 py-2 border-b border-zinc-800 mb-1">
               <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Escolha de Ficha</label>
               <select 
                 value={state.activeCharacterId || ''} 
-                onChange={(e) => setState(prev => ({ ...prev, activeCharacterId: e.target.value }))}
+                onChange={(e) => {
+                  setState(prev => ({ ...prev, activeCharacterId: e.target.value }));
+                  setIsMenuOpen(false);
+                }}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 truncate"
               >
                 {state.characters.map(c => (
@@ -225,6 +285,7 @@ export default function App() {
               onClick={() => {
                 const nc = createEmptyCharacter();
                 setState(prev => ({ characters: [...prev.characters, nc], activeCharacterId: nc.id }));
+                setIsMenuOpen(false);
               }}
               className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
             >
@@ -232,14 +293,20 @@ export default function App() {
             </button>
 
             <button 
-              onClick={duplicateChar}
+              onClick={() => {
+                duplicateChar();
+                setIsMenuOpen(false);
+              }}
               className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
             >
               <Copy size={18} className="text-amber-500" /> Copiar Ficha
             </button>
 
             <button 
-              onClick={exportJSON}
+              onClick={() => {
+                exportJSON();
+                setIsMenuOpen(false);
+              }}
               className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
             >
               <Download size={18} className="text-amber-500" /> Exportar JSON
@@ -247,11 +314,14 @@ export default function App() {
 
             <label className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300 cursor-pointer">
               <Upload size={18} className="text-amber-500" /> Importar JSON
-              <input type="file" className="hidden" onChange={importJSON} accept=".json" />
+              <input type="file" className="hidden" onChange={(e) => { importJSON(e); setIsMenuOpen(false); }} accept=".json" />
             </label>
 
             <button 
-              onClick={exportPDF}
+              onClick={() => {
+                exportPDF();
+                setIsMenuOpen(false);
+              }}
               className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
             >
               <Activity size={18} className="text-amber-500" /> Exportar PDF
@@ -259,7 +329,10 @@ export default function App() {
 
             <div className="pt-1 border-t border-zinc-800 mt-1">
               <button 
-                onClick={() => setShowDeleteConfirm(true)}
+                onClick={() => {
+                  setShowDeleteConfirm(true);
+                  setIsMenuOpen(false);
+                }}
                 className="w-full flex items-center gap-3 px-3 py-2 hover:bg-red-500/10 rounded-lg transition-colors text-sm font-medium text-red-400"
               >
                 <Trash2 size={18} /> Excluir Ficha
@@ -300,11 +373,12 @@ export default function App() {
         </AnimatePresence>
       </header>
 
-      <main className="max-w-7xl mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 pb-20">
-        
-        {/* Left Column: Basic Info & Stats */}
-        <div className="lg:col-span-4 space-y-6">
-          <Section title="Identidade" icon={<User size={18}/>} collapsible>
+      <main className="max-w-7xl mx-auto p-4 md:p-6 pb-20">
+        {activePage === 'sheet' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column: Basic Info & Stats */}
+            <div className="lg:col-span-4 space-y-6">
+              <Section title="Personagem" icon={<User size={18}/>} collapsible>
             <div className="space-y-4">
               <div className="flex flex-col items-center gap-4 mb-4">
                 <div className="w-32 h-32 bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden flex items-center justify-center relative group">
@@ -337,11 +411,11 @@ export default function App() {
                   {(['C', 'B', 'P', 'O'] as const).map(coin => (
                     <div key={coin} className="flex flex-col items-center bg-zinc-900 border border-zinc-800 rounded p-1">
                       <span className="text-[10px] font-bold text-zinc-600 mb-1">{coin}</span>
-                      <input 
-                        type="number" 
+                      <NumericInput 
                         value={activeChar.dinheiro?.[coin] || 0} 
-                        onChange={e => updateChar({ dinheiro: { ...(activeChar.dinheiro || {C:0,B:0,P:0,O:0}), [coin]: parseInt(e.target.value) || 0 } })}
-                        className="w-full bg-transparent text-center text-sm font-bold focus:outline-none text-amber-500"
+                        onChange={v => updateChar({ dinheiro: { ...(activeChar.dinheiro || {C:0,B:0,P:0,O:0}), [coin]: v } })}
+                        className="w-full"
+                        size="sm"
                       />
                     </div>
                   ))}
@@ -358,49 +432,144 @@ export default function App() {
           </Section>
 
           <Section title="Vitais" icon={<Activity size={18}/>} collapsible>
-            <div className="space-y-4">
-              <ProgressBar 
-                label="Vida" 
-                current={activeChar?.vidaAtual || 0} 
-                max={vidaMax} 
-                color="bg-red-500" 
-                onChange={v => updateChar({ vidaAtual: v })} 
-              />
-              <ProgressBar 
-                label="Mana" 
-                current={activeChar?.manaAtual || 0} 
-                max={manaMax} 
-                color="bg-blue-500" 
-                onChange={v => updateChar({ manaAtual: v })} 
-              />
-              <div className="grid grid-cols-3 gap-3">
-                <MiniBar label="Fome" value={activeChar?.fome || 0} color="bg-orange-500" onChange={v => updateChar({ fome: v })} />
-                <MiniBar label="Sede" value={activeChar?.sede || 0} color="bg-cyan-500" onChange={v => updateChar({ sede: v })} />
-                <MiniBar label="Cansaço" value={activeChar?.cansaco || 0} max={8} color="bg-purple-500" onChange={v => updateChar({ cansaco: v })} />
-              </div>
-
-              <div className="pt-4 border-t border-zinc-800">
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-zinc-500 uppercase font-bold tracking-tighter">Carga Total</span>
-                  <span className={cn(pesoTotal > cargaMax ? "text-red-400" : "text-zinc-300")}>
-                    {pesoTotal.toFixed(1)} / {cargaMax} kg
-                  </span>
-                </div>
-                <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
-                  <div 
-                    className={cn("h-full transition-all duration-500", pesoTotal > cargaMax ? "bg-red-500" : "bg-amber-500")} 
-                    style={{ width: `${Math.min(100, (pesoTotal / cargaMax) * 100)}%` }}
-                  />
-                </div>
-
-                {penalties.acertoPenalty !== 0 && (
-                  <div className="mt-2 bg-red-500/10 border border-red-500/20 p-2 rounded text-[10px] text-red-400 flex items-center gap-2">
-                    <Zap size={12} />
-                    PENALIDADE: {penalties.acertoPenalty} Acerto, {penalties.mentalidadePenalty} Mentalidade
-                  </div>
+            <div className="flex gap-2 mb-4 p-1 bg-zinc-950/50 rounded-lg border border-zinc-800">
+              <button 
+                onClick={() => setVitaisTab('status')}
+                className={cn(
+                  "flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all",
+                  vitaisTab === 'status' ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" : "text-zinc-500 hover:text-zinc-300"
                 )}
-              </div>
+              >
+                Status
+              </button>
+              <button 
+                onClick={() => setVitaisTab('efeitos')}
+                className={cn(
+                  "flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all",
+                  vitaisTab === 'efeitos' ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" : "text-zinc-500 hover:text-zinc-300"
+                )}
+              >
+                Efeitos Negativos
+              </button>
             </div>
+
+            {vitaisTab === 'status' ? (
+              <div className="space-y-4">
+                <ProgressBar 
+                  label="Vida" 
+                  current={activeChar?.vidaAtual || 0} 
+                  max={vidaMax} 
+                  color="bg-red-500" 
+                  onChange={v => updateChar({ vidaAtual: v })} 
+                />
+                <ProgressBar 
+                  label="Mana" 
+                  current={activeChar?.manaAtual || 0} 
+                  max={manaMax} 
+                  color="bg-blue-500" 
+                  onChange={v => updateChar({ manaAtual: v })} 
+                />
+                <div className="grid grid-cols-3 gap-3">
+                  <MiniBar label="Fome" value={activeChar?.fome || 0} color="bg-orange-500" onChange={v => updateChar({ fome: v })} />
+                  <MiniBar label="Sede" value={activeChar?.sede || 0} color="bg-cyan-500" onChange={v => updateChar({ sede: v })} />
+                  <MiniBar label="Cansaço" value={activeChar?.cansaco || 0} max={8} color="bg-purple-500" onChange={v => updateChar({ cansaco: v })} />
+                </div>
+
+                <div className="pt-4 border-t border-zinc-800">
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-zinc-500 uppercase font-bold tracking-tighter">Carga Total</span>
+                    <span className={cn(pesoTotal > cargaMax ? "text-red-400" : "text-zinc-300")}>
+                      {pesoTotal.toFixed(1)} / {cargaMax} kg
+                    </span>
+                  </div>
+                  <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                    <div 
+                      className={cn("h-full transition-all duration-500", pesoTotal > cargaMax ? "bg-red-500" : "bg-amber-500")} 
+                      style={{ width: `${Math.min(100, (pesoTotal / cargaMax) * 100)}%` }}
+                    />
+                  </div>
+
+                  {penalties.acertoPenalty !== 0 && (
+                    <div className="mt-2 bg-red-500/10 border border-red-500/20 p-2 rounded text-[10px] text-red-400 flex items-center gap-2">
+                      <Zap size={12} />
+                      PENALIDADE: {penalties.acertoPenalty} Acerto, {penalties.mentalidadePenalty} Mentalidade
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  {NEGATIVE_EFFECTS.map(effect => {
+                    const isActive = (activeChar.efeitosNegativos || []).includes(effect.id);
+                    return (
+                      <button
+                        key={effect.id}
+                        onClick={() => {
+                          const current = activeChar.efeitosNegativos || [];
+                          if (isActive) {
+                            updateChar({ efeitosNegativos: current.filter(id => id !== effect.id) });
+                          } else {
+                            updateChar({ efeitosNegativos: [...current, effect.id] });
+                          }
+                        }}
+                        className={cn(
+                          "flex items-center gap-2 p-2 rounded-lg border transition-all text-left",
+                          isActive 
+                            ? "bg-zinc-800 border-amber-500/50 text-amber-500" 
+                            : "bg-zinc-900/50 border-zinc-800 text-zinc-500 hover:border-zinc-700"
+                        )}
+                      >
+                        <effect.icon size={16} className={isActive ? effect.color : "text-zinc-600"} />
+                        <span className="text-[10px] font-bold uppercase truncate">{effect.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {activeChar.efeitosNegativos && activeChar.efeitosNegativos.length > 0 && (
+              <div className="mt-6 pt-4 border-t border-zinc-800 space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {activeChar.efeitosNegativos.map(id => {
+                    const effect = NEGATIVE_EFFECTS.find(e => e.id === id);
+                    if (!effect) return null;
+                    return (
+                      <div key={id} className="group relative">
+                        <div className={cn("p-2 bg-zinc-900 border border-zinc-800 rounded-lg flex items-center gap-2", effect.color)}>
+                          <effect.icon size={18} />
+                          <button 
+                            onClick={() => updateChar({ efeitosNegativos: activeChar.efeitosNegativos.filter(eid => eid !== id) })}
+                            className="p-0.5 hover:bg-zinc-800 rounded text-zinc-500"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                <div className="space-y-2">
+                  {activeChar.efeitosNegativos.map(id => {
+                    const effect = NEGATIVE_EFFECTS.find(e => e.id === id);
+                    if (!effect || !effect.info) return null;
+                    return (
+                      <div key={`info-${id}`} className="bg-red-500/5 border border-red-500/10 p-3 rounded-lg">
+                        <div className="flex items-center gap-2 mb-1">
+                          <effect.icon size={14} className={effect.color} />
+                          <span className="text-sm font-bold uppercase text-zinc-300">{effect.name}</span>
+                        </div>
+                        <div className="text-sm text-red-400/80 leading-relaxed whitespace-pre-line">
+                          {effect.info}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </Section>
 
           <Section title="Bônus de Dano" icon={<Sword size={18}/>} collapsible>
@@ -416,21 +585,21 @@ export default function App() {
 
           <Section title="Defesa por Membro" icon={<Shield size={18}/>} collapsible>
             <div className="grid grid-cols-2 gap-3">
-              {Object.entries(activeChar?.defesa || {}).map(([part, val]) => (
+              {Object.entries(activeChar.defesa).map(([part, val]) => (
                 <div key={part} className="bg-zinc-900 border border-zinc-800 p-2 rounded flex justify-between items-center">
                   <span className="text-xs text-zinc-400">{part}</span>
-                  <input 
-                    type="number" 
-                    value={val} 
-                    onChange={e => updateChar({ defesa: { ...(activeChar?.defesa || {}), [part]: parseInt(e.target.value) || 0 } })}
-                    className="w-10 bg-transparent text-right font-bold focus:outline-none text-amber-500"
+                  <NumericInput 
+                    value={val as number} 
+                    onChange={v => updateChar({ defesa: { ...activeChar.defesa, [part]: v } })}
+                    className="w-16"
+                    size="sm"
                   />
                 </div>
               ))}
             </div>
           </Section>
 
-          <Section title="Status Primários" icon={<Zap size={18}/>} collapsible>
+          <Section title="Status" icon={<Zap size={18}/>} collapsible>
             <div className="grid grid-cols-3 gap-3">
               {(Object.keys(stats) as (keyof Stats)[]).map(stat => {
                 const statVal = stats[stat];
@@ -440,11 +609,11 @@ export default function App() {
                 return (
                   <div key={stat} className="bg-zinc-900 border border-zinc-800 p-2 rounded-lg text-center group relative">
                     <div className="text-[10px] text-zinc-500 font-bold mb-1">{stat}</div>
-                    <input 
-                      type="number" 
+                    <NumericInput 
                       value={statVal} 
-                      onChange={e => updateChar({ stats: { ...stats, [stat]: parseInt(e.target.value) || 0 } })}
-                      className="w-full bg-transparent text-center text-xl font-bold focus:outline-none text-amber-500"
+                      onChange={v => updateChar({ stats: { ...stats, [stat]: v } })}
+                      className="w-full"
+                      size="lg"
                     />
                     <div className="flex flex-col items-center mt-2">
                       <span className="text-[10px] text-zinc-600 font-bold uppercase mb-1">XP (Máx {xpLimit})</span>
@@ -458,23 +627,22 @@ export default function App() {
                         >
                           -
                         </button>
-                        <input 
-                          type="number"
+                        <NumericInput 
                           value={currentXP}
-                          onChange={e => {
-                            const newXP = parseInt(e.target.value) || 0;
-                            if (newXP >= xpLimit) {
+                          onChange={v => {
+                            if (v >= xpLimit) {
                               updateChar({ 
                                 stats: { ...stats, [stat]: statVal + 1 },
                                 statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: 0 }
                               });
                             } else {
                               updateChar({ 
-                                statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: newXP }
+                                statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: v }
                               });
                             }
                           }}
-                          className="w-14 bg-zinc-800 border border-zinc-700 rounded text-sm font-bold text-center focus:outline-none focus:ring-1 focus:ring-amber-500 py-1"
+                          className="w-16"
+                          size="sm"
                         />
                         <button 
                           onClick={() => {
@@ -531,11 +699,11 @@ export default function App() {
           <Section title="Equipamentos" icon={<Package size={18}/>} collapsible>
              <div className="space-y-6">
                {/* Armas Section */}
-               <div className="space-y-3">
-                  <div className="flex justify-between items-center">
+               <SubSection title="Armas" icon={<Sword size={14} />} defaultCollapsed={false}>
+                  <div className="flex justify-between items-center mb-2">
                     <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armas</h4>
                     <button 
-                      onClick={() => updateChar({ armas: [...(activeChar?.armas || []), { id: crypto.randomUUID(), nome: 'Nova Arma', dano: '0', acerto: 0, tipo: 'Arma', escala: 'C', atributoBase: 'FOR', peso: 0, volume: 0, durabilidade: 0, maxDurabilidade: 0, corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 }] })}
+                      onClick={() => updateChar({ armas: [...(activeChar?.armas || []), { id: crypto.randomUUID(), nome: 'Nova Arma', dano: '0', acerto: 0, tipo: 'Arma', escala: '', atributoBase: 'FOR', peso: 0, volume: 0, durabilidade: 0, maxDurabilidade: 0, corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 }] })}
                       className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                     >
                       <Plus size={16} />
@@ -548,7 +716,7 @@ export default function App() {
                         updateChar({ armas: [...(activeChar?.armas || []), { ...clipboard.data, id: crypto.randomUUID() }] });
                         setClipboard(null);
                       }}
-                      className="w-full py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
+                      className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
                     >
                       Colar Arma
                     </button>
@@ -594,11 +762,11 @@ export default function App() {
                      </div>
                    ))}
                  </div>
-               </div>
+               </SubSection>
 
                {/* Armaduras Section */}
-               <div className="space-y-3">
-                   <div className="flex justify-between items-center">
+               <SubSection title="Armaduras" icon={<Shield size={14} />} defaultCollapsed={false}>
+                   <div className="flex justify-between items-center mb-2">
                     <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armaduras</h4>
                     <button 
                       onClick={() => updateChar({ armaduras: [...(activeChar?.armaduras || []), { id: crypto.randomUUID(), nome: 'Nova Armadura', tipo: 'Armadura', corte: 0, impacto: 0, perfuracao: 0, durabilidade: 0, peso: 0, volume: 0, reducaoDano: 0, efeito: '' }] })}
@@ -614,7 +782,7 @@ export default function App() {
                         updateChar({ armaduras: [...(activeChar?.armaduras || []), { ...clipboard.data, id: crypto.randomUUID() }] });
                         setClipboard(null);
                       }}
-                      className="w-full py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
+                      className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
                     >
                       Colar Armadura
                     </button>
@@ -660,7 +828,73 @@ export default function App() {
                      </div>
                    ))}
                  </div>
-               </div>
+               </SubSection>
+
+               {/* Acessórios Section */}
+               <SubSection title="Acessórios" icon={<Gem size={14} />} defaultCollapsed={false}>
+                   <div className="flex justify-between items-center mb-2">
+                    <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Acessórios</h4>
+                    <button 
+                      onClick={() => updateChar({ acessorios: [...(activeChar?.acessorios || []), { id: crypto.randomUUID(), nome: 'Novo Acessório', tipo: 'Armadura', corte: 0, impacto: 0, perfuracao: 0, durabilidade: 0, peso: 0, volume: 0, reducaoDano: 0, efeito: '' }] })}
+                      className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
+
+                  {clipboard && (clipboard.type === 'Armadura' || (clipboard.type === 'Item' && clipboard.data.tipo === 'Armadura')) && (
+                    <button 
+                      onClick={() => {
+                        updateChar({ acessorios: [...(activeChar?.acessorios || []), { ...clipboard.data, id: crypto.randomUUID() }] });
+                        setClipboard(null);
+                      }}
+                      className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
+                    >
+                      Colar Acessório
+                    </button>
+                  )}
+                 <div className="space-y-3">
+                   {(activeChar?.acessorios || []).map((a, idx) => (
+                     <div key={a.id} className="bg-zinc-900 p-3 rounded-lg border border-zinc-800 text-xs relative group space-y-2">
+                       <div className="flex justify-between items-center">
+                         <input 
+                          value={a.nome} 
+                          onChange={e => {
+                            const newAccs = [...(activeChar?.acessorios || [])];
+                            newAccs[idx].nome = e.target.value;
+                            updateChar({ acessorios: newAccs });
+                          }}
+                          className="bg-transparent font-bold focus:outline-none flex-1 text-amber-500"
+                         />
+                         <div className="flex items-center gap-2">
+                           <button 
+                             onClick={() => copyToClipboard('Armadura', a)}
+                             className="text-zinc-500 hover:text-zinc-300 p-1"
+                             title="Copiar Acessório"
+                           >
+                             <Copy size={20} />
+                           </button>
+                           <button 
+                            onClick={() => updateChar({ acessorios: (activeChar?.acessorios || []).filter(acc => acc.id !== a.id) })}
+                            className="text-red-500 hover:text-red-400 p-1"
+                           >
+                             <Trash2 size={20} />
+                           </button>
+                         </div>
+                       </div>
+                       
+                        <ArmorProperties 
+                          item={a} 
+                          onChange={updates => {
+                            const na = [...(activeChar?.acessorios || [])];
+                            na[idx] = { ...na[idx], ...updates };
+                            updateChar({ acessorios: na });
+                          }} 
+                        />
+                     </div>
+                   ))}
+                 </div>
+               </SubSection>
              </div>
            </Section>
            <Section title="Compartimentos" icon={<Backpack size={18}/>} collapsible defaultCollapsed>
@@ -695,16 +929,16 @@ export default function App() {
                          <div className="flex items-center gap-2">
                            <div className="flex items-center gap-1">
                              <span className="text-xs text-zinc-500 font-bold">CAPACIDADE MÁXIMA:</span>
-                             <input 
-                               type="number" 
-                               value={comp.volumeMax} 
-                               onChange={e => {
-                                 const nc = [...compartimentos];
-                                 nc[cIdx].volumeMax = parseInt(e.target.value) || 0;
-                                 updateChar({ compartimentos: nc });
-                               }}
-                               className="w-16 bg-transparent text-right text-lg focus:outline-none text-amber-500 font-bold"
-                             />
+                             <NumericInput 
+                                value={comp.volumeMax} 
+                                onChange={v => {
+                                  const nc = [...compartimentos];
+                                  nc[cIdx].volumeMax = v;
+                                  updateChar({ compartimentos: nc });
+                                }}
+                                className="w-20"
+                                size="lg"
+                              />
                            </div>
                            <button 
                             onClick={() => updateChar({ compartimentos: compartimentos.filter(c => c.id !== comp.id) })}
@@ -896,7 +1130,7 @@ export default function App() {
                            <button 
                             onClick={() => {
                               const nc = [...compartimentos];
-                              nc[cIdx].itens.push({ id: crypto.randomUUID(), nome: 'Nova Arma', peso: 0, volume: 0, quantidade: 0, tipo: 'Arma', durabilidade: 0, maxDurabilidade: 0, descricao: '', dano: '0', acerto: 0, escala: 'C', atributoBase: 'FOR', corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 });
+                              nc[cIdx].itens.push({ id: crypto.randomUUID(), nome: 'Nova Arma', peso: 0, volume: 0, quantidade: 0, tipo: 'Arma', durabilidade: 0, maxDurabilidade: 0, descricao: '', dano: '0', acerto: 0, escala: '', atributoBase: 'FOR', corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 });
                               updateChar({ compartimentos: nc });
                             }}
                             className="flex-1 py-2 border border-dashed border-zinc-700 rounded text-[10px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all"
@@ -953,9 +1187,9 @@ export default function App() {
                    )}
                    <button 
                     onClick={() => updateChar({ magias: [...(activeChar?.magias || []), { id: crypto.randomUUID(), nome: 'Nova Magia', efeito: '', dano: '0', mana: 0, acerto: 0 }] })}
-                    className="text-amber-500 hover:text-amber-400"
+                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                    >
-                     <Plus size={14} />
+                     <Plus size={16} />
                    </button>
                  </div>
                </div>
@@ -999,9 +1233,9 @@ export default function App() {
                  <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Habilidades</h4>
                  <button 
                   onClick={() => updateChar({ habilidades: [...(activeChar?.habilidades || []), { id: crypto.randomUUID(), nome: 'Nova Habilidade', efeito: '' }] })}
-                  className="text-amber-500 hover:text-amber-400"
+                  className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                  >
-                   <Plus size={14} />
+                   <Plus size={16} />
                  </button>
                </div>
                <div className="space-y-3">
@@ -1039,15 +1273,15 @@ export default function App() {
                     <span className="text-sm font-bold uppercase tracking-widest text-zinc-300">{k.name}</span>
                     <div className="flex items-center gap-2">
                       <span className="text-[12px] text-zinc-500 font-bold">NÍVEL</span>
-                      <input 
-                        type="number" 
+                      <NumericInput 
                         value={k.nivel} 
-                        onChange={e => {
+                        onChange={v => {
                           const newKs = [...(activeChar?.conhecimentos || [])];
-                          newKs[idx].nivel = parseInt(e.target.value) || 0;
+                          newKs[idx].nivel = v;
                           updateChar({ conhecimentos: newKs });
                         }}
-                        className="w-14 bg-zinc-800 border border-zinc-700 rounded text-amber-500 text-lg font-bold focus:outline-none text-center py-1"
+                        className="w-20"
+                        size="lg"
                       />
                     </div>
                   </div>
@@ -1059,14 +1293,12 @@ export default function App() {
                       />
                     </div>
                     <div className="flex items-center gap-1">
-                      <input 
-                        type="number" 
+                      <NumericInput 
                         value={k.xp} 
-                        onChange={e => {
-                          const newXp = parseInt(e.target.value) || 0;
+                        onChange={v => {
                           const nextXp = getXpToNextLevel(k.nivel);
-                          let updatedK = { ...k, xp: newXp };
-                          if (newXp >= nextXp) {
+                          let updatedK = { ...k, xp: v };
+                          if (v >= nextXp) {
                             updatedK.nivel += 1;
                             updatedK.xp = 0;
                           }
@@ -1074,7 +1306,8 @@ export default function App() {
                           newKs[idx] = updatedK;
                           updateChar({ conhecimentos: newKs });
                         }}
-                        className="w-16 bg-zinc-800 border border-zinc-700 rounded text-right text-sm font-bold focus:outline-none px-2 py-1"
+                        className="w-16"
+                        size="sm"
                       />
                       <span className="text-sm text-zinc-500 font-bold">/ {getXpToNextLevel(k.nivel)}</span>
                     </div>
@@ -1083,7 +1316,90 @@ export default function App() {
               ))}
             </div>
           </Section>
+          </div>
         </div>
+      ) : (
+          <div className="space-y-6 max-w-4xl mx-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-amber-500 flex items-center gap-2">
+                <FileText size={24} /> Anotações
+              </h2>
+              <button 
+                onClick={() => updateChar({ anotacoes: [...(activeChar.anotacoes || []), { id: crypto.randomUUID(), titulo: 'Nova Anotação', conteudo: '' }] })}
+                className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 px-4 py-2 rounded-lg font-bold transition-all shadow-lg shadow-amber-500/20"
+              >
+                <Plus size={18} /> Adicionar Aba
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6">
+              {(activeChar.anotacoes || []).map((note, idx) => (
+                <div key={note.id}>
+                  <Section 
+                    title={note.titulo || 'Sem Título'} 
+                    icon={<FileText size={18} />} 
+                    collapsible 
+                  >
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center gap-4">
+                        <div className="flex-1">
+                          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Título da Aba</label>
+                          <input 
+                            value={note.titulo}
+                            onChange={e => {
+                              const newNotes = [...activeChar.anotacoes];
+                              newNotes[idx].titulo = e.target.value;
+                              updateChar({ anotacoes: newNotes });
+                            }}
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold"
+                            placeholder="Digite o título..."
+                          />
+                        </div>
+                        <button 
+                          onClick={() => {
+                            const newNotes = activeChar.anotacoes.filter(n => n.id !== note.id);
+                            updateChar({ anotacoes: newNotes });
+                          }}
+                          className="mt-5 p-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors"
+                          title="Excluir Aba"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Conteúdo</label>
+                        <textarea 
+                          value={note.conteudo}
+                          onChange={e => {
+                            const newNotes = [...activeChar.anotacoes];
+                            newNotes[idx].conteudo = e.target.value;
+                            updateChar({ anotacoes: newNotes });
+                          }}
+                          rows={15}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all resize-none leading-relaxed"
+                          placeholder="Escreva suas anotações aqui..."
+                        />
+                      </div>
+                    </div>
+                  </Section>
+                </div>
+              ))}
+
+              {(!activeChar.anotacoes || activeChar.anotacoes.length === 0) && (
+                <div className="text-center py-20 bg-zinc-900/20 border border-dashed border-zinc-800 rounded-xl">
+                  <FileText size={48} className="mx-auto text-zinc-800 mb-4" />
+                  <p className="text-zinc-500">Nenhuma aba de anotação criada.</p>
+                  <button 
+                    onClick={() => updateChar({ anotacoes: [{ id: crypto.randomUUID(), titulo: 'Anotações Gerais', conteudo: '' }] })}
+                    className="mt-4 text-amber-500 hover:text-amber-400 font-bold uppercase text-xs tracking-widest"
+                  >
+                    Criar Primeira Aba
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </main>
 
       <style>{`
@@ -1197,6 +1513,15 @@ function TextArea({ label, value, onChange, className }: { label: string, value:
 
 function ProgressBar({ label, current, max, color, onChange }: { label: string, current: number, max: number, color: string, onChange: (v: number) => void }) {
   const percent = Math.min(100, (current / max) * 100);
+  const [innerValue, setInnerValue] = useState(current?.toString() ?? '');
+
+  useEffect(() => {
+    if (current !== undefined && current !== null && current.toString() !== innerValue) {
+      if (current === 0 && innerValue === '') return;
+      setInnerValue(current.toString());
+    }
+  }, [current]);
+
   return (
     <div>
       <div className="flex justify-between items-end mb-1.5">
@@ -1204,9 +1529,12 @@ function ProgressBar({ label, current, max, color, onChange }: { label: string, 
         <div className="flex items-center gap-1">
           <input 
             type="number" 
-            value={current ?? 0} 
-            onChange={e => onChange(parseInt(e.target.value) || 0)}
-            className="w-12 bg-transparent text-right font-bold text-sm focus:outline-none"
+            value={innerValue} 
+            onChange={e => {
+              setInnerValue(e.target.value);
+              onChange(parseInt(e.target.value) || 0);
+            }}
+            className="min-w-[3rem] w-auto bg-transparent text-right font-bold text-sm focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
           <span className="text-xs text-zinc-600">/ {max}</span>
         </div>
@@ -1225,15 +1553,27 @@ function ProgressBar({ label, current, max, color, onChange }: { label: string, 
 
 function MiniBar({ label, value, max = 100, color, onChange }: { label: string, value: number, max?: number, color: string, onChange: (v: number) => void }) {
   const percent = Math.min(100, (value / max) * 100);
+  const [innerValue, setInnerValue] = useState(value?.toString() ?? '');
+
+  useEffect(() => {
+    if (value !== undefined && value !== null && value.toString() !== innerValue) {
+      if (value === 0 && innerValue === '') return;
+      setInnerValue(value.toString());
+    }
+  }, [value]);
+
   return (
     <div className="bg-zinc-900/50 border border-zinc-800 p-2 rounded-lg">
       <div className="text-[9px] text-zinc-500 font-bold uppercase mb-1">{label}</div>
       <div className="flex items-center gap-2">
         <input 
           type="number" 
-          value={value ?? 0} 
-          onChange={e => onChange(parseInt(e.target.value) || 0)}
-          className="w-full bg-transparent text-xs font-bold focus:outline-none"
+          value={innerValue} 
+          onChange={e => {
+            setInnerValue(e.target.value);
+            onChange(parseInt(e.target.value) || 0);
+          }}
+          className="w-full bg-transparent text-xs font-bold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
       </div>
       <div className="h-1 bg-zinc-800 rounded-full mt-1 overflow-hidden">
@@ -1249,7 +1589,7 @@ function WeaponProperties({ item, onChange }: { item: any, onChange: (updates: a
       <div className="grid grid-cols-3 gap-2">
         <MiniInput label="Dano" value={item.dano || '0'} onChange={v => onChange({ dano: v })} />
         <MiniInput label="Acerto" value={item.acerto || 0} type="number" onChange={v => onChange({ acerto: parseInt(v) || 0 })} />
-        <MiniInput label="Escala" value={item.escala || 'C'} onChange={v => onChange({ escala: v })} />
+        <MiniInput label="Escala" value={item.escala ?? ''} onChange={v => onChange({ escala: v })} />
       </div>
       <div className="grid grid-cols-3 gap-2">
         <MiniInput label="Corte" value={item.corte || 0} type="number" onChange={v => onChange({ corte: parseInt(v) || 0 })} />
@@ -1288,16 +1628,61 @@ function ArmorProperties({ item, onChange }: { item: any, onChange: (updates: an
   );
 }
 
-function MiniInput({ label, value, type = "text", onChange }: { label: string, value: any, type?: string, onChange: (v: string) => void }) {
+function NumericInput({ label, value, onChange, className, min, max, size = "md" }: { label?: string, value: number, onChange: (v: number) => void, className?: string, min?: number, max?: number, size?: "sm" | "md" | "lg" }) {
+  const [innerValue, setInnerValue] = useState(value?.toString() ?? '');
+
+  useEffect(() => {
+    if (value !== undefined && value !== null && value.toString() !== innerValue) {
+      if (value === 0 && innerValue === '') return;
+      setInnerValue(value.toString());
+    }
+  }, [value]);
+
   return (
-    <div className="flex flex-col">
-      <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter mb-0.5">{label}</span>
+    <div className={cn("flex flex-col min-w-0", className)}>
+      {label && <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 truncate">{label}</label>}
+      <input 
+        type="number" 
+        value={innerValue} 
+        min={min}
+        max={max}
+        onChange={e => {
+          setInnerValue(e.target.value);
+          onChange(parseInt(e.target.value) || 0);
+        }}
+        className={cn(
+          "bg-black/20 border border-zinc-800/50 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold text-center w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+          size === "sm" && "py-1 px-1 text-xs",
+          size === "md" && "py-2 px-2 text-sm",
+          size === "lg" && "py-3 px-3 text-lg"
+        )}
+      />
+    </div>
+  );
+}
+
+function MiniInput({ label, value, type = "text", onChange }: { label: string, value: any, type?: string, onChange: (v: string) => void }) {
+  const [innerValue, setInnerValue] = useState(value?.toString() ?? '');
+
+  useEffect(() => {
+    if (value !== undefined && value !== null && value.toString() !== innerValue) {
+      if (value === 0 && innerValue === '') return;
+      setInnerValue(value.toString());
+    }
+  }, [value]);
+
+  return (
+    <div className="flex flex-col min-w-0">
+      <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter mb-0.5 truncate">{label}</span>
       {type === "text" ? (
         <textarea 
-          value={value ?? ''} 
-          onChange={e => onChange(e.target.value)}
+          value={innerValue} 
+          onChange={e => {
+            setInnerValue(e.target.value);
+            onChange(e.target.value);
+          }}
           rows={1}
-          className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 break-words whitespace-normal resize-none overflow-hidden min-h-[20px]"
+          className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 break-words whitespace-normal resize-none overflow-hidden min-h-[20px] w-full"
           onInput={(e) => {
             const target = e.target as HTMLTextAreaElement;
             target.style.height = 'auto';
@@ -1307,9 +1692,12 @@ function MiniInput({ label, value, type = "text", onChange }: { label: string, v
       ) : (
         <input 
           type={type} 
-          value={value ?? (type === 'number' ? 0 : '')} 
-          onChange={e => onChange(e.target.value)}
-          className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50"
+          value={innerValue} 
+          onChange={e => {
+            setInnerValue(e.target.value);
+            onChange(e.target.value);
+          }}
+          className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
       )}
     </div>

@@ -69,8 +69,11 @@ export interface Character {
   habilidades: Ability[];
   magias: Spell[];
   armaduras: ArmorPiece[];
+  acessorios: ArmorPiece[];
   compartimentos: Compartment[];
   conhecimentos: Knowledge[];
+  efeitosNegativos: string[];
+  anotacoes: { id: string; titulo: string; conteudo: string }[];
 }
 
 export interface AppState {
