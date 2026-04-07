@@ -167,16 +167,30 @@ export default function App() {
   const deslocamentoFinal = Math.max(0, Math.floor(deslocamentoBase * penalties.deslocamentoMult));
 
   const exportJSON = () => {
-    const jsonString = JSON.stringify(activeChar, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${activeChar.nome || 'personagem'}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    try {
+      const jsonString = JSON.stringify(activeChar, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const safeName = (activeChar.nome || 'personagem').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      link.download = `${safeName}.json`;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      
+      // Some mobile browsers need a slight delay or direct click
+      setTimeout(() => {
+        link.click();
+        setTimeout(() => {
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }, 100);
+      }, 0);
+    } catch (err) {
+      console.error('Erro ao exportar JSON:', err);
+      // Fallback: show in a prompt or alert if possible (though limited in iframe)
+      alert('Houve um erro ao exportar. Tente abrir o app em uma nova aba.');
+    }
   };
 
   const importJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1894,7 +1908,7 @@ function DiceImage({ sides, fileName, className }: { sides: number, fileName?: s
   if (fileName && !error) {
     return (
       <img 
-        src={`/${fileName}`} 
+        src={fileName} 
         alt={`d${sides}`} 
         className={className} 
         onError={() => setError(true)}
