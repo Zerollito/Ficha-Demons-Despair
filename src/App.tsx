@@ -3,7 +3,7 @@ import {
   Plus, Trash2, Save, Download, Upload, Copy, ChevronDown, ChevronUp, 
   Shield, Sword, Backpack, BookOpen, Activity, Coins, User, MapPin, 
   Thermometer, Utensils, Droplets, Battery, Weight, Package, Gem, Zap,
-  MoreVertical, Flame, Skull, Biohazard, Bone, RotateCw, X, Droplet, FileText
+  MoreVertical, Flame, Skull, Biohazard, Bone, RotateCw, X, Droplet, FileText, Dices
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -51,6 +51,7 @@ const createEmptyCharacter = (): Character => ({
   conhecimentos: INITIAL_KNOWLEDGES.map(name => ({ name, nivel: 0, xp: 0, limite: 5 })),
   efeitosNegativos: [],
   anotacoes: [{ id: crypto.randomUUID(), titulo: 'Anotações Gerais', conteudo: '' }],
+  dadosCustomizados: [],
 });
 
 const NEGATIVE_EFFECTS = [
@@ -81,8 +82,33 @@ export default function App() {
   const [clipboard, setClipboard] = useState<{ type: 'Arma' | 'Armadura' | 'Item' | 'Magia' | 'Habilidade', data: any } | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [vitaisTab, setVitaisTab] = useState<'status' | 'efeitos'>('status');
-  const [activePage, setActivePage] = useState<'sheet' | 'notes'>('sheet');
+  const [activePage, setActivePage] = useState<'sheet' | 'notes' | 'dice'>('sheet');
+  const [diceQuantity, setDiceQuantity] = useState(1);
+  const [diceBonus, setDiceBonus] = useState(0);
+  const [diceHistory, setDiceHistory] = useState<{ id: string; result: number; formula: string; timestamp: number }[]>([]);
+  const [lastRoll, setLastRoll] = useState<{ result: number; formula: string; rolls: number[]; bonus: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const rollDice = (sides: number, quantity: number, bonus: number, label?: string) => {
+    const rolls: number[] = [];
+    let total = 0;
+    for (let i = 0; i < quantity; i++) {
+      const roll = Math.floor(Math.random() * sides) + 1;
+      rolls.push(roll);
+      total += roll;
+    }
+    const finalResult = total + bonus;
+    const formula = `${quantity}d${sides}${bonus !== 0 ? (bonus > 0 ? ` + ${bonus}` : ` - ${Math.abs(bonus)}`) : ''}${label ? ` (${label})` : ''}`;
+    
+    setDiceHistory(prev => [{
+      id: crypto.randomUUID(),
+      result: finalResult,
+      formula,
+      timestamp: Date.now()
+    }, ...prev].slice(0, 50));
+
+    setLastRoll({ result: finalResult, formula, rolls, bonus });
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -249,6 +275,16 @@ export default function App() {
               title="Anotações"
             >
               <FileText size={18} />
+            </button>
+            <button 
+              onClick={() => setActivePage('dice')}
+              className={cn(
+                "p-2 rounded-md transition-all",
+                activePage === 'dice' ? "bg-amber-500 text-zinc-950" : "text-zinc-500 hover:text-zinc-300"
+              )}
+              title="Rolagem de Dados"
+            >
+              <Dices size={18} />
             </button>
           </div>
         </div>
@@ -1318,6 +1354,177 @@ export default function App() {
           </Section>
           </div>
         </div>
+      ) : activePage === 'dice' ? (
+        <div className="space-y-6 max-w-4xl mx-auto">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-amber-500 flex items-center gap-2">
+              <Dices size={24} /> Rolagem de Dados
+            </h2>
+          </div>
+
+          {/* Dice Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { sides: 4, img: 'd4.png' },
+              { sides: 6, img: 'd6.png' },
+              { sides: 8, img: 'd8.png' },
+              { sides: 10, img: 'd10.png' },
+              { sides: 12, img: 'd12.png' },
+              { sides: 20, img: 'd20.png' },
+              { sides: 100, img: 'd100.png' },
+            ].map(dice => (
+              <button
+                key={`d${dice.sides}`}
+                onClick={() => rollDice(dice.sides, diceQuantity, diceBonus)}
+                className="flex flex-col items-center justify-center p-6 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-amber-500/50 transition-all group shadow-lg"
+              >
+                <div className="w-16 h-16 mb-2 flex items-center justify-center relative">
+                  <DiceImage 
+                    sides={dice.sides} 
+                    fileName={dice.img} 
+                    className="w-full h-full object-contain group-hover:scale-110 transition-transform invert" 
+                  />
+                </div>
+                <span className="text-sm font-bold text-zinc-300 uppercase">d{dice.sides}</span>
+              </button>
+            ))}
+            
+            {/* Special 3d8 Preset */}
+            <button
+              onClick={() => rollDice(8, 3, diceBonus, '3d8')}
+              className="flex flex-col items-center justify-center p-6 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-amber-500/50 transition-all group shadow-lg"
+            >
+              <div className="w-16 h-16 mb-2 flex items-center justify-center relative">
+                <DiceImage 
+                  sides={8} 
+                  fileName="3d8.png" 
+                  className="w-full h-full object-contain group-hover:scale-110 transition-transform invert" 
+                />
+                <div className="absolute -top-2 -right-2 bg-amber-500 text-zinc-950 text-[10px] font-bold px-1 rounded shadow-sm">3d8</div>
+              </div>
+              <span className="text-sm font-bold text-zinc-300 uppercase">3d8</span>
+            </button>
+
+            {/* Custom Dice */}
+            {(activeChar.dadosCustomizados || []).map(dice => (
+              <div key={dice.id} className="relative group">
+                <button
+                  onClick={() => rollDice(dice.lados, diceQuantity, diceBonus, dice.nome)}
+                  className="w-full flex flex-col items-center justify-center p-6 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-amber-500/50 transition-all shadow-lg"
+                >
+                  <div className="w-16 h-16 mb-2 flex items-center justify-center">
+                    <Dices size={32} className="text-amber-500 group-hover:scale-110 transition-transform" />
+                  </div>
+                  <span className="text-sm font-bold text-zinc-300 uppercase truncate w-full text-center">{dice.nome || `d${dice.lados}`}</span>
+                </button>
+                <button 
+                  onClick={() => updateChar({ dadosCustomizados: activeChar.dadosCustomizados.filter(d => d.id !== dice.id) })}
+                  className="absolute top-2 right-2 p-1 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-md opacity-0 group-hover:opacity-100 transition-all"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Create Custom Dice */}
+          <Section title="Criar Dado Personalizado" icon={<Plus size={18} />} collapsible defaultCollapsed>
+            <div className="flex flex-wrap gap-4 items-end">
+              <div className="flex-1 min-w-[120px]">
+                <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Lados</label>
+                <input 
+                  type="number"
+                  id="new-dice-sides"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold text-center"
+                  defaultValue={20}
+                />
+              </div>
+              <div className="flex-1 min-w-[120px]">
+                <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Nome (Opcional)</label>
+                <input 
+                  type="text"
+                  id="new-dice-name"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-zinc-300"
+                  placeholder="Ex: Dado de Sorte"
+                />
+              </div>
+              <button 
+                onClick={() => {
+                  const sidesInput = document.getElementById('new-dice-sides') as HTMLInputElement;
+                  const nameInput = document.getElementById('new-dice-name') as HTMLInputElement;
+                  const sides = parseInt(sidesInput?.value) || 20;
+                  const name = nameInput?.value || `d${sides}`;
+                  updateChar({ dadosCustomizados: [...(activeChar.dadosCustomizados || []), { id: crypto.randomUUID(), lados: sides, nome: name }] });
+                  if (nameInput) nameInput.value = '';
+                }}
+                className="bg-amber-500 hover:bg-amber-400 text-zinc-950 px-6 py-2 rounded-lg font-bold transition-all shadow-lg shadow-amber-500/20"
+              >
+                Criar Dado
+              </button>
+            </div>
+          </Section>
+
+          {/* Selectors and Results */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-zinc-800">
+            <div className="space-y-4">
+              <h3 className="text-sm font-bold uppercase text-zinc-500 tracking-widest">Configurações de Rolagem</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Quantidade de Dados</label>
+                  <NumericInput 
+                    value={diceQuantity} 
+                    onChange={setDiceQuantity} 
+                    min={1}
+                    size="lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Bônus / Ônus</label>
+                  <NumericInput 
+                    value={diceBonus} 
+                    onChange={setDiceBonus} 
+                    size="lg"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="text-sm font-bold uppercase text-zinc-500 tracking-widest">Histórico</h3>
+                <button 
+                  onClick={() => setDiceHistory([])}
+                  className="text-[10px] font-bold text-red-400 hover:text-red-300 uppercase"
+                >
+                  Limpar
+                </button>
+              </div>
+              <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 min-h-[200px] max-h-[400px] overflow-y-auto custom-scrollbar space-y-3">
+                {diceHistory.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-zinc-600 py-10">
+                    <Dices size={48} className="mb-2 opacity-20" />
+                    <p className="text-sm italic">Nenhuma rolagem ainda...</p>
+                  </div>
+                ) : (
+                  diceHistory.map(roll => (
+                    <motion.div 
+                      key={roll.id}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="flex items-center justify-between p-3 bg-zinc-950 border border-zinc-800 rounded-lg shadow-sm"
+                    >
+                      <div>
+                        <div className="text-xs font-bold text-amber-500/70 uppercase tracking-tighter">{roll.formula}</div>
+                        <div className="text-[10px] text-zinc-600">{new Date(roll.timestamp).toLocaleTimeString()}</div>
+                      </div>
+                      <div className="text-2xl font-black text-amber-500">{roll.result}</div>
+                    </motion.div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       ) : (
           <div className="space-y-6 max-w-4xl mx-auto">
             <div className="flex justify-between items-center mb-4">
@@ -1401,6 +1608,56 @@ export default function App() {
           </div>
         )}
       </main>
+
+      <AnimatePresence>
+        {lastRoll && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setLastRoll(null)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] cursor-pointer p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.5, y: 50 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.5, y: 50 }}
+              className="bg-zinc-900 border-2 border-amber-500 rounded-3xl p-8 shadow-[0_0_50px_rgba(245,158,11,0.3)] flex flex-col items-center gap-4 max-w-md w-full pointer-events-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-zinc-500 text-xs font-bold uppercase tracking-widest">{lastRoll.formula}</span>
+                <span className="text-7xl font-black text-amber-500 drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]">{lastRoll.result}</span>
+              </div>
+              
+              {lastRoll.rolls.length > 1 && (
+                <div className="w-full space-y-2">
+                  <div className="h-px bg-zinc-800 w-full" />
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {lastRoll.rolls.map((roll, idx) => (
+                      <div key={idx} className="w-10 h-10 bg-zinc-800 border border-zinc-700 rounded-lg flex items-center justify-center text-zinc-300 font-bold text-sm shadow-inner">
+                        {roll}
+                      </div>
+                    ))}
+                    {lastRoll.bonus !== 0 && (
+                      <div className="w-10 h-10 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-center text-amber-500 font-bold text-sm">
+                        {lastRoll.bonus > 0 ? `+${lastRoll.bonus}` : lastRoll.bonus}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <button 
+                onClick={() => setLastRoll(null)}
+                className="mt-2 text-zinc-500 text-[10px] uppercase font-bold tracking-widest hover:text-zinc-300 transition-colors"
+              >
+                Clique para fechar
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
@@ -1628,6 +1885,24 @@ function ArmorProperties({ item, onChange }: { item: any, onChange: (updates: an
   );
 }
 
+function DiceImage({ sides, fileName, className }: { sides: number, fileName?: string, className?: string }) {
+  const [error, setError] = useState(false);
+  
+  if (fileName && !error) {
+    return (
+      <img 
+        src={`/${fileName}`} 
+        alt={`d${sides}`} 
+        className={className} 
+        onError={() => setError(true)}
+        referrerPolicy="no-referrer"
+      />
+    );
+  }
+  
+  return <Dices className={className} />;
+}
+
 function NumericInput({ label, value, onChange, className, min, max, size = "md" }: { label?: string, value: number, onChange: (v: number) => void, className?: string, min?: number, max?: number, size?: "sm" | "md" | "lg" }) {
   const [innerValue, setInnerValue] = useState(value?.toString() ?? '');
 
@@ -1641,22 +1916,42 @@ function NumericInput({ label, value, onChange, className, min, max, size = "md"
   return (
     <div className={cn("flex flex-col min-w-0", className)}>
       {label && <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 truncate">{label}</label>}
-      <input 
-        type="number" 
-        value={innerValue} 
-        min={min}
-        max={max}
-        onChange={e => {
-          setInnerValue(e.target.value);
-          onChange(parseInt(e.target.value) || 0);
-        }}
-        className={cn(
-          "bg-black/20 border border-zinc-800/50 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold text-center w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
-          size === "sm" && "py-1 px-1 text-xs",
-          size === "md" && "py-2 px-2 text-sm",
-          size === "lg" && "py-3 px-3 text-lg"
-        )}
-      />
+      <div className="flex items-center gap-1">
+        <button 
+          onClick={() => {
+            const newVal = Math.max(min ?? -999, value - 1);
+            onChange(newVal);
+          }}
+          className="p-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 transition-colors"
+        >
+          <ChevronDown size={size === "lg" ? 20 : 16} />
+        </button>
+        <input 
+          type="number" 
+          value={innerValue} 
+          min={min}
+          max={max}
+          onChange={e => {
+            setInnerValue(e.target.value);
+            onChange(parseInt(e.target.value) || 0);
+          }}
+          className={cn(
+            "bg-black/20 border border-zinc-800/50 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold text-center flex-1 min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+            size === "sm" && "py-1 px-1 text-xs",
+            size === "md" && "py-2 px-2 text-sm",
+            size === "lg" && "py-3 px-3 text-lg"
+          )}
+        />
+        <button 
+          onClick={() => {
+            const newVal = Math.min(max ?? 999, value + 1);
+            onChange(newVal);
+          }}
+          className="p-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 transition-colors"
+        >
+          <ChevronUp size={size === "lg" ? 20 : 16} />
+        </button>
+      </div>
     </div>
   );
 }

@@ -74,6 +74,7 @@ export interface Character {
   conhecimentos: Knowledge[];
   efeitosNegativos: string[];
   anotacoes: { id: string; titulo: string; conteudo: string }[];
+  dadosCustomizados: { id: string; lados: number; nome: string }[];
 }
 
 export interface AppState {
