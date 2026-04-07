@@ -1908,7 +1908,7 @@ function DiceImage({ sides, fileName, className }: { sides: number, fileName?: s
   if (fileName && !error) {
     return (
       <img 
-        src={fileName} 
+        src={`/${fileName}`} 
         alt={`d${sides}`} 
         className={className} 
         onError={() => setError(true)}
