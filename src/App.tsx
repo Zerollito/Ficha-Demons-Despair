@@ -270,10 +270,6 @@ export default function App() {
       {/* Header */}
       <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
-            <User size={20} className="text-zinc-950" />
-          </div>
-          
           <div className="flex items-center bg-zinc-950/50 p-1 rounded-lg border border-zinc-800">
             <button 
               onClick={() => setActivePage('sheet')}
@@ -1473,42 +1469,43 @@ export default function App() {
                 )}
 
                 {/* Create Custom Dice */}
-                <div className="bg-zinc-900/20 border border-zinc-800/50 rounded-xl p-4">
-                  <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4">Novo Dado</h3>
-                  <div className="flex flex-wrap gap-4 items-end">
-                    <div className="flex-1 min-w-[120px]">
-                      <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Lados</label>
-                      <input 
-                        type="number"
-                        id="new-dice-sides-v2"
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold text-center"
-                        defaultValue={20}
-                      />
+                <SubSection title="Novo Dado" icon={<Plus size={14} />} defaultCollapsed={true}>
+                  <div className="bg-zinc-900/20 border border-zinc-800/50 rounded-xl p-4 mt-2">
+                    <div className="flex flex-wrap gap-4 items-end">
+                      <div className="flex-1 min-w-[120px]">
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Lados</label>
+                        <input 
+                          type="number"
+                          id="new-dice-sides-v2"
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold text-center"
+                          defaultValue={20}
+                        />
+                      </div>
+                      <div className="flex-1 min-w-[120px]">
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Nome (Opcional)</label>
+                        <input 
+                          type="text"
+                          id="new-dice-name-v2"
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-zinc-300"
+                          placeholder="Ex: Dado de Sorte"
+                        />
+                      </div>
+                      <button 
+                        onClick={() => {
+                          const sidesInput = document.getElementById('new-dice-sides-v2') as HTMLInputElement;
+                          const nameInput = document.getElementById('new-dice-name-v2') as HTMLInputElement;
+                          const sides = parseInt(sidesInput?.value) || 20;
+                          const name = nameInput?.value || `d${sides}`;
+                          updateChar({ dadosCustomizados: [...(activeChar.dadosCustomizados || []), { id: crypto.randomUUID(), lados: sides, nome: name }] });
+                          if (nameInput) nameInput.value = '';
+                        }}
+                        className="h-10 px-4 bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-zinc-950 rounded-md transition-all flex items-center gap-2 font-bold text-xs uppercase"
+                      >
+                        <Plus size={16} /> Adicionar
+                      </button>
                     </div>
-                    <div className="flex-1 min-w-[120px]">
-                      <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Nome (Opcional)</label>
-                      <input 
-                        type="text"
-                        id="new-dice-name-v2"
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-zinc-300"
-                        placeholder="Ex: Dado de Sorte"
-                      />
-                    </div>
-                    <button 
-                      onClick={() => {
-                        const sidesInput = document.getElementById('new-dice-sides-v2') as HTMLInputElement;
-                        const nameInput = document.getElementById('new-dice-name-v2') as HTMLInputElement;
-                        const sides = parseInt(sidesInput?.value) || 20;
-                        const name = nameInput?.value || `d${sides}`;
-                        updateChar({ dadosCustomizados: [...(activeChar.dadosCustomizados || []), { id: crypto.randomUUID(), lados: sides, nome: name }] });
-                        if (nameInput) nameInput.value = '';
-                      }}
-                      className="h-10 px-4 bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-zinc-950 rounded-md transition-all flex items-center gap-2 font-bold text-xs uppercase"
-                    >
-                      <Plus size={16} /> Adicionar
-                    </button>
                   </div>
-                </div>
+                </SubSection>
               </div>
             ) : (
               <div className="space-y-3">
@@ -1676,20 +1673,21 @@ export default function App() {
         )}
       </main>
 
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {lastRoll && (
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
             onClick={() => setLastRoll(null)}
             className="fixed inset-0 bg-black/80 backdrop-blur-[2px] flex items-center justify-center z-[100] cursor-pointer p-4"
           >
             <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
+              initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
               className="bg-zinc-900 border-2 border-amber-500 rounded-3xl p-8 shadow-[0_0_50px_rgba(245,158,11,0.3)] flex flex-col items-center gap-4 max-w-[280px] w-full pointer-events-auto"
               onClick={(e) => e.stopPropagation()}
             >
