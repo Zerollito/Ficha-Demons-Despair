@@ -1399,7 +1399,7 @@ export default function App() {
                   <DiceImage 
                     sides={dice.sides} 
                     fileName={dice.img} 
-                    className="w-full h-full object-contain group-hover:scale-110 transition-transform invert" 
+                    className="w-full h-full object-contain group-hover:scale-110 transition-transform" 
                   />
                 </div>
                 <span className="text-sm font-bold text-zinc-300 uppercase">d{dice.sides}</span>
@@ -1415,7 +1415,7 @@ export default function App() {
                 <DiceImage 
                   sides={8} 
                   fileName="3d8.png" 
-                  className="w-full h-full object-contain group-hover:scale-110 transition-transform invert" 
+                  className="w-full h-full object-contain group-hover:scale-110 transition-transform" 
                 />
                 <div className="absolute -top-2 -right-2 bg-amber-500 text-zinc-950 text-[10px] font-bold px-1 rounded shadow-sm">3d8</div>
               </div>
@@ -1633,44 +1633,38 @@ export default function App() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setLastRoll(null)}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] cursor-pointer p-4"
+            className="fixed inset-0 bg-black/80 backdrop-blur-[2px] flex items-center justify-center z-[100] cursor-pointer p-4"
           >
             <motion.div 
-              initial={{ scale: 0.5, y: 50 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.5, y: 50 }}
-              className="bg-zinc-900 border-2 border-amber-500 rounded-3xl p-8 shadow-[0_0_50px_rgba(245,158,11,0.3)] flex flex-col items-center gap-4 max-w-md w-full pointer-events-auto"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+              className="bg-zinc-900 border-2 border-amber-500 rounded-3xl p-8 shadow-[0_0_50px_rgba(245,158,11,0.3)] flex flex-col items-center gap-4 max-w-[280px] w-full pointer-events-auto"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex flex-col items-center gap-1">
-                <span className="text-zinc-500 text-xs font-bold uppercase tracking-widest">{lastRoll.formula}</span>
-                <span className="text-7xl font-black text-amber-500 drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]">{lastRoll.result}</span>
+                <span className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">{lastRoll.formula}</span>
+                <span className="text-6xl font-black text-amber-500 drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]">{lastRoll.result}</span>
               </div>
               
               {lastRoll.rolls.length > 1 && (
                 <div className="w-full space-y-2">
                   <div className="h-px bg-zinc-800 w-full" />
-                  <div className="flex flex-wrap justify-center gap-2">
+                  <div className="flex flex-wrap justify-center gap-1.5">
                     {lastRoll.rolls.map((roll, idx) => (
-                      <div key={idx} className="w-10 h-10 bg-zinc-800 border border-zinc-700 rounded-lg flex items-center justify-center text-zinc-300 font-bold text-sm shadow-inner">
+                      <div key={idx} className="w-8 h-8 bg-zinc-800 border border-zinc-700 rounded-lg flex items-center justify-center text-zinc-300 font-bold text-xs shadow-inner">
                         {roll}
                       </div>
                     ))}
                     {lastRoll.bonus !== 0 && (
-                      <div className="w-10 h-10 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-center text-amber-500 font-bold text-sm">
+                      <div className="w-8 h-8 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-center text-amber-500 font-bold text-xs">
                         {lastRoll.bonus > 0 ? `+${lastRoll.bonus}` : lastRoll.bonus}
                       </div>
                     )}
                   </div>
                 </div>
               )}
-
-              <button 
-                onClick={() => setLastRoll(null)}
-                className="mt-2 text-zinc-500 text-[10px] uppercase font-bold tracking-widest hover:text-zinc-300 transition-colors"
-              >
-                Clique para fechar
-              </button>
             </motion.div>
           </motion.div>
         )}
@@ -1904,20 +1898,46 @@ function ArmorProperties({ item, onChange }: { item: any, onChange: (updates: an
 
 function DiceImage({ sides, fileName, className }: { sides: number, fileName?: string, className?: string }) {
   const [error, setError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   
-  if (fileName && !error) {
+  // Robust path strategy for different environments (Web, APK, WebView)
+  const getSrc = () => {
+    if (!fileName) return '';
+    switch (retryCount) {
+      case 0: return fileName; // Relative
+      case 1: return `/${fileName}`; // Absolute
+      case 2: return `./${fileName}`; // Dot-relative
+      default: return '';
+    }
+  };
+
+  const src = getSrc();
+
+  if (src && !error) {
     return (
-      <img 
-        src={`/${fileName}`} 
-        alt={`d${sides}`} 
-        className={className} 
-        onError={() => setError(true)}
-        referrerPolicy="no-referrer"
-      />
+      <div className={`${className} flex items-center justify-center`}>
+        <img 
+          src={src} 
+          alt={`d${sides}`} 
+          className="w-full h-full object-contain filter invert brightness-[2] contrast-125" 
+          onError={() => {
+            if (retryCount < 2) {
+              setRetryCount(prev => prev + 1);
+            } else {
+              setError(true);
+            }
+          }}
+        />
+      </div>
     );
   }
   
-  return <Dices className={className} />;
+  // Fallback to a clear text representation if image fails
+  return (
+    <div className={`${className} flex items-center justify-center bg-amber-500/10 rounded-lg border border-amber-500/20`}>
+      <span className="text-amber-500 font-black text-xl">D{sides}</span>
+    </div>
+  );
 }
 
 function NumericInput({ label, value, onChange, className, min, max, size = "md" }: { label?: string, value: number, onChange: (v: number) => void, className?: string, min?: number, max?: number, size?: "sm" | "md" | "lg" }) {
