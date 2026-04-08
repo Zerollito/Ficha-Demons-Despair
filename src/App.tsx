@@ -690,23 +690,23 @@ export default function App() {
                         >
                           -
                         </button>
-                        <NumericInput 
-                          value={currentXP}
-                          onChange={v => {
-                            if (v >= xpLimit) {
-                              updateChar({ 
-                                stats: { ...stats, [stat]: statVal + 1 },
-                                statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: 0 }
-                              });
-                            } else {
-                              updateChar({ 
-                                statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: v }
-                              });
-                            }
-                          }}
-                          className="w-16"
-                          size="sm"
-                        />
+                          <NumericInput 
+                            value={currentXP}
+                            onChange={v => {
+                              if (v >= xpLimit) {
+                                updateChar({ 
+                                  stats: { ...stats, [stat]: statVal + 1 },
+                                  statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: 0 }
+                                });
+                              } else {
+                                updateChar({ 
+                                  statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: v }
+                                });
+                              }
+                            }}
+                            className="w-28"
+                            size="sm"
+                          />
                         <button 
                           onClick={() => {
                             const newXP = currentXP + 1;
@@ -999,7 +999,7 @@ export default function App() {
                                   nc[cIdx].volumeMax = v;
                                   updateChar({ compartimentos: nc });
                                 }}
-                                className="w-20"
+                                className="w-32"
                                 size="lg"
                               />
                            </div>
@@ -1343,7 +1343,7 @@ export default function App() {
                           newKs[idx].nivel = v;
                           updateChar({ conhecimentos: newKs });
                         }}
-                        className="w-20"
+                        className="w-32"
                         size="lg"
                       />
                     </div>
@@ -1369,7 +1369,7 @@ export default function App() {
                           newKs[idx] = updatedK;
                           updateChar({ conhecimentos: newKs });
                         }}
-                        className="w-16"
+                        className="w-28"
                         size="sm"
                       />
                       <span className="text-sm text-zinc-500 font-bold">/ {getXpToNextLevel(k.nivel)}</span>
