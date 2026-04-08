@@ -1444,9 +1444,8 @@ export default function App() {
 
                 {/* Custom Dice Section */}
                 {activeChar.dadosCustomizados && activeChar.dadosCustomizados.length > 0 && (
-                  <div className="space-y-4">
-                    <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-800 pb-2">Personalizados</h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <SubSection title="Dados Personalizados" icon={<Dices size={14} />} defaultCollapsed={false}>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-2">
                       {activeChar.dadosCustomizados.map(dice => (
                         <div key={dice.id} className="relative group">
                           <button
@@ -1465,7 +1464,7 @@ export default function App() {
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </SubSection>
                 )}
 
                 {/* Create Custom Dice */}
@@ -1676,18 +1675,10 @@ export default function App() {
       <AnimatePresence mode="wait">
         {lastRoll && (
           <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
             onClick={() => setLastRoll(null)}
-            className="fixed inset-0 bg-black/80 backdrop-blur-[2px] flex items-center justify-center z-[100] cursor-pointer p-4"
+            className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] cursor-pointer p-4"
           >
             <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
               className="bg-zinc-900 border-2 border-amber-500 rounded-3xl p-8 shadow-[0_0_50px_rgba(245,158,11,0.3)] flex flex-col items-center gap-4 max-w-[280px] w-full pointer-events-auto"
               onClick={(e) => e.stopPropagation()}
             >
@@ -1945,48 +1936,35 @@ function ArmorProperties({ item, onChange }: { item: any, onChange: (updates: an
 }
 
 function DiceImage({ sides, fileName, className }: { sides: number, fileName?: string, className?: string }) {
-  const [error, setError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-  
-  // Aggressive path strategy for mobile/APK
-  const paths = useMemo(() => {
-    if (!fileName) return [];
-    const base = fileName.replace(/^\//, '');
-    return [
-      base,
-      `./${base}`,
-      `/${base}`,
-      `assets/${base}`,
-      window.location.origin + '/' + base,
-      window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/')) + '/' + base
-    ];
-  }, [fileName]);
+  const diceBase64: Record<string, string> = {
+    'd4.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTIgM0wyIDExTDEyIDIxTDIyIDExTDEyIDNaIi8+PHBhdGggZD0iTTEyIDNMMTIgMjEiLz48cGF0aCBkPSJNMiAxMUwyMiAxMSIvPjwvc3ZnPg==',
+    'd6.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cmVjdCB4PSIzIiB5PSIzIiB3aWR0aD0iMTgiIGhlaWdodD0iMTgiIHJ4PSIyIi8+PHBhdGggZD0iTTkgOXYuMDEiLz48cGF0aCBkPSJNMTUgOXYuMDEiLz48cGF0aCBkPSJNMTIgMTJ2LjAxIi8+PHBhdGggZD0iTTkgMTV2LjAxIi8+PHBhdGggZD0iTTE1IDE1di4wMSIvPjwvc3ZnPg==',
+    'd8.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTIgMkw0IDhMMTIgMjJMMjAgOEwxMiAyWiIvPjxwYXRoIGQ9Ik00IDhMMjAgOCIvPjxwYXRoIGQ9Ik0xMiAyTDEyIDIyIi8+PC9zdmc+',
+    'd10.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTIgM0wyIDExTDEyIDIxTDIyIDExTDEyIDNaIi8+PHBhdGggZD0iTTEyIDNMMTIgMjEiLz48cGF0aCBkPSJNMiAxMUwyMiAxMSIvPjwvc3ZnPg==',
+    'd12.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTIgM0w0IDhWMTZMMTIgMjFMMjAgMTZWOEwxMiAzWiIvPjxwYXRoIGQ9Ik0xMiAzVjIxIi8+PHBhdGggZD0iTTQgOFwyMCA4Ii8+PHBhdGggZD0iTTQgMTZMMjAgMTYiLz48L3N2Zz4=',
+    'd20.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTIgMkwzIDdWMThMMTIgMjJMMjEgMThWN0wxMiAyWiIvPjxwYXRoIGQ9Ik0xMiAyVjIyIi8+PHBhdGggZD0iTTMgN0wyMSAxOCIvPjxwYXRoIGQ9Ik0yMSA3TDMgMTgiLz48L3N2Zz4=',
+    'd100.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIvPjxwYXRoIGQ9Ik0xMiAydjIwIi8+PHBhdGggZD0iTTIgMTJoMjAiLz48L3N2Zz4=',
+    '3d8.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTIgMkw0IDhMMTIgMjJMMjAgOEwxMiAyWiIvPjxwYXRoIGQ9Ik00IDhMMjAgOCIvPjxwYXRoIGQ9Ik0xMiAyTDEyIDIyIi8+PC9zdmc+'
+  };
 
-  const src = paths[retryCount] || '';
+  const src = fileName ? diceBase64[fileName] : null;
 
-  if (src && !error) {
+  if (!src) {
     return (
-      <div className={`${className} flex items-center justify-center`}>
-        <img 
-          src={src} 
-          alt={`d${sides}`} 
-          className="w-full h-full object-contain filter invert brightness-[2] contrast-125" 
-          onError={() => {
-            if (retryCount < paths.length - 1) {
-              setRetryCount(prev => prev + 1);
-            } else {
-              setError(true);
-            }
-          }}
-        />
+      <div className={`${className} flex items-center justify-center bg-amber-500/10 rounded-lg border border-amber-500/20`}>
+        <span className="text-amber-500 font-black text-xl">D{sides}</span>
       </div>
     );
   }
-  
-  // Fallback to a clear text representation if image fails
+
   return (
-    <div className={`${className} flex items-center justify-center bg-amber-500/10 rounded-lg border border-amber-500/20`}>
-      <span className="text-amber-500 font-black text-xl">D{sides}</span>
+    <div className={cn("relative flex items-center justify-center", className)}>
+      <img 
+        src={src} 
+        alt={`d${sides}`}
+        className="w-full h-full object-contain"
+        referrerPolicy="no-referrer"
+      />
     </div>
   );
 }
