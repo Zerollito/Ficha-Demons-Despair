@@ -25,6 +25,26 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  const requestLog: string[] = [];
+  app.use((req, res, next) => {
+    if (req.url.startsWith('/api')) {
+      requestLog.push(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+      if (requestLog.length > 20) requestLog.shift();
+    }
+    next();
+  });
+
+  app.get("/api/debug/requests", (req, res) => {
+    res.json({
+      logs: requestLog,
+      env: {
+        hasClientId: !!GOOGLE_CLIENT_ID,
+        nodeEnv: process.env.NODE_ENV,
+        appUrl: process.env.APP_URL
+      }
+    });
+  });
+
   app.use(express.json({ limit: '10mb' }));
   app.use(
     cookieSession({

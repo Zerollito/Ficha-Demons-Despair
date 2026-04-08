@@ -584,7 +584,21 @@ export default function App() {
                     >
                       <Upload size={18} className="text-amber-500" /> Carregar do Drive
                     </button>
-                    <div className="text-[8px] text-zinc-600 text-center pt-1">v2.0.1 - Mobile Fix</div>
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/debug/requests');
+                          const data = await res.json();
+                          alert("Debug Info:\n" + JSON.stringify(data, null, 2));
+                        } catch (e) {
+                          alert("Erro ao acessar Debug API: " + e);
+                        }
+                      }}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-[10px] font-medium text-zinc-500"
+                    >
+                      Diagnosticar Conexão
+                    </button>
+                    <div className="text-[8px] text-zinc-600 text-center pt-1">v2.0.2 - Debug Mode</div>
                   </div>
                 )}
               </div>
