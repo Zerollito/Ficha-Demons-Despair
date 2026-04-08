@@ -27,9 +27,9 @@ async function startServer() {
 
   const requestLog: string[] = [];
   app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url} (Path: ${req.path})`);
     if (req.url.startsWith('/api')) {
-      requestLog.push(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+      requestLog.push(`${new Date().toISOString()} - ${req.method} ${req.url} (Path: ${req.path})`);
       if (requestLog.length > 20) requestLog.shift();
     }
     next();
@@ -80,7 +80,7 @@ async function startServer() {
   };
 
   // Auth Routes
-  app.get("/api/auth/google/url", (req, res) => {
+  app.get(["/api/auth/google/url", "//api/auth/google/url"], (req, res) => {
     try {
       if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
         console.error("OAuth Error: Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET");
@@ -235,7 +235,8 @@ async function startServer() {
     res.status(404).json({ 
       error: "Rota de API não encontrada", 
       method: req.method, 
-      url: req.url 
+      url: req.url,
+      suggestion: "Verifique se a URL da API está correta e se não há barras duplas (//)."
     });
   });
 
@@ -248,10 +249,12 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    
+    // Serve static files first
     app.use(express.static(distPath));
     
-    // CRITICAL: SPA fallback must NOT catch /api routes
-    app.get(/^(?!\/api).+/, (req, res) => {
+    // SPA fallback for all other routes
+    app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

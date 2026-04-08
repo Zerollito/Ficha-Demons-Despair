@@ -135,7 +135,9 @@ export default function App() {
     try {
       // Pass current origin to server so it generates the correct redirect URI
       // Added cache-buster (t parameter) to ensure fresh response
-      const res = await fetch(`/api/auth/google/url?origin=${encodeURIComponent(window.location.origin)}&t=${Date.now()}`);
+      const apiUrl = `${window.location.origin}/api/auth/google/url?origin=${encodeURIComponent(window.location.origin)}&t=${Date.now()}`;
+      console.log("Fetching API URL:", apiUrl);
+      const res = await fetch(apiUrl);
       const text = await res.text();
       
       let data;
@@ -394,7 +396,7 @@ export default function App() {
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30">
       {/* DEBUG BANNER */}
       <div className="bg-red-600 text-white text-xs py-2 px-4 text-center font-bold sticky top-0 z-[9999] shadow-lg">
-        MODO DEBUG ATIVO - VERSÃO: v2.0.3
+        MODO DEBUG ATIVO - VERSÃO: v2.0.4
       </div>
       {/* Header */}
       <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
@@ -600,18 +602,18 @@ export default function App() {
                     <button 
                       onClick={async () => {
                         try {
-                          const res = await fetch('/api/debug/requests');
+                          const res = await fetch(`${window.location.origin}/api/debug/requests`);
                           const data = await res.json();
-                          alert("Debug Info:\n" + JSON.stringify(data, null, 2));
+                          alert(`Debug Info:\nOrigin: ${window.location.origin}\nLogs:\n${JSON.stringify(data.logs, null, 2)}`);
                         } catch (e) {
-                          alert("Erro ao acessar Debug API: " + e);
+                          alert(`Erro ao acessar Debug API:\nOrigin: ${window.location.origin}\nErro: ${e}`);
                         }
                       }}
                       className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-[10px] font-medium text-zinc-500"
                     >
                       Diagnosticar Conexão
                     </button>
-                    <div className="text-[8px] text-zinc-600 text-center pt-1">v2.0.3 - Debug Mode</div>
+                    <div className="text-[8px] text-zinc-600 text-center pt-1">v2.0.4 - Debug Mode</div>
                   </div>
                 )}
               </div>
