@@ -15,6 +15,12 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const SESSION_SECRET = process.env.SESSION_SECRET || "rpg-sheet-secret";
 
+console.log("Environment check:", {
+  hasClientId: !!GOOGLE_CLIENT_ID,
+  clientIdPrefix: GOOGLE_CLIENT_ID ? GOOGLE_CLIENT_ID.substring(0, 10) + "..." : "none",
+  hasClientSecret: !!GOOGLE_CLIENT_SECRET,
+});
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -31,9 +37,21 @@ async function startServer() {
   );
 
   const getOAuthClient = (req: express.Request) => {
-    const protocol = req.headers["x-forwarded-proto"] || "http";
-    const host = req.headers["host"];
-    const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
+    // 1. Try APP_URL environment variable (recommended for AI Studio)
+    // 2. Try x-forwarded headers
+    // 3. Fallback to request headers
+    const appUrl = process.env.APP_URL;
+    let origin = "";
+
+    if (appUrl) {
+      origin = appUrl.replace(/\/$/, "");
+    } else {
+      const protocol = req.headers["x-forwarded-proto"] || "https";
+      const host = req.headers["x-forwarded-host"] || req.headers["host"];
+      origin = `${protocol}://${host}`;
+    }
+
+    const redirectUri = `${origin}/api/auth/google/callback`;
     
     return new google.auth.OAuth2(
       GOOGLE_CLIENT_ID,
@@ -48,6 +66,9 @@ async function startServer() {
       return res.status(500).json({ error: "Google OAuth credentials not configured" });
     }
     const oauth2Client = getOAuthClient(req);
+    
+    console.log("Generating Auth URL with redirectUri:", oauth2Client.redirectUri);
+
     const url = oauth2Client.generateAuthUrl({
       access_type: "offline",
       scope: ["https://www.googleapis.com/auth/drive.file"],

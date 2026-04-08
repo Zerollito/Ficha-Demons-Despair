@@ -121,12 +121,16 @@ export default function App() {
   }, []);
 
   const connectDrive = async () => {
+    const authWindow = window.open('about:blank', 'google_auth', 'width=600,height=700');
     try {
       const res = await fetch('/api/auth/google/url');
       const { url } = await res.json();
-      window.open(url, 'google_auth', 'width=600,height=700');
+      if (authWindow) {
+        authWindow.location.href = url;
+      }
     } catch (e) {
       console.error("Error connecting to drive", e);
+      if (authWindow) authWindow.close();
     }
   };
 
@@ -196,13 +200,17 @@ export default function App() {
   };
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setIsMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
   }, []);
 
   const copyToClipboard = (type: 'Arma' | 'Armadura' | 'Item' | 'Magia' | 'Habilidade', data: any) => {
@@ -406,7 +414,7 @@ export default function App() {
           </button>
           
           <div className={cn(
-            "absolute right-0 top-full mt-2 w-64 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl transition-all duration-200 z-[60] p-2 space-y-1",
+            "absolute right-0 top-full mt-2 w-72 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl transition-all duration-200 z-[60] p-2 space-y-1 max-h-[80vh] overflow-y-auto custom-scrollbar",
             isMenuOpen ? "opacity-100 visible translate-y-0" : "opacity-0 invisible -translate-y-2 pointer-events-none"
           )}>
             <div className="px-3 py-2 border-b border-zinc-800 mb-1">
