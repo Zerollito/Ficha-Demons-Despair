@@ -69,7 +69,9 @@ async function startServer() {
       const originOverride = req.query.origin as string;
       const oauth2Client = getOAuthClient(req, originOverride);
       
-      console.log("Generating Auth URL with redirectUri:", oauth2Client.redirectUri);
+      // @ts-ignore - Accessing private for logging purposes or just use the variable
+      const usedRedirectUri = (oauth2Client as any).redirectUri;
+      console.log("Generating Auth URL with redirectUri:", usedRedirectUri);
 
       const url = oauth2Client.generateAuthUrl({
         access_type: "offline",
