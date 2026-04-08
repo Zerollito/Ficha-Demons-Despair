@@ -4,7 +4,7 @@ import {
   Shield, Sword, Backpack, BookOpen, Activity, Coins, User, MapPin, 
   Thermometer, Utensils, Droplets, Battery, Weight, Package, Gem, Zap,
   MoreVertical, Flame, Skull, Biohazard, Bone, RotateCw, X, Droplet, FileText, Dices,
-  History, Minus, Image
+  History, Minus, Image, Cloud
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -91,7 +91,88 @@ export default function App() {
   const [diceBonus, setDiceBonus] = useState(0);
   const [diceHistory, setDiceHistory] = useState<{ id: string; result: number; formula: string; timestamp: number }[]>([]);
   const [lastRoll, setLastRoll] = useState<{ result: number; formula: string; rolls: number[]; bonus: number } | null>(null);
+  const [isDriveConnected, setIsDriveConnected] = useState(false);
+  const [isAutoSaveEnabled, setIsAutoSaveEnabled] = useState(() => {
+    return localStorage.getItem('drive_auto_save') === 'true';
+  });
+  const [isSaving, setIsSaving] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Drive Integration
+  useEffect(() => {
+    const checkDriveStatus = async () => {
+      try {
+        const res = await fetch('/api/auth/google/status');
+        const data = await res.json();
+        setIsDriveConnected(data.connected);
+      } catch (e) {
+        console.error("Error checking drive status", e);
+      }
+    };
+    checkDriveStatus();
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+        setIsDriveConnected(true);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  const connectDrive = async () => {
+    try {
+      const res = await fetch('/api/auth/google/url');
+      const { url } = await res.json();
+      window.open(url, 'google_auth', 'width=600,height=700');
+    } catch (e) {
+      console.error("Error connecting to drive", e);
+    }
+  };
+
+  const disconnectDrive = async () => {
+    try {
+      await fetch('/api/auth/google/logout', { method: 'POST' });
+      setIsDriveConnected(false);
+      setIsAutoSaveEnabled(false);
+      localStorage.removeItem('drive_auto_save');
+    } catch (e) {
+      console.error("Error disconnecting from drive", e);
+    }
+  };
+
+  const saveToDrive = useCallback(async () => {
+    if (!isDriveConnected) return;
+    setIsSaving(true);
+    try {
+      await fetch('/api/drive/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: 'rpg_system_x_backup.json',
+          data: state
+        })
+      });
+    } catch (e) {
+      console.error("Error saving to drive", e);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [isDriveConnected, state]);
+
+  // Auto-save effect
+  useEffect(() => {
+    if (isAutoSaveEnabled && isDriveConnected) {
+      const timer = setTimeout(() => {
+        saveToDrive();
+      }, 5000); // Auto-save after 5 seconds of inactivity
+      return () => clearTimeout(timer);
+    }
+  }, [state, isAutoSaveEnabled, isDriveConnected, saveToDrive]);
+
+  useEffect(() => {
+    localStorage.setItem('drive_auto_save', isAutoSaveEnabled.toString());
+  }, [isAutoSaveEnabled]);
 
   const rollDice = (sides: number, quantity: number, bonus: number, label?: string) => {
     const rolls: number[] = [];
@@ -389,6 +470,85 @@ export default function App() {
             >
               <Activity size={18} className="text-amber-500" /> Exportar PDF
             </button>
+
+            <div className="pt-1 border-t border-zinc-800 mt-1">
+              <div className="px-3 py-2">
+                <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Google Drive</label>
+                {!isDriveConnected ? (
+                  <button 
+                    onClick={connectDrive}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm font-medium text-zinc-300"
+                  >
+                    <Cloud size={18} className="text-amber-500" /> Conectar Drive
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-emerald-500 flex items-center gap-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Conectado
+                      </span>
+                      <button 
+                        onClick={disconnectDrive}
+                        className="text-[10px] text-zinc-500 hover:text-red-400 underline"
+                      >
+                        Desconectar
+                      </button>
+                    </div>
+                    <button 
+                      onClick={() => setIsAutoSaveEnabled(!isAutoSaveEnabled)}
+                      className={cn(
+                        "w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all text-xs font-medium",
+                        isAutoSaveEnabled ? "bg-amber-500/10 text-amber-500 border border-amber-500/20" : "bg-zinc-800 text-zinc-400"
+                      )}
+                    >
+                      Salvamento Automático
+                      <div className={cn(
+                        "w-8 h-4 rounded-full relative transition-all",
+                        isAutoSaveEnabled ? "bg-amber-500" : "bg-zinc-700"
+                      )}>
+                        <div className={cn(
+                          "absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all",
+                          isAutoSaveEnabled ? "left-4.5" : "left-0.5"
+                        )} />
+                      </div>
+                    </button>
+                    <button 
+                      onClick={saveToDrive}
+                      disabled={isSaving}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm font-medium text-zinc-300 disabled:opacity-50"
+                    >
+                      {isSaving ? (
+                        <RotateCw size={18} className="animate-spin" />
+                      ) : (
+                        <Save size={18} className="text-amber-500" />
+                      )}
+                      Salvar Agora
+                    </button>
+                    <button 
+                      onClick={async () => {
+                        if (!confirm("Isso irá substituir todas as suas fichas locais pelas do Drive. Deseja continuar?")) return;
+                        try {
+                          const res = await fetch('/api/drive/load?filename=rpg_system_x_backup.json');
+                          if (res.ok) {
+                            const data = await res.json();
+                            setState(data);
+                            alert("Fichas carregadas com sucesso!");
+                          } else {
+                            alert("Nenhum backup encontrado no Drive.");
+                          }
+                        } catch (e) {
+                          console.error("Error loading from drive", e);
+                          alert("Erro ao carregar do Drive.");
+                        }
+                      }}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm font-medium text-zinc-300"
+                    >
+                      <Upload size={18} className="text-amber-500" /> Carregar do Drive
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
 
             <div className="pt-1 border-t border-zinc-800 mt-1">
               <button 
