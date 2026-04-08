@@ -647,14 +647,14 @@ export default function App() {
           </Section>
 
           <Section title="Defesa por Membro" icon={<Shield size={18}/>} collapsible>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {Object.entries(activeChar.defesa).map(([part, val]) => (
                 <div key={part} className="bg-zinc-900 border border-zinc-800 p-2 rounded flex justify-between items-center">
                   <span className="text-xs text-zinc-400">{part}</span>
                   <NumericInput 
                     value={val as number} 
                     onChange={v => updateChar({ defesa: { ...activeChar.defesa, [part]: v } })}
-                    className="w-16"
+                    className="w-28"
                     size="sm"
                   />
                 </div>
@@ -663,7 +663,7 @@ export default function App() {
           </Section>
 
           <Section title="Status" icon={<Zap size={18}/>} collapsible>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {(Object.keys(stats) as (keyof Stats)[]).map(stat => {
                 const statVal = stats[stat];
                 const xpLimit = 5 + (Math.floor(statVal / 15) * 5);
@@ -2067,7 +2067,7 @@ function NumericInput({ label, value, onChange, className, min, max, size = "md"
             onChange(parseInt(e.target.value) || 0);
           }}
           className={cn(
-            "bg-black/20 border border-zinc-800/50 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold text-center flex-1 min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+            "bg-black/20 border border-zinc-800/50 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold text-center flex-1 min-w-[2rem] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
             size === "sm" && "py-1 px-1 text-xs",
             size === "md" && "py-2 px-2 text-sm",
             size === "lg" && "py-3 px-3 text-lg"
