@@ -27,6 +27,7 @@ async function startServer() {
 
   const requestLog: string[] = [];
   app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
     if (req.url.startsWith('/api')) {
       requestLog.push(`${new Date().toISOString()} - ${req.method} ${req.url}`);
       if (requestLog.length > 20) requestLog.shift();
@@ -226,6 +227,16 @@ async function startServer() {
 
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // Catch-all for undefined API routes
+  app.all("/api/*", (req, res) => {
+    console.warn(`404 API Route Not Found: ${req.method} ${req.url}`);
+    res.status(404).json({ 
+      error: "Rota de API não encontrada", 
+      method: req.method, 
+      url: req.url 
+    });
   });
 
   // Vite middleware for development

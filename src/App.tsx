@@ -143,7 +143,8 @@ export default function App() {
         data = JSON.parse(text);
       } catch (e) {
         console.error("Server response was not JSON:", text);
-        throw new Error(`Resposta inválida do servidor (não é JSON). Verifique se o endereço da API está correto.`);
+        const preview = text.substring(0, 200);
+        throw new Error(`Resposta inválida do servidor (não é JSON). Conteúdo: "${preview}..."`);
       }
       
       if (!res.ok) {
@@ -392,8 +393,8 @@ export default function App() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30">
       {/* DEBUG BANNER */}
-      <div className="bg-red-600 text-white text-[10px] py-1 px-2 text-center font-bold sticky top-0 z-[9999]">
-        VERSÃO ATUAL: v2.0.2 - SE VOCÊ VÊ ISSO, O CACHE FOI LIMPO
+      <div className="bg-red-600 text-white text-xs py-2 px-4 text-center font-bold sticky top-0 z-[9999] shadow-lg">
+        MODO DEBUG ATIVO - VERSÃO: v2.0.3
       </div>
       {/* Header */}
       <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
@@ -610,7 +611,7 @@ export default function App() {
                     >
                       Diagnosticar Conexão
                     </button>
-                    <div className="text-[8px] text-zinc-600 text-center pt-1">v2.0.2 - Debug Mode</div>
+                    <div className="text-[8px] text-zinc-600 text-center pt-1">v2.0.3 - Debug Mode</div>
                   </div>
                 )}
               </div>
