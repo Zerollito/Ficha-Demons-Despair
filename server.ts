@@ -228,6 +228,7 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -237,7 +238,9 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    
+    // CRITICAL: SPA fallback must NOT catch /api routes
+    app.get(/^(?!\/api).+/, (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

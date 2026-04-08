@@ -136,7 +136,15 @@ export default function App() {
       // Pass current origin to server so it generates the correct redirect URI
       // Added cache-buster (t parameter) to ensure fresh response
       const res = await fetch(`/api/auth/google/url?origin=${encodeURIComponent(window.location.origin)}&t=${Date.now()}`);
-      const data = await res.json();
+      const text = await res.text();
+      
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error("Server response was not JSON:", text);
+        throw new Error(`Resposta inválida do servidor (não é JSON). Verifique se o endereço da API está correto.`);
+      }
       
       if (!res.ok) {
         throw new Error(data.error || "Erro desconhecido no servidor");
@@ -383,6 +391,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30">
+      {/* DEBUG BANNER */}
+      <div className="bg-red-600 text-white text-[10px] py-1 px-2 text-center font-bold sticky top-0 z-[9999]">
+        VERSÃO ATUAL: v2.0.2 - SE VOCÊ VÊ ISSO, O CACHE FOI LIMPO
+      </div>
       {/* Header */}
       <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
