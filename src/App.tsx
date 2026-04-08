@@ -270,36 +270,36 @@ export default function App() {
       {/* Header */}
       <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="flex items-center bg-zinc-950/50 p-1 rounded-lg border border-zinc-800">
+          <div className="flex items-center bg-zinc-950/50 p-1.5 rounded-xl border border-zinc-800">
             <button 
               onClick={() => setActivePage('sheet')}
               className={cn(
-                "p-2 rounded-md transition-all",
-                activePage === 'sheet' ? "bg-amber-500 text-zinc-950" : "text-zinc-500 hover:text-zinc-300"
+                "p-3 rounded-lg transition-all",
+                activePage === 'sheet' ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" : "text-zinc-500 hover:text-zinc-300"
               )}
               title="Ficha do Personagem"
             >
-              <User size={18} />
+              <User size={22} />
             </button>
             <button 
               onClick={() => setActivePage('notes')}
               className={cn(
-                "p-2 rounded-md transition-all",
-                activePage === 'notes' ? "bg-amber-500 text-zinc-950" : "text-zinc-500 hover:text-zinc-300"
+                "p-3 rounded-lg transition-all",
+                activePage === 'notes' ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" : "text-zinc-500 hover:text-zinc-300"
               )}
               title="Anotações"
             >
-              <FileText size={18} />
+              <FileText size={22} />
             </button>
             <button 
               onClick={() => setActivePage('dice')}
               className={cn(
-                "p-2 rounded-md transition-all",
-                activePage === 'dice' ? "bg-amber-500 text-zinc-950" : "text-zinc-500 hover:text-zinc-300"
+                "p-3 rounded-lg transition-all",
+                activePage === 'dice' ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" : "text-zinc-500 hover:text-zinc-300"
               )}
               title="Rolagem de Dados"
             >
-              <Dices size={18} />
+              <Dices size={22} />
             </button>
           </div>
         </div>
@@ -1936,35 +1936,36 @@ function ArmorProperties({ item, onChange }: { item: any, onChange: (updates: an
 }
 
 function DiceImage({ sides, fileName, className }: { sides: number, fileName?: string, className?: string }) {
-  const diceBase64: Record<string, string> = {
-    'd4.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTIgM0wyIDExTDEyIDIxTDIyIDExTDEyIDNaIi8+PHBhdGggZD0iTTEyIDNMMTIgMjEiLz48cGF0aCBkPSJNMiAxMUwyMiAxMSIvPjwvc3ZnPg==',
-    'd6.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cmVjdCB4PSIzIiB5PSIzIiB3aWR0aD0iMTgiIGhlaWdodD0iMTgiIHJ4PSIyIi8+PHBhdGggZD0iTTkgOXYuMDEiLz48cGF0aCBkPSJNMTUgOXYuMDEiLz48cGF0aCBkPSJNMTIgMTJ2LjAxIi8+PHBhdGggZD0iTTkgMTV2LjAxIi8+PHBhdGggZD0iTTE1IDE1di4wMSIvPjwvc3ZnPg==',
-    'd8.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTIgMkw0IDhMMTIgMjJMMjAgOEwxMiAyWiIvPjxwYXRoIGQ9Ik00IDhMMjAgOCIvPjxwYXRoIGQ9Ik0xMiAyTDEyIDIyIi8+PC9zdmc+',
-    'd10.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTIgM0wyIDExTDEyIDIxTDIyIDExTDEyIDNaIi8+PHBhdGggZD0iTTEyIDNMMTIgMjEiLz48cGF0aCBkPSJNMiAxMUwyMiAxMSIvPjwvc3ZnPg==',
-    'd12.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTIgM0w0IDhWMTZMMTIgMjFMMjAgMTZWOEwxMiAzWiIvPjxwYXRoIGQ9Ik0xMiAzVjIxIi8+PHBhdGggZD0iTTQgOFwyMCA4Ii8+PHBhdGggZD0iTTQgMTZMMjAgMTYiLz48L3N2Zz4=',
-    'd20.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTIgMkwzIDdWMThMMTIgMjJMMjEgMThWN0wxMiAyWiIvPjxwYXRoIGQ9Ik0xMiAyVjIyIi8+PHBhdGggZD0iTTMgN0wyMSAxOCIvPjxwYXRoIGQ9Ik0yMSA3TDMgMTgiLz48L3N2Zz4=',
-    'd100.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIvPjxwYXRoIGQ9Ik0xMiAydjIwIi8+PHBhdGggZD0iTTIgMTJoMjAiLz48L3N2Zz4=',
-    '3d8.png': 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjU5ZTA3IiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTIgMkw0IDhMMTIgMjJMMjAgOEwxMiAyWiIvPjxwYXRoIGQ9Ik00IDhMMjAgOCIvPjxwYXRoIGQ9Ik0xMiAyTDEyIDIyIi8+PC9zdmc+'
-  };
+  const [error, setError] = useState(false);
+  
+  // Resolve path for both web and mobile/APK
+  const src = useMemo(() => {
+    if (!fileName) return null;
+    // Remove leading slash if present to avoid double slashes
+    const cleanName = fileName.startsWith('/') ? fileName.substring(1) : fileName;
+    
+    // In many APK/Webview environments, absolute paths from root work best
+    // but we also try relative to current location
+    return `/${cleanName}`;
+  }, [fileName]);
 
-  const src = fileName ? diceBase64[fileName] : null;
-
-  if (!src) {
+  if (src && !error) {
     return (
-      <div className={`${className} flex items-center justify-center bg-amber-500/10 rounded-lg border border-amber-500/20`}>
-        <span className="text-amber-500 font-black text-xl">D{sides}</span>
+      <div className={cn("relative flex items-center justify-center", className)}>
+        <img 
+          src={src} 
+          alt={`d${sides}`}
+          className="w-full h-full object-contain filter invert brightness-[2] contrast-125"
+          referrerPolicy="no-referrer"
+          onError={() => setError(true)}
+        />
       </div>
     );
   }
 
   return (
-    <div className={cn("relative flex items-center justify-center", className)}>
-      <img 
-        src={src} 
-        alt={`d${sides}`}
-        className="w-full h-full object-contain"
-        referrerPolicy="no-referrer"
-      />
+    <div className={cn("flex items-center justify-center bg-amber-500/10 rounded-lg border border-amber-500/20", className)}>
+      <span className="text-amber-500 font-black text-xl">D{sides}</span>
     </div>
   );
 }
