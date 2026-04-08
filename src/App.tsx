@@ -436,7 +436,7 @@ export default function App() {
         </AnimatePresence>
       </header>
 
-      <main className="max-w-7xl mx-auto p-4 md:p-6 pb-20">
+      <main key={activeChar.id} className="max-w-7xl mx-auto p-4 md:p-6 pb-20">
         {activePage === 'sheet' ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Left Column: Basic Info & Stats */}
@@ -494,7 +494,7 @@ export default function App() {
             </div>
           </Section>
 
-          <Section title="Vitais" icon={<Activity size={18}/>} collapsible>
+          <Section title="Vitais" icon={<Activity size={18}/>} collapsible defaultCollapsed={true}>
             <div className="flex gap-2 mb-4 p-1 bg-zinc-950/50 rounded-lg border border-zinc-800">
               <button 
                 onClick={() => setVitaisTab('status')}
@@ -635,7 +635,7 @@ export default function App() {
             )}
           </Section>
 
-          <Section title="Bônus de Dano" icon={<Sword size={18}/>} collapsible>
+          <Section title="Bônus de Dano" icon={<Sword size={18}/>} collapsible defaultCollapsed={true}>
             <div className="grid grid-cols-2 gap-3">
               {['FOR', 'DEX', 'INT', 'RIT'].map(stat => (
                 <div key={stat} className="flex justify-between items-center bg-zinc-900/50 p-2 rounded border border-zinc-800">
@@ -646,7 +646,7 @@ export default function App() {
             </div>
           </Section>
 
-          <Section title="Defesa por Membro" icon={<Shield size={18}/>} collapsible>
+          <Section title="Defesa por Membro" icon={<Shield size={18}/>} collapsible defaultCollapsed={true}>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {Object.entries(activeChar.defesa).map(([part, val]) => (
                 <div key={part} className="bg-zinc-900 border border-zinc-800 p-2 rounded flex justify-between items-center">
@@ -662,7 +662,7 @@ export default function App() {
             </div>
           </Section>
 
-          <Section title="Status" icon={<Zap size={18}/>} collapsible>
+          <Section title="Status" icon={<Zap size={18}/>} collapsible defaultCollapsed={true}>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {(Object.keys(stats) as (keyof Stats)[]).map(stat => {
                 const statVal = stats[stat];
@@ -734,7 +734,7 @@ export default function App() {
 
         {/* Center Column: Proficiencies */}
         <div className="lg:col-span-4 space-y-6">
-          <Section title="Proficiências" icon={<Shield size={18}/>} collapsible>
+          <Section title="Proficiências" icon={<Shield size={18}/>} collapsible defaultCollapsed={true}>
             <div className="grid grid-cols-1 gap-1 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
               {PROFICIENCIES.map(prof => {
                 const bonus = calculateProficiencyBonus(stats, prof.name, prof.stats as (keyof Stats)[]);
@@ -759,7 +759,7 @@ export default function App() {
 
         {/* Right Column: Knowledge & Equipment */}
         <div className="lg:col-span-4 space-y-6">
-          <Section title="Equipamentos" icon={<Package size={18}/>} collapsible>
+          <Section title="Equipamentos" icon={<Package size={18}/>} collapsible defaultCollapsed={true}>
              <div className="space-y-6">
                {/* Armas Section */}
                <SubSection title="Armas" icon={<Sword size={14} />} defaultCollapsed={false}>
@@ -1454,6 +1454,51 @@ export default function App() {
                   </button>
                 </div>
 
+                {/* Controls Bar - Moved below dice grid */}
+                <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 flex items-center justify-center gap-8">
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Quantidade</span>
+                    <div className="flex items-center gap-3">
+                      <button 
+                        onClick={() => setDiceQuantity(Math.max(1, diceQuantity - 1))}
+                        className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
+                      >
+                        <Minus size={16} />
+                      </button>
+                      <span className="text-xl font-black text-amber-500 min-w-[2ch] text-center">{diceQuantity}</span>
+                      <button 
+                        onClick={() => setDiceQuantity(Math.min(99, diceQuantity + 1))}
+                        className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
+                      >
+                        <Plus size={16} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="w-px h-8 bg-zinc-800" />
+
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Bônus</span>
+                    <div className="flex items-center gap-3">
+                      <button 
+                        onClick={() => setDiceBonus(diceBonus - 1)}
+                        className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
+                      >
+                        <Minus size={16} />
+                      </button>
+                      <span className="text-xl font-black text-amber-500 min-w-[3ch] text-center">
+                        {diceBonus > 0 ? '+' : ''}{diceBonus}
+                      </span>
+                      <button 
+                        onClick={() => setDiceBonus(diceBonus + 1)}
+                        className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
+                      >
+                        <Plus size={16} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Custom Dice Section */}
                 {activeChar.dadosCustomizados && activeChar.dadosCustomizados.length > 0 && (
                   <SubSection title="Dados Personalizados" icon={<Dices size={14} />} defaultCollapsed={false}>
@@ -1519,8 +1564,19 @@ export default function App() {
                 </SubSection>
               </div>
             ) : (
-              <div className="space-y-3">
-                {diceHistory.length === 0 ? (
+              <div className="space-y-4">
+                {diceHistory.length > 0 && (
+                  <div className="flex justify-end">
+                    <button 
+                      onClick={() => setDiceHistory([])}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-[10px] font-bold uppercase transition-all"
+                    >
+                      <Trash2 size={14} /> Limpar Histórico
+                    </button>
+                  </div>
+                )}
+                <div className="space-y-3">
+                  {diceHistory.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-zinc-600">
                     <History size={48} className="mb-4 opacity-20" />
                     <p className="text-sm font-medium">Nenhuma rolagem recente</p>
@@ -1550,55 +1606,11 @@ export default function App() {
                   ))
                 )}
               </div>
-            )}
-          </div>
-
-          {/* Bottom Controls Bar */}
-          {diceTab === 'mesa' && (
-            <div className="bg-zinc-900 border-t border-zinc-800 p-4 flex items-center justify-center gap-8">
-              <div className="flex flex-col items-center gap-1">
-                <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Quantidade</span>
-                <div className="flex items-center gap-3">
-                  <button 
-                    onClick={() => setDiceQuantity(Math.max(1, diceQuantity - 1))}
-                    className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
-                  >
-                    <Minus size={16} />
-                  </button>
-                  <span className="text-xl font-black text-amber-500 min-w-[2ch] text-center">{diceQuantity}</span>
-                  <button 
-                    onClick={() => setDiceQuantity(Math.min(99, diceQuantity + 1))}
-                    className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
-                  >
-                    <Plus size={16} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="w-px h-8 bg-zinc-800" />
-
-              <div className="flex flex-col items-center gap-1">
-                <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Bônus</span>
-                <div className="flex items-center gap-3">
-                  <button 
-                    onClick={() => setDiceBonus(diceBonus - 1)}
-                    className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
-                  >
-                    <Minus size={16} />
-                  </button>
-                  <span className="text-xl font-black text-amber-500 min-w-[3ch] text-center">
-                    {diceBonus > 0 ? '+' : ''}{diceBonus}
-                  </span>
-                  <button 
-                    onClick={() => setDiceBonus(diceBonus + 1)}
-                    className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
-                  >
-                    <Plus size={16} />
-                  </button>
-                </div>
-              </div>
             </div>
           )}
+        </div>
+
+          {/* Bottom Controls Bar - REMOVED (Moved to top) */}
         </div>
       ) : activePage === 'notes' ? (
           <div className="space-y-6 max-w-4xl mx-auto">

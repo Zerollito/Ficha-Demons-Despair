@@ -162,7 +162,7 @@ export function CharacterSheet({
         )}
       </AnimatePresence>
 
-      <main className="max-w-7xl mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 pb-20">
+      <main key={activeChar.id} className="max-w-7xl mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 pb-20">
         {/* Left Column: Basic Info & Stats */}
         <div className="lg:col-span-4 space-y-6">
           <Section title="Personagem" icon={<User size={18}/>} collapsible>
@@ -218,7 +218,7 @@ export function CharacterSheet({
             </div>
           </Section>
 
-          <Section title="Vitais" icon={<Activity size={18}/>} collapsible>
+          <Section title="Vitais" icon={<Activity size={18}/>} collapsible defaultCollapsed={true}>
             <div className="space-y-4">
               <ProgressBar 
                 label="Vida" 
@@ -264,7 +264,7 @@ export function CharacterSheet({
             </div>
           </Section>
 
-          <Section title="Bônus de Dano" icon={<Sword size={18}/>} collapsible>
+          <Section title="Bônus de Dano" icon={<Sword size={18}/>} collapsible defaultCollapsed={true}>
             <div className="grid grid-cols-2 gap-3">
               {['FOR', 'DEX', 'INT', 'RIT'].map(stat => (
                 <div key={stat} className="flex justify-between items-center bg-zinc-900/50 p-2 rounded border border-zinc-800">
@@ -275,7 +275,7 @@ export function CharacterSheet({
             </div>
           </Section>
 
-          <Section title="Defesa por Membro" icon={<Shield size={18}/>} collapsible>
+          <Section title="Defesa por Membro" icon={<Shield size={18}/>} collapsible defaultCollapsed={true}>
             <div className="grid grid-cols-2 gap-3">
               {Object.entries(activeChar?.defesa || { Cabeça: 0, Torso: 0, Braços: 0, Pernas: 0 }).map(([part, val]) => (
                 <div key={part} className="bg-zinc-900 border border-zinc-800 p-2 rounded flex justify-between items-center">
@@ -291,7 +291,7 @@ export function CharacterSheet({
             </div>
           </Section>
 
-          <Section title="Status" icon={<Zap size={18}/>} collapsible>
+          <Section title="Status" icon={<Zap size={18}/>} collapsible defaultCollapsed={true}>
             <div className="grid grid-cols-3 gap-3">
               {(Object.keys(stats) as (keyof Stats)[]).map(stat => {
                 const statVal = stats[stat];
@@ -345,7 +345,7 @@ export function CharacterSheet({
 
         {/* Middle Column: Proficiencies & Equipment */}
         <div className="lg:col-span-4 space-y-6">
-          <Section title="Proficiências" icon={<MapPin size={18}/>} collapsible>
+          <Section title="Proficiências" icon={<MapPin size={18}/>} collapsible defaultCollapsed={true}>
             <div className="grid grid-cols-1 gap-1 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
               {PROFICIENCIES.map(prof => (
                 <div key={prof.name} className="flex justify-between items-center p-2 hover:bg-zinc-800/50 rounded transition-colors border-b border-zinc-800/50 last:border-0">
@@ -364,7 +364,7 @@ export function CharacterSheet({
             </div>
           </Section>
 
-          <Section title="Equipamentos" icon={<Sword size={18}/>} collapsible>
+          <Section title="Equipamentos" icon={<Sword size={18}/>} collapsible defaultCollapsed={true}>
              <div className="space-y-6">
                <SubSection title="Armas" icon={<Sword size={14} />} defaultCollapsed={true}>
                   <div className="flex justify-between items-center mb-2">
@@ -742,7 +742,7 @@ export function CharacterSheet({
 
         {/* Right Column: Spells & Abilities */}
         <div className="lg:col-span-4 space-y-6">
-          <Section title="Magias" icon={<BookOpen size={18}/>} collapsible>
+          <Section title="Magias" icon={<BookOpen size={18}/>} collapsible defaultCollapsed={true}>
              <div className="space-y-3">
                <div className="flex justify-between items-center">
                  <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Magias</h4>
@@ -803,7 +803,7 @@ export function CharacterSheet({
              </div>
           </Section>
 
-          <Section title="Habilidades" icon={<Battery size={18}/>} collapsible>
+          <Section title="Habilidades" icon={<Battery size={18}/>} collapsible defaultCollapsed={true}>
              <div className="space-y-3">
                <div className="flex justify-between items-center">
                  <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Habilidades</h4>
@@ -859,7 +859,7 @@ export function CharacterSheet({
              </div>
           </Section>
 
-          <Section title="Conhecimentos" icon={<BookOpen size={18}/>} collapsible>
+          <Section title="Conhecimentos" icon={<BookOpen size={18}/>} collapsible defaultCollapsed={true}>
             <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
               {(activeChar?.conhecimentos || []).map((k, idx) => (
                 <div key={k.name} className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50 space-y-2">
