@@ -120,17 +120,36 @@ export default function App() {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
+  const [isConnecting, setIsConnecting] = useState(false);
+
   const connectDrive = async () => {
+    setIsConnecting(true);
     const authWindow = window.open('about:blank', 'google_auth', 'width=600,height=700');
+    
+    if (!authWindow) {
+      alert("Pop-up bloqueado! Por favor, permita pop-ups nas configurações do seu navegador para conectar ao Google Drive.");
+      setIsConnecting(false);
+      return;
+    }
+
     try {
-      const res = await fetch('/api/auth/google/url');
+      // Pass current origin to server so it generates the correct redirect URI
+      const res = await fetch(`/api/auth/google/url?origin=${encodeURIComponent(window.location.origin)}`);
       const { url } = await res.json();
-      if (authWindow) {
-        authWindow.location.href = url;
-      }
+      authWindow.location.href = url;
+      
+      // Monitor if window is closed without success
+      const checkClosed = setInterval(() => {
+        if (authWindow.closed) {
+          clearInterval(checkClosed);
+          setIsConnecting(false);
+        }
+      }, 1000);
     } catch (e) {
       console.error("Error connecting to drive", e);
-      if (authWindow) authWindow.close();
+      authWindow.close();
+      setIsConnecting(false);
+      alert("Erro ao iniciar conexão com o Google.");
     }
   };
 
@@ -485,9 +504,15 @@ export default function App() {
                 {!isDriveConnected ? (
                   <button 
                     onClick={connectDrive}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm font-medium text-zinc-300"
+                    disabled={isConnecting}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm font-medium text-zinc-300 disabled:opacity-50"
                   >
-                    <Cloud size={18} className="text-amber-500" /> Conectar Drive
+                    {isConnecting ? (
+                      <RotateCw size={18} className="animate-spin text-amber-500" />
+                    ) : (
+                      <Cloud size={18} className="text-amber-500" />
+                    )}
+                    {isConnecting ? "Conectando..." : "Conectar Drive"}
                   </button>
                 ) : (
                   <div className="space-y-2">

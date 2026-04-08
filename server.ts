@@ -36,15 +36,13 @@ async function startServer() {
     })
   );
 
-  const getOAuthClient = (req: express.Request) => {
-    // 1. Try APP_URL environment variable (recommended for AI Studio)
-    // 2. Try x-forwarded headers
-    // 3. Fallback to request headers
-    const appUrl = process.env.APP_URL;
+  const getOAuthClient = (req: express.Request, originOverride?: string) => {
     let origin = "";
 
-    if (appUrl) {
-      origin = appUrl.replace(/\/$/, "");
+    if (originOverride) {
+      origin = originOverride.replace(/\/$/, "");
+    } else if (process.env.APP_URL) {
+      origin = process.env.APP_URL.replace(/\/$/, "");
     } else {
       const protocol = req.headers["x-forwarded-proto"] || "https";
       const host = req.headers["x-forwarded-host"] || req.headers["host"];
@@ -65,7 +63,8 @@ async function startServer() {
     if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
       return res.status(500).json({ error: "Google OAuth credentials not configured" });
     }
-    const oauth2Client = getOAuthClient(req);
+    const originOverride = req.query.origin as string;
+    const oauth2Client = getOAuthClient(req, originOverride);
     
     console.log("Generating Auth URL with redirectUri:", oauth2Client.redirectUri);
 
