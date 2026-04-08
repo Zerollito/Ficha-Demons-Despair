@@ -75,6 +75,7 @@ export interface Character {
   efeitosNegativos: string[];
   anotacoes: { id: string; titulo: string; conteudo: string }[];
   dadosCustomizados: { id: string; lados: number; nome: string }[];
+  imagens: { id: string; url: string; titulo: string }[];
 }
 
 export interface AppState {

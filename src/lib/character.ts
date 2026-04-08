@@ -30,4 +30,5 @@ export const createEmptyCharacter = (): Character => ({
   efeitosNegativos: [],
   anotacoes: [{ id: crypto.randomUUID(), titulo: 'Anotações Gerais', conteudo: '' }],
   dadosCustomizados: [],
+  imagens: [],
 });
