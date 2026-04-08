@@ -60,20 +60,27 @@ async function startServer() {
 
   // Auth Routes
   app.get("/api/auth/google/url", (req, res) => {
-    if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-      return res.status(500).json({ error: "Google OAuth credentials not configured" });
-    }
-    const originOverride = req.query.origin as string;
-    const oauth2Client = getOAuthClient(req, originOverride);
-    
-    console.log("Generating Auth URL with redirectUri:", oauth2Client.redirectUri);
+    try {
+      if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+        console.error("OAuth Error: Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET");
+        return res.status(500).json({ error: "Credenciais do Google não configuradas nas Settings do app." });
+      }
+      
+      const originOverride = req.query.origin as string;
+      const oauth2Client = getOAuthClient(req, originOverride);
+      
+      console.log("Generating Auth URL with redirectUri:", oauth2Client.redirectUri);
 
-    const url = oauth2Client.generateAuthUrl({
-      access_type: "offline",
-      scope: ["https://www.googleapis.com/auth/drive.file"],
-      prompt: "consent",
-    });
-    res.json({ url });
+      const url = oauth2Client.generateAuthUrl({
+        access_type: "offline",
+        scope: ["https://www.googleapis.com/auth/drive.file"],
+        prompt: "consent",
+      });
+      res.json({ url });
+    } catch (err) {
+      console.error("Error in /api/auth/google/url:", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : "Erro interno ao gerar URL de autenticação." });
+    }
   });
 
   app.get("/api/auth/google/callback", async (req, res) => {

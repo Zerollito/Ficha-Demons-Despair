@@ -134,9 +134,15 @@ export default function App() {
 
     try {
       // Pass current origin to server so it generates the correct redirect URI
-      const res = await fetch(`/api/auth/google/url?origin=${encodeURIComponent(window.location.origin)}`);
-      const { url } = await res.json();
-      authWindow.location.href = url;
+      // Added cache-buster (t parameter) to ensure fresh response
+      const res = await fetch(`/api/auth/google/url?origin=${encodeURIComponent(window.location.origin)}&t=${Date.now()}`);
+      const data = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(data.error || "Erro desconhecido no servidor");
+      }
+
+      authWindow.location.href = data.url;
       
       // Monitor if window is closed without success
       const checkClosed = setInterval(() => {
@@ -149,7 +155,7 @@ export default function App() {
       console.error("Error connecting to drive", e);
       authWindow.close();
       setIsConnecting(false);
-      alert("Erro ao iniciar conexão com o Google.");
+      alert(`[v2] Erro ao conectar: ${e instanceof Error ? e.message : "Falha na comunicação com o servidor"}`);
     }
   };
 
@@ -512,7 +518,7 @@ export default function App() {
                     ) : (
                       <Cloud size={18} className="text-amber-500" />
                     )}
-                    {isConnecting ? "Conectando..." : "Conectar Drive"}
+                    {isConnecting ? "Iniciando..." : "Conectar ao Drive"}
                   </button>
                 ) : (
                   <div className="space-y-2">
@@ -578,6 +584,7 @@ export default function App() {
                     >
                       <Upload size={18} className="text-amber-500" /> Carregar do Drive
                     </button>
+                    <div className="text-[8px] text-zinc-600 text-center pt-1">v2.0.1 - Mobile Fix</div>
                   </div>
                 )}
               </div>
