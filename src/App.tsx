@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { jsPDF } from 'jspdf';
+import { diceBase64 } from './diceIcons';
 
 import { Character, AppState, ArmorPiece } from './types';
 import { Stats, PROFICIENCIES, calculateProficiencyBonus } from './rules/proficiencyRules';
@@ -274,32 +275,32 @@ export default function App() {
             <button 
               onClick={() => setActivePage('sheet')}
               className={cn(
-                "p-3 rounded-lg transition-all",
+                "p-4 rounded-xl transition-all",
                 activePage === 'sheet' ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" : "text-zinc-500 hover:text-zinc-300"
               )}
               title="Ficha do Personagem"
             >
-              <User size={22} />
+              <User size={28} />
             </button>
             <button 
               onClick={() => setActivePage('notes')}
               className={cn(
-                "p-3 rounded-lg transition-all",
+                "p-4 rounded-xl transition-all",
                 activePage === 'notes' ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" : "text-zinc-500 hover:text-zinc-300"
               )}
               title="Anotações"
             >
-              <FileText size={22} />
+              <FileText size={28} />
             </button>
             <button 
               onClick={() => setActivePage('dice')}
               className={cn(
-                "p-3 rounded-lg transition-all",
+                "p-4 rounded-xl transition-all",
                 activePage === 'dice' ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" : "text-zinc-500 hover:text-zinc-300"
               )}
               title="Rolagem de Dados"
             >
-              <Dices size={22} />
+              <Dices size={28} />
             </button>
           </div>
         </div>
@@ -1672,42 +1673,40 @@ export default function App() {
         )}
       </main>
 
-      <AnimatePresence mode="wait">
-        {lastRoll && (
-          <motion.div 
-            onClick={() => setLastRoll(null)}
-            className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] cursor-pointer p-4"
+      {lastRoll && (
+        <div 
+          onClick={() => setLastRoll(null)}
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] cursor-pointer p-4"
+        >
+          <div 
+            className="bg-zinc-900 border-2 border-amber-500 rounded-3xl p-8 flex flex-col items-center gap-4 max-w-[280px] w-full pointer-events-auto"
+            onClick={(e) => e.stopPropagation()}
           >
-            <motion.div 
-              className="bg-zinc-900 border-2 border-amber-500 rounded-3xl p-8 shadow-[0_0_50px_rgba(245,158,11,0.3)] flex flex-col items-center gap-4 max-w-[280px] w-full pointer-events-auto"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex flex-col items-center gap-1">
-                <span className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">{lastRoll.formula}</span>
-                <span className="text-6xl font-black text-amber-500 drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]">{lastRoll.result}</span>
-              </div>
-              
-              {lastRoll.rolls.length > 1 && (
-                <div className="w-full space-y-2">
-                  <div className="h-px bg-zinc-800 w-full" />
-                  <div className="flex flex-wrap justify-center gap-1.5">
-                    {lastRoll.rolls.map((roll, idx) => (
-                      <div key={idx} className="w-8 h-8 bg-zinc-800 border border-zinc-700 rounded-lg flex items-center justify-center text-zinc-300 font-bold text-xs shadow-inner">
-                        {roll}
-                      </div>
-                    ))}
-                    {lastRoll.bonus !== 0 && (
-                      <div className="w-8 h-8 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-center text-amber-500 font-bold text-xs">
-                        {lastRoll.bonus > 0 ? `+${lastRoll.bonus}` : lastRoll.bonus}
-                      </div>
-                    )}
-                  </div>
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">{lastRoll.formula}</span>
+              <span className="text-6xl font-black text-amber-500">{lastRoll.result}</span>
+            </div>
+            
+            {lastRoll.rolls.length > 1 && (
+              <div className="w-full space-y-2">
+                <div className="h-px bg-zinc-800 w-full" />
+                <div className="flex flex-wrap justify-center gap-1.5">
+                  {lastRoll.rolls.map((roll, idx) => (
+                    <div key={idx} className="w-8 h-8 bg-zinc-800 border border-zinc-700 rounded-lg flex items-center justify-center text-zinc-300 font-bold text-xs">
+                      {roll}
+                    </div>
+                  ))}
+                  {lastRoll.bonus !== 0 && (
+                    <div className="w-8 h-8 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-center text-amber-500 font-bold text-xs">
+                      {lastRoll.bonus > 0 ? `+${lastRoll.bonus}` : lastRoll.bonus}
+                    </div>
+                  )}
                 </div>
-              )}
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
@@ -1938,15 +1937,11 @@ function ArmorProperties({ item, onChange }: { item: any, onChange: (updates: an
 function DiceImage({ sides, fileName, className }: { sides: number, fileName?: string, className?: string }) {
   const [error, setError] = useState(false);
   
-  // Resolve path for both web and mobile/APK
   const src = useMemo(() => {
     if (!fileName) return null;
-    // Remove leading slash if present to avoid double slashes
+    // Remove leading slash if present
     const cleanName = fileName.startsWith('/') ? fileName.substring(1) : fileName;
-    
-    // In many APK/Webview environments, absolute paths from root work best
-    // but we also try relative to current location
-    return `/${cleanName}`;
+    return diceBase64[cleanName] || null;
   }, [fileName]);
 
   if (src && !error) {
