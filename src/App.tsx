@@ -26,8 +26,17 @@ function cn(...inputs: ClassValue[]) {
 
 const STORAGE_KEY = 'rpg_system_x_chars';
 
+const generateId = () => {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+  } catch (e) {}
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+};
+
 const createEmptyCharacter = (): Character => ({
-  id: crypto.randomUUID(),
+  id: generateId(),
   nome: 'Novo Personagem',
   etnia: '',
   dinheiro: { C: 0, B: 0, P: 0, O: 0 },
@@ -48,12 +57,12 @@ const createEmptyCharacter = (): Character => ({
   armaduras: [],
   acessorios: [],
   compartimentos: [
-    { id: crypto.randomUUID(), nome: 'Mochila de Viagem', volumeMax: 30, itens: [] },
-    { id: crypto.randomUUID(), nome: 'Bolsa de Cinto', volumeMax: 3, itens: [] }
+    { id: generateId(), nome: 'Mochila de Viagem', volumeMax: 30, itens: [] },
+    { id: generateId(), nome: 'Bolsa de Cinto', volumeMax: 3, itens: [] }
   ],
   conhecimentos: INITIAL_KNOWLEDGES.map(name => ({ name, nivel: 0, xp: 0, limite: 5 })),
   efeitosNegativos: [],
-  anotacoes: [{ id: crypto.randomUUID(), titulo: 'Anotações Gerais', conteudo: '' }],
+  anotacoes: [{ id: generateId(), titulo: 'Anotações Gerais', conteudo: '' }],
   dadosCustomizados: [],
   imagens: [],
 });
@@ -74,14 +83,14 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Migration for clima object
-        if (parsed.characters) {
+        // Migration for clima object and general robustness
+        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.characters)) {
           parsed.characters = parsed.characters.map((char: any) => ({
             ...char,
             clima: typeof char.clima === 'object' ? 0 : (char.clima || 0)
           }));
+          return parsed;
         }
-        return parsed;
       } catch (e) {
         console.error("Error loading characters", e);
       }
@@ -131,7 +140,7 @@ export default function App() {
       const finalResult = finalHunger + thirstRoll;
       
       setDiceHistory(prev => [{
-        id: crypto.randomUUID(),
+        id: generateId(),
         result: finalResult,
         formula: `Fome: ${hungerRoll}${hungerProf > 0 ? ` + ${hungerProf} = ${finalHunger}` : ''}, Sede: ${thirstRoll}`,
         timestamp: Date.now()
@@ -152,7 +161,7 @@ export default function App() {
     const formula = `${quantity}d${sides}${bonus !== 0 ? (bonus > 0 ? ` + ${bonus}` : ` - ${Math.abs(bonus)}`) : ''}${label ? ` (${label})` : ''}`;
     
     setDiceHistory(prev => [{
-      id: crypto.randomUUID(),
+      id: generateId(),
       result: finalResult,
       formula,
       timestamp: Date.now()
@@ -176,15 +185,16 @@ export default function App() {
   }, []);
 
   const copyToClipboard = (type: 'Arma' | 'Armadura' | 'Item' | 'Magia' | 'Habilidade', data: any) => {
-    const dataWithTipo = { ...data, id: crypto.randomUUID() };
+    const dataWithTipo = { ...data, id: generateId() };
     if (type === 'Arma') dataWithTipo.tipo = 'Arma';
     if (type === 'Armadura') dataWithTipo.tipo = 'Armadura';
     setClipboard({ type, data: dataWithTipo });
   };
 
-  const activeChar = useMemo(() => 
-    state.characters.find(c => c.id === state.activeCharacterId) || state.characters[0],
-  [state]);
+  const activeChar = useMemo(() => {
+    if (state.characters.length === 0) return createEmptyCharacter();
+    return state.characters.find(c => c.id === state.activeCharacterId) || state.characters[0];
+  }, [state]);
 
   const climateProficiency = useMemo(() => {
     if (!activeChar) return 0;
@@ -296,7 +306,7 @@ export default function App() {
     reader.onload = (event) => {
       try {
         const char = JSON.parse(event.target?.result as string);
-        char.id = crypto.randomUUID(); // New ID for safety
+        char.id = generateId(); // New ID for safety
         setState(prev => ({
           characters: [...prev.characters, char],
           activeCharacterId: char.id
@@ -328,7 +338,7 @@ export default function App() {
   };
 
   const duplicateChar = () => {
-    const newChar = { ...activeChar, id: crypto.randomUUID(), nome: `${activeChar.nome} (Cópia)` };
+    const newChar = { ...activeChar, id: generateId(), nome: `${activeChar.nome} (Cópia)` };
     setState(prev => ({
       characters: [...prev.characters, newChar],
       activeCharacterId: newChar.id
@@ -952,7 +962,7 @@ export default function App() {
                   <div className="flex justify-between items-center mb-2">
                     <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armas</h4>
                     <button 
-                      onClick={() => updateChar({ armas: [...(activeChar?.armas || []), { id: crypto.randomUUID(), nome: 'Nova Arma', dano: '0', acerto: 0, tipo: 'Arma', escala: '', atributoBase: 'FOR', peso: 0, volume: 0, durabilidade: 0, maxDurabilidade: 0, corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 }] })}
+                      onClick={() => updateChar({ armas: [...(activeChar?.armas || []), { id: generateId(), nome: 'Nova Arma', dano: '0', acerto: 0, tipo: 'Arma', escala: '', atributoBase: 'FOR', peso: 0, volume: 0, durabilidade: 0, maxDurabilidade: 0, corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 }] })}
                       className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                     >
                       <Plus size={16} />
@@ -962,7 +972,7 @@ export default function App() {
                   {clipboard && (clipboard.type === 'Arma' || (clipboard.type === 'Item' && clipboard.data.tipo === 'Arma')) && (
                     <button 
                       onClick={() => {
-                        updateChar({ armas: [...(activeChar?.armas || []), { ...clipboard.data, id: crypto.randomUUID() }] });
+                        updateChar({ armas: [...(activeChar?.armas || []), { ...clipboard.data, id: generateId() }] });
                         setClipboard(null);
                       }}
                       className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
@@ -1018,7 +1028,7 @@ export default function App() {
                    <div className="flex justify-between items-center mb-2">
                     <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armaduras</h4>
                     <button 
-                      onClick={() => updateChar({ armaduras: [...(activeChar?.armaduras || []), { id: crypto.randomUUID(), nome: 'Nova Armadura', tipo: 'Armadura', corte: 0, impacto: 0, perfuracao: 0, durabilidade: 0, peso: 0, volume: 0, reducaoDano: 0, efeito: '' }] })}
+                      onClick={() => updateChar({ armaduras: [...(activeChar?.armaduras || []), { id: generateId(), nome: 'Nova Armadura', tipo: 'Armadura', corte: 0, impacto: 0, perfuracao: 0, durabilidade: 0, peso: 0, volume: 0, reducaoDano: 0, efeito: '' }] })}
                       className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                     >
                       <Plus size={16} />
@@ -1028,7 +1038,7 @@ export default function App() {
                   {clipboard && (clipboard.type === 'Armadura' || (clipboard.type === 'Item' && clipboard.data.tipo === 'Armadura')) && (
                     <button 
                       onClick={() => {
-                        updateChar({ armaduras: [...(activeChar?.armaduras || []), { ...clipboard.data, id: crypto.randomUUID() }] });
+                        updateChar({ armaduras: [...(activeChar?.armaduras || []), { ...clipboard.data, id: generateId() }] });
                         setClipboard(null);
                       }}
                       className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
@@ -1084,7 +1094,7 @@ export default function App() {
                    <div className="flex justify-between items-center mb-2">
                     <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Acessórios</h4>
                     <button 
-                      onClick={() => updateChar({ acessorios: [...(activeChar?.acessorios || []), { id: crypto.randomUUID(), nome: 'Novo Acessório', tipo: 'Armadura', corte: 0, impacto: 0, perfuracao: 0, durabilidade: 0, peso: 0, volume: 0, reducaoDano: 0, efeito: '' }] })}
+                      onClick={() => updateChar({ acessorios: [...(activeChar?.acessorios || []), { id: generateId(), nome: 'Novo Acessório', tipo: 'Armadura', corte: 0, impacto: 0, perfuracao: 0, durabilidade: 0, peso: 0, volume: 0, reducaoDano: 0, efeito: '' }] })}
                       className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                     >
                       <Plus size={16} />
@@ -1094,7 +1104,7 @@ export default function App() {
                   {clipboard && (clipboard.type === 'Armadura' || (clipboard.type === 'Item' && clipboard.data.tipo === 'Armadura')) && (
                     <button 
                       onClick={() => {
-                        updateChar({ acessorios: [...(activeChar?.acessorios || []), { ...clipboard.data, id: crypto.randomUUID() }] });
+                        updateChar({ acessorios: [...(activeChar?.acessorios || []), { ...clipboard.data, id: generateId() }] });
                         setClipboard(null);
                       }}
                       className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
@@ -1151,7 +1161,7 @@ export default function App() {
                <div className="flex justify-between items-center">
                  <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Compartimentos</h4>
                  <button 
-                  onClick={() => updateChar({ compartimentos: [...(activeChar?.compartimentos || []), { id: crypto.randomUUID(), nome: 'Novo Compartimento', volumeMax: 0, itens: [] }] })}
+                  onClick={() => updateChar({ compartimentos: [...(activeChar?.compartimentos || []), { id: generateId(), nome: 'Novo Compartimento', volumeMax: 0, itens: [] }] })}
                   className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                  >
                    <Plus size={16} />
@@ -1368,7 +1378,7 @@ export default function App() {
                            <button 
                             onClick={() => {
                               const nc = [...compartimentos];
-                              nc[cIdx].itens.push({ id: crypto.randomUUID(), nome: 'Novo Item', peso: 0, volume: 0, quantidade: 0, tipo: 'Geral', durabilidade: 0, maxDurabilidade: 0, descricao: '' });
+                              nc[cIdx].itens.push({ id: generateId(), nome: 'Novo Item', peso: 0, volume: 0, quantidade: 0, tipo: 'Geral', durabilidade: 0, maxDurabilidade: 0, descricao: '' });
                               updateChar({ compartimentos: nc });
                             }}
                             className="flex-1 py-2 border border-dashed border-zinc-700 rounded text-[10px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all"
@@ -1378,7 +1388,7 @@ export default function App() {
                            <button 
                             onClick={() => {
                               const nc = [...compartimentos];
-                              nc[cIdx].itens.push({ id: crypto.randomUUID(), nome: 'Nova Arma', peso: 0, volume: 0, quantidade: 0, tipo: 'Arma', durabilidade: 0, maxDurabilidade: 0, descricao: '', dano: '0', acerto: 0, escala: '', atributoBase: 'FOR', corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 });
+                              nc[cIdx].itens.push({ id: generateId(), nome: 'Nova Arma', peso: 0, volume: 0, quantidade: 0, tipo: 'Arma', durabilidade: 0, maxDurabilidade: 0, descricao: '', dano: '0', acerto: 0, escala: '', atributoBase: 'FOR', corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 });
                               updateChar({ compartimentos: nc });
                             }}
                             className="flex-1 py-2 border border-dashed border-zinc-700 rounded text-[10px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all"
@@ -1388,7 +1398,7 @@ export default function App() {
                            <button 
                             onClick={() => {
                               const nc = [...compartimentos];
-                              nc[cIdx].itens.push({ id: crypto.randomUUID(), nome: 'Nova Armadura', peso: 0, volume: 0, quantidade: 0, tipo: 'Armadura', durabilidade: 0, maxDurabilidade: 0, descricao: '', corte: 0, impacto: 0, perfuracao: 0, reducaoDano: 0, efeito: '' });
+                              nc[cIdx].itens.push({ id: generateId(), nome: 'Nova Armadura', peso: 0, volume: 0, quantidade: 0, tipo: 'Armadura', durabilidade: 0, maxDurabilidade: 0, descricao: '', corte: 0, impacto: 0, perfuracao: 0, reducaoDano: 0, efeito: '' });
                               updateChar({ compartimentos: nc });
                             }}
                             className="flex-1 py-2 border border-dashed border-zinc-700 rounded text-[10px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all"
@@ -1400,7 +1410,7 @@ export default function App() {
                            <button 
                              onClick={() => {
                                const nc = [...compartimentos];
-                               nc[cIdx].itens.push({ ...clipboard.data, id: crypto.randomUUID() });
+                               nc[cIdx].itens.push({ ...clipboard.data, id: generateId() });
                                updateChar({ compartimentos: nc });
                                setClipboard(null);
                              }}
@@ -1425,7 +1435,7 @@ export default function App() {
                    {clipboard?.type === 'Magia' && (
                      <button 
                        onClick={() => {
-                         updateChar({ magias: [...(activeChar?.magias || []), { ...clipboard.data, id: crypto.randomUUID() }] });
+                         updateChar({ magias: [...(activeChar?.magias || []), { ...clipboard.data, id: generateId() }] });
                          setClipboard(null);
                        }}
                        className="text-emerald-500 hover:text-emerald-400 flex items-center gap-1 text-[10px] font-bold uppercase"
@@ -1434,7 +1444,7 @@ export default function App() {
                      </button>
                    )}
                    <button 
-                    onClick={() => updateChar({ magias: [...(activeChar?.magias || []), { id: crypto.randomUUID(), nome: 'Nova Magia', efeito: '', dano: '0', mana: 0, acerto: 0 }] })}
+                    onClick={() => updateChar({ magias: [...(activeChar?.magias || []), { id: generateId(), nome: 'Nova Magia', efeito: '', dano: '0', mana: 0, acerto: 0 }] })}
                     className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                    >
                      <Plus size={16} />
@@ -1480,7 +1490,7 @@ export default function App() {
                <div className="flex justify-between items-center">
                  <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Habilidades</h4>
                  <button 
-                  onClick={() => updateChar({ habilidades: [...(activeChar?.habilidades || []), { id: crypto.randomUUID(), nome: 'Nova Habilidade', efeito: '' }] })}
+                  onClick={() => updateChar({ habilidades: [...(activeChar?.habilidades || []), { id: generateId(), nome: 'Nova Habilidade', efeito: '' }] })}
                   className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                  >
                    <Plus size={16} />
@@ -1764,7 +1774,7 @@ export default function App() {
                           const nameInput = document.getElementById('new-dice-name-v2') as HTMLInputElement;
                           const sides = parseInt(sidesInput?.value) || 20;
                           const name = nameInput?.value || `d${sides}`;
-                          updateChar({ dadosCustomizados: [...(activeChar.dadosCustomizados || []), { id: crypto.randomUUID(), lados: sides, nome: name }] });
+                          updateChar({ dadosCustomizados: [...(activeChar.dadosCustomizados || []), { id: generateId(), lados: sides, nome: name }] });
                           if (nameInput) nameInput.value = '';
                         }}
                         className="h-10 px-4 bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-zinc-950 rounded-md transition-all flex items-center gap-2 font-bold text-xs uppercase"
@@ -1831,7 +1841,7 @@ export default function App() {
                 <FileText size={24} /> Anotações
               </h2>
               <button 
-                onClick={() => updateChar({ anotacoes: [...(activeChar.anotacoes || []), { id: crypto.randomUUID(), titulo: 'Nova Anotação', conteudo: '' }] })}
+                onClick={() => updateChar({ anotacoes: [...(activeChar.anotacoes || []), { id: generateId(), titulo: 'Nova Anotação', conteudo: '' }] })}
                 className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 px-4 py-2 rounded-lg font-bold transition-all shadow-lg shadow-amber-500/20"
               >
                 <Plus size={18} /> Adicionar Aba
@@ -1896,7 +1906,7 @@ export default function App() {
                   <FileText size={48} className="mx-auto text-zinc-800 mb-4" />
                   <p className="text-zinc-500">Nenhuma aba de anotação criada.</p>
                   <button 
-                    onClick={() => updateChar({ anotacoes: [{ id: crypto.randomUUID(), titulo: 'Anotações Gerais', conteudo: '' }] })}
+                    onClick={() => updateChar({ anotacoes: [{ id: generateId(), titulo: 'Anotações Gerais', conteudo: '' }] })}
                     className="mt-4 text-amber-500 hover:text-amber-400 font-bold uppercase text-xs tracking-widest"
                   >
                     Criar Primeira Aba
@@ -1922,7 +1932,7 @@ export default function App() {
                       if (file) {
                         const reader = new FileReader();
                         reader.onloadend = () => {
-                          const newImg = { id: crypto.randomUUID(), url: reader.result as string, titulo: 'Nova Imagem' };
+                          const newImg = { id: generateId(), url: reader.result as string, titulo: 'Nova Imagem' };
                           updateChar({ imagens: [...(activeChar.imagens || []), newImg] });
                         };
                         reader.readAsDataURL(file);
