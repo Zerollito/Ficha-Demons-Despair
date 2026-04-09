@@ -1,4 +1,5 @@
 import { CONFIG } from './statusRules';
+import { getSurvivalPenalties } from './survivalRules';
 
 export interface Stats {
   CON: number;
@@ -12,25 +13,27 @@ export interface Stats {
   RIT: number;
 }
 
-export const calculateProficiencyBonus = (stats: Stats, name: string, statKeys: (keyof Stats)[]) => {
-  // Special cases
-  if (name === 'Fome') return Math.min(stats.RES, stats.ADP);
-  if (name === 'Clima') return Math.floor(stats.ADP / 10);
-  if (name === 'Resistência') return Math.floor(stats.RES / 2);
-  if (name === 'Adaptabilidade') return Math.floor(stats.ADP / 2);
-  if (name === 'Mentalidade') return Math.floor(stats.MEN / 2);
+export const calculateProficiencyBonus = (stats: Stats, name: string, statKeys: (keyof Stats)[], hunger?: number, thirst?: number) => {
+  let survivalPenalty = 0;
+  if (hunger !== undefined && thirst !== undefined) {
+    const penalties = getSurvivalPenalties(hunger, thirst);
+    survivalPenalty = penalties.proficiency;
+  }
 
-  if (statKeys.length === 1) {
-    // General rule for 1 stat: +1 every 10 points (implied by previous logic)
-    // But user says "As proficiências que usam 2 status, em geral..."
-    // Let's keep the 1 stat logic as is or adjust if needed.
-    return stats[statKeys[0]] >= CONFIG.bonuses.proficiencySingleThreshold ? 1 : 0;
+  // Special cases
+  let baseBonus = 0;
+  if (name === 'Fome') baseBonus = Math.min(stats.RES, stats.ADP);
+  else if (name === 'Clima') baseBonus = Math.floor(stats.ADP / 10);
+  else if (name === 'Resistência') baseBonus = Math.floor(stats.RES / 2);
+  else if (name === 'Adaptabilidade') baseBonus = Math.floor(stats.ADP / 2);
+  else if (name === 'Mentalidade') baseBonus = Math.floor(stats.MEN / 2);
+  else if (statKeys.length === 1) {
+    baseBonus = stats[statKeys[0]] >= CONFIG.bonuses.proficiencySingleThreshold ? 1 : 0;
+  } else if (statKeys.length === 2) {
+    baseBonus = Math.min(Math.floor(stats[statKeys[0]] / 5), Math.floor(stats[statKeys[1]] / 5));
   }
-  if (statKeys.length === 2) {
-    // +1 for every 5 points in BOTH stats
-    return Math.min(Math.floor(stats[statKeys[0]] / 5), Math.floor(stats[statKeys[1]] / 5));
-  }
-  return 0;
+
+  return Math.max(0, baseBonus + survivalPenalty);
 };
 
 export const PROFICIENCIES = [

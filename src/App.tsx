@@ -18,6 +18,7 @@ import { getVidaMaxima, getManaMaxima, getCargaMaxima, getDeslocamentoBase } fro
 import { Item, calculateInventoryTotals, getLoadPenalties } from './rules/inventoryRules';
 import { Weapon, getStatBonus, calculateWeaponDamageBonus } from './rules/combatRules';
 import { Knowledge, getXpToNextLevel, INITIAL_KNOWLEDGES } from './rules/knowledgeRules';
+import { getSurvivalPenalties } from './rules/survivalRules';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -94,6 +95,29 @@ export default function App() {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const rollDice = (sides: number, quantity: number, bonus: number, label?: string) => {
+    if (label === 'Fome e Sede') {
+      const hungerRoll = Math.floor(Math.random() * activeChar.fome) + 1;
+      const thirstRoll = Math.floor(Math.random() * activeChar.sede) + 1;
+      
+      updateChar({ 
+        fome: hungerRoll,
+        sede: thirstRoll
+      });
+
+      const formula = `1d${activeChar.fome} (Fome) & 1d${activeChar.sede} (Sede)`;
+      const finalResult = hungerRoll + thirstRoll; // Just for history display
+      
+      setDiceHistory(prev => [{
+        id: crypto.randomUUID(),
+        result: finalResult,
+        formula: `Fome: ${hungerRoll}, Sede: ${thirstRoll}`,
+        timestamp: Date.now()
+      }, ...prev].slice(0, 50));
+
+      setLastRoll({ result: finalResult, formula, rolls: [hungerRoll, thirstRoll], bonus: 0 });
+      return;
+    }
+
     const rolls: number[] = [];
     let total = 0;
     for (let i = 0; i < quantity; i++) {
@@ -172,7 +196,8 @@ export default function App() {
   const pesoTotal = invTotals.peso + weaponPeso + armorPeso + accessoryPeso;
   
   const penalties = getLoadPenalties(pesoTotal, cargaMax);
-  const deslocamentoFinal = Math.max(0, Math.floor(deslocamentoBase * penalties.deslocamentoMult));
+  const survivalPenalties = getSurvivalPenalties(activeChar.fome, activeChar.sede);
+  const deslocamentoFinal = Math.max(0, Math.floor(deslocamentoBase * penalties.deslocamentoMult) + survivalPenalties.movement);
 
   const exportJSON = () => {
     try {
@@ -559,7 +584,18 @@ export default function App() {
                   {penalties.acertoPenalty !== 0 && (
                     <div className="mt-2 bg-red-500/10 border border-red-500/20 p-2 rounded text-[10px] text-red-400 flex items-center gap-2">
                       <Zap size={12} />
-                      PENALIDADE: {penalties.acertoPenalty} Acerto, {penalties.mentalidadePenalty} Mentalidade
+                      PENALIDADE CARGA: {penalties.acertoPenalty} Acerto, {penalties.mentalidadePenalty} Mentalidade
+                    </div>
+                  )}
+
+                  {survivalPenalties.effects.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {survivalPenalties.effects.map((eff, i) => (
+                        <div key={i} className="bg-red-500/10 border border-red-500/20 p-2 rounded text-[10px] text-red-400 flex items-center gap-2">
+                          <Activity size={12} />
+                          {eff.name.toUpperCase()}: {eff.info}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -741,7 +777,7 @@ export default function App() {
           <Section title="Proficiências" icon={<Shield size={18}/>} collapsible defaultCollapsed={true}>
             <div className="grid grid-cols-1 gap-1 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
               {PROFICIENCIES.map(prof => {
-                const bonus = calculateProficiencyBonus(stats, prof.name, prof.stats as (keyof Stats)[]);
+                const bonus = calculateProficiencyBonus(stats, prof.name, prof.stats as (keyof Stats)[], activeChar.fome, activeChar.sede);
                 return (
                   <div key={prof.name} className="flex justify-between items-center p-2 hover:bg-zinc-800/50 rounded transition-colors border-b border-zinc-800/50 last:border-0">
                     <div className="flex flex-col">
@@ -981,7 +1017,7 @@ export default function App() {
                    const compVolume = (comp.itens || []).reduce((acc, i) => acc + ((i.volume || 0) * (i.quantidade || 0)), 0);
                    return (
                      <div key={comp.id} className="bg-zinc-900/50 rounded-lg border border-zinc-800 overflow-hidden">
-                       <div className="bg-zinc-800/50 px-3 py-2 flex justify-between items-center border-b border-zinc-800">
+                       <div className="bg-zinc-800/50 px-3 py-2 flex flex-col sm:flex-row sm:justify-between sm:items-center border-b border-zinc-800 gap-2">
                          <div className="flex-1 mr-2">
                            <input 
                             value={comp.nome} 
@@ -990,12 +1026,12 @@ export default function App() {
                               nc[cIdx].nome = e.target.value;
                               updateChar({ compartimentos: nc });
                             }}
-                            className="bg-transparent text-sm font-bold focus:outline-none w-full"
+                            className="bg-transparent text-sm font-bold focus:outline-none flex-1 min-w-0"
                            />
                          </div>
                          <div className="flex items-center gap-2">
                            <div className="flex items-center gap-1">
-                             <span className="text-xs text-zinc-500 font-bold">CAPACIDADE MÁXIMA:</span>
+                             <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter">Vol Máx</span>
                              <NumericInput 
                                 value={comp.volumeMax} 
                                 onChange={v => {
@@ -1443,7 +1479,10 @@ export default function App() {
                   
                   {/* Special 3d8 Preset */}
                   <button
-                    onClick={() => rollDice(8, 3, diceBonus, '3d8')}
+                    onClick={() => {
+                      const acuraciaBonus = calculateProficiencyBonus(activeChar.stats, 'Acurácia', ['FOR', 'DEX'], activeChar.fome, activeChar.sede);
+                      rollDice(8, 3, diceBonus + acuraciaBonus, '3d8');
+                    }}
                     className="flex flex-col items-center group"
                   >
                     <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
@@ -1455,6 +1494,21 @@ export default function App() {
                       <div className="absolute -top-1 -right-1 bg-amber-500 text-zinc-950 text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">3d8</div>
                     </div>
                     <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">3d8</span>
+                  </button>
+
+                  {/* Fome e Sede Roll */}
+                  <button
+                    onClick={() => rollDice(0, 0, 0, 'Fome e Sede')}
+                    className="flex flex-col items-center group"
+                  >
+                    <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
+                      <div className="flex gap-1">
+                        <Utensils size={20} className="text-amber-500" />
+                        <Droplets size={20} className="text-blue-500" />
+                      </div>
+                      <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">SURV</div>
+                    </div>
+                    <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">Fome & Sede</span>
                   </button>
                 </div>
 
