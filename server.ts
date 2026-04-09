@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import { google } from "googleapis";
 import cookieSession from "cookie-session";
 import dotenv from "dotenv";
+import cors from "cors";
 
 dotenv.config();
 
@@ -25,6 +26,12 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Enable CORS for all origins (important for APKs and proxies)
+  app.use(cors({
+    origin: true,
+    credentials: true
+  }));
+
   app.use(express.json({ limit: '10mb' }));
   app.use(
     cookieSession({
@@ -36,6 +43,7 @@ async function startServer() {
     })
   );
 
+  // 1. Logging Middleware (Must be first)
   const requestLog: string[] = [];
   app.use((req, res, next) => {
     const logEntry = `${new Date().toISOString()} - ${req.method} ${req.url} (Path: ${req.path})`;
@@ -69,7 +77,27 @@ async function startServer() {
     );
   };
 
+  // 2. API Router Definition
   const apiRouter = express.Router();
+
+  apiRouter.get("/ping", (req, res) => {
+    res.json({ 
+      pong: true, 
+      time: new Date().toISOString(), 
+      headers: req.headers,
+      url: req.url,
+      method: req.method
+    });
+  });
+
+  apiRouter.get("/info", (req, res) => {
+    res.json({
+      node_env: process.env.NODE_ENV,
+      app_url: process.env.APP_URL,
+      version: "v2.0.7",
+      server_time: new Date().toISOString()
+    });
+  });
 
   apiRouter.get("/debug/requests", (req, res) => {
     res.json({
@@ -77,28 +105,19 @@ async function startServer() {
       env: {
         hasClientId: !!GOOGLE_CLIENT_ID,
         nodeEnv: process.env.NODE_ENV,
-        appUrl: process.env.APP_URL,
-        headers: req.headers
+        appUrl: process.env.APP_URL
       }
     });
   });
 
-  apiRouter.get("/ping", (req, res) => {
-    res.json({ pong: true, time: new Date().toISOString(), headers: req.headers });
-  });
-
-  apiRouter.use(express.json({ limit: '10mb' }));
-  
-  // Auth Routes
+  // Auth & Drive Routes inside apiRouter
   apiRouter.get("/auth/google/url", (req, res) => {
     try {
       if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-        return res.status(500).json({ error: "Credenciais do Google não configuradas." });
+        return res.status(500).json({ error: "Credenciais do Google ausentes no servidor." });
       }
-      
       const originOverride = req.query.origin as string;
       const oauth2Client = getOAuthClient(req, originOverride);
-      
       const url = oauth2Client.generateAuthUrl({
         access_type: "offline",
         scope: ["https://www.googleapis.com/auth/drive.file"],
@@ -106,20 +125,20 @@ async function startServer() {
       });
       res.json({ url });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : "Erro ao gerar URL." });
+      res.status(500).json({ error: String(err) });
     }
   });
 
   apiRouter.get("/auth/google/callback", async (req, res) => {
     const { code } = req.query;
-    if (!code) return res.status(400).send("No code provided");
+    if (!code) return res.status(400).send("No code");
     try {
       const oauth2Client = getOAuthClient(req);
       const { tokens } = await oauth2Client.getToken(code as string);
       req.session!.tokens = tokens;
       res.send(`<html><body><script>if(window.opener){window.opener.postMessage({type:'OAUTH_AUTH_SUCCESS'},'*');window.close();}else{window.location.href='/';}</script></body></html>`);
     } catch (error) {
-      res.status(500).send("Authentication failed");
+      res.status(500).send("Auth failed");
     }
   });
 
@@ -132,9 +151,8 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Drive Routes
   apiRouter.post("/drive/save", async (req, res) => {
-    if (!req.session?.tokens) return res.status(401).json({ error: "Not authenticated" });
+    if (!req.session?.tokens) return res.status(401).json({ error: "Unauthorized" });
     try {
       const oauth2Client = getOAuthClient(req);
       oauth2Client.setCredentials(req.session.tokens);
@@ -149,12 +167,12 @@ async function startServer() {
       }
       res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ error: "Failed to save" });
+      res.status(500).json({ error: "Save failed" });
     }
   });
 
   apiRouter.get("/drive/load", async (req, res) => {
-    if (!req.session?.tokens) return res.status(401).json({ error: "Not authenticated" });
+    if (!req.session?.tokens) return res.status(401).json({ error: "Unauthorized" });
     try {
       const oauth2Client = getOAuthClient(req);
       oauth2Client.setCredentials(req.session.tokens);
@@ -162,27 +180,21 @@ async function startServer() {
       const filename = req.query.filename as string;
       const listRes = await drive.files.list({ q: `name = '${filename}' and trashed = false`, fields: "files(id)" });
       const fileId = listRes.data.files?.[0]?.id;
-      if (!fileId) return res.status(404).json({ error: "File not found" });
+      if (!fileId) return res.status(404).json({ error: "Not found" });
       const fileRes = await drive.files.get({ fileId, alt: "media" });
       res.json(fileRes.data);
     } catch (error) {
-      res.status(500).json({ error: "Failed to load" });
+      res.status(500).json({ error: "Load failed" });
     }
   });
 
-  apiRouter.get("/health", (req, res) => {
-    res.json({ status: "ok" });
-  });
-
-  // Catch-all for undefined API routes
   apiRouter.all("*", (req, res) => {
-    res.status(404).json({ error: "Rota de API não encontrada", method: req.method, url: req.url });
+    res.status(404).json({ error: "API Route Not Found", method: req.method, url: req.url });
   });
 
-  // Mount the API router to handle /api, //api, etc.
+  // 3. Mount API Router (Handle both /api and //api and any number of slashes)
   app.use((req, res, next) => {
     if (req.url.match(/^\/+api\//)) {
-      // Normalize URL to single slash for the router
       req.url = req.url.replace(/^\/+api/, '/api');
     }
     next();

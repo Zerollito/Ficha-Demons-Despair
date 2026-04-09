@@ -136,7 +136,7 @@ export default function App() {
       // Pass current origin to server so it generates the correct redirect URI
       // Added cache-buster (t parameter) to ensure fresh response
       // Robust API URL construction
-      const base = window.location.origin.replace(/\/+$/, '');
+      const base = (localStorage.getItem('backend_url') || window.location.origin).replace(/\/+$/, '');
       const apiUrl = `${base}/api/auth/google/url?origin=${encodeURIComponent(base)}&t=${Date.now()}`;
       console.log("Fetching API URL:", apiUrl);
       const res = await fetch(apiUrl);
@@ -148,9 +148,9 @@ export default function App() {
       } catch (e) {
         console.error("Server response was not JSON:", text);
         const preview = text.substring(0, 200);
-        const base = window.location.origin.replace(/\/+$/, '');
+        const base = (localStorage.getItem('backend_url') || window.location.origin).replace(/\/+$/, '');
         const currentApiUrl = `${base}/api/auth/google/url?origin=${encodeURIComponent(base)}`;
-        throw new Error(`[v2.0.6] Erro ao conectar: Resposta inválida do servidor (não é JSON).\nURL: ${currentApiUrl}\nConteúdo: "${preview}..."`);
+        throw new Error(`[v2.0.7] Erro ao conectar: Resposta inválida do servidor (não é JSON).\nURL: ${currentApiUrl}\nConteúdo: "${preview}..."`);
       }
       
       if (!res.ok) {
@@ -400,12 +400,13 @@ export default function App() {
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30">
       {/* DEBUG BANNER */}
       <div className="bg-red-600 text-white text-xs py-2 px-4 text-center font-bold sticky top-0 z-[9999] shadow-lg">
-        MODO DEBUG ATIVO - VERSÃO: v2.0.6
-        <div className="flex gap-2 justify-center mt-2">
+        MODO DEBUG ATIVO - VERSÃO: v2.0.7
+        <div className="text-[8px] opacity-70 mt-1">Origin: {window.location.origin}</div>
+        <div className="flex flex-wrap gap-2 justify-center mt-2">
           <button 
             onClick={async () => {
               try {
-                const base = window.location.origin.replace(/\/+$/, '');
+                const base = (localStorage.getItem('backend_url') || window.location.origin).replace(/\/+$/, '');
                 const res = await fetch(`${base}/api/ping`);
                 const data = await res.json();
                 alert(`Ping Result: ${JSON.stringify(data)}`);
@@ -420,7 +421,7 @@ export default function App() {
           <button 
             onClick={async () => {
               try {
-                const base = window.location.origin.replace(/\/+$/, '');
+                const base = (localStorage.getItem('backend_url') || window.location.origin).replace(/\/+$/, '');
                 const res = await fetch(`${base}/api/debug/requests`);
                 const data = await res.json();
                 alert(`Debug Info:\nOrigin: ${base}\nLogs:\n${JSON.stringify(data.logs, null, 2)}`);
@@ -432,7 +433,26 @@ export default function App() {
           >
             Diagnóstico
           </button>
+          <button 
+            onClick={() => {
+              const url = prompt("Digite a URL do backend (ex: https://...run.app):", localStorage.getItem('backend_url') || "");
+              if (url !== null) {
+                localStorage.setItem('backend_url', url);
+                window.location.reload();
+              }
+            }}
+            className="px-2 py-1 bg-white/20 hover:bg-white/30 rounded text-[10px]"
+          >
+            Configurar Backend
+          </button>
         </div>
+        {window.location.hostname.includes('workers.dev') && (
+          <div className="mt-2 text-[9px] bg-black/40 p-1 rounded border border-white/20">
+            ⚠️ ATENÇÃO: Você está usando um domínio .workers.dev. 
+            Se este for um host estático, o Google Drive NÃO funcionará. 
+            Use a URL do Cloud Run (.run.app) no seu APK.
+          </div>
+        )}
       </div>
       {/* Header */}
       <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
@@ -635,7 +655,7 @@ export default function App() {
                     >
                       <Upload size={18} className="text-amber-500" /> Carregar do Drive
                     </button>
-                    <div className="text-[8px] text-zinc-600 text-center pt-1">v2.0.6 - Debug Mode</div>
+                    <div className="text-[8px] text-zinc-600 text-center pt-1">v2.0.7 - Debug Mode</div>
                   </div>
                 )}
               </div>
