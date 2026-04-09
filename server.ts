@@ -96,6 +96,7 @@ async function startServer() {
         access_type: "offline",
         scope: ["https://www.googleapis.com/auth/drive.file"],
         prompt: "consent",
+        state: originOverride // Pass the origin in state to ensure consistency in callback
       });
       res.json({ url });
     } catch (err) {
@@ -104,7 +105,7 @@ async function startServer() {
   });
 
   apiRouter.get("/auth/google/callback", async (req, res) => {
-    const { code, error: queryError } = req.query;
+    const { code, error: queryError, state } = req.query;
     if (queryError) {
       console.error("Google Auth Error Query:", queryError);
       return res.status(400).send(`Auth failed: ${queryError}`);
@@ -112,7 +113,8 @@ async function startServer() {
     if (!code) return res.status(400).send("No code provided by Google");
     
     try {
-      const oauth2Client = getOAuthClient(req);
+      // Use the origin passed in the 'state' parameter to reconstruct the exact same redirect_uri
+      const oauth2Client = getOAuthClient(req, state as string);
       console.log("Exchanging code for tokens. Redirect URI used:", oauth2Client.redirectUri);
       
       const { tokens } = await oauth2Client.getToken(code as string);
