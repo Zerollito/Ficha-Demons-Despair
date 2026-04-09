@@ -37,7 +37,7 @@ const createEmptyCharacter = (): Character => ({
   sede: 100,
   cansaco: 8,
   defesa: { Cabeça: 0, Torso: 0, Braços: 0, Pernas: 0 },
-  clima: { frio: 0, calor: 0 },
+  clima: 0,
   stats: { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 },
   statsXP: { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 },
   joias: [],
@@ -74,6 +74,13 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        // Migration for clima object
+        if (parsed.characters) {
+          parsed.characters = parsed.characters.map((char: any) => ({
+            ...char,
+            clima: typeof char.clima === 'object' ? 0 : (char.clima || 0)
+          }));
+        }
         return parsed;
       } catch (e) {
         console.error("Error loading characters", e);
@@ -96,25 +103,41 @@ export default function App() {
 
   const rollDice = (sides: number, quantity: number, bonus: number, label?: string) => {
     if (label === 'Fome e Sede') {
+      const hungerProfBase = calculateProficiencyBonus(
+        activeChar.stats, 
+        'Fome', 
+        ['RES', 'ADP'], 
+        activeChar.fome, 
+        activeChar.sede,
+        activeChar.cansaco,
+        activeChar.clima,
+        climateProficiency
+      );
+      
+      const hungerProf = activeChar.fome >= 50 ? hungerProfBase : 0;
+      
       const hungerRoll = Math.floor(Math.random() * activeChar.fome) + 1;
       const thirstRoll = Math.floor(Math.random() * activeChar.sede) + 1;
       
+      const totalHunger = hungerRoll + hungerProf;
+      const finalHunger = totalHunger > activeChar.fome ? activeChar.fome : totalHunger;
+      
       updateChar({ 
-        fome: hungerRoll,
+        fome: finalHunger,
         sede: thirstRoll
       });
 
-      const formula = `1d${activeChar.fome} (Fome) & 1d${activeChar.sede} (Sede)`;
-      const finalResult = hungerRoll + thirstRoll; // Just for history display
+      const formula = `1d${activeChar.fome}${hungerProf > 0 ? ` + ${hungerProf}` : ''} (Fome) & 1d${activeChar.sede} (Sede)`;
+      const finalResult = finalHunger + thirstRoll;
       
       setDiceHistory(prev => [{
         id: crypto.randomUUID(),
         result: finalResult,
-        formula: `Fome: ${hungerRoll}, Sede: ${thirstRoll}`,
+        formula: `Fome: ${hungerRoll}${hungerProf > 0 ? ` + ${hungerProf} = ${finalHunger}` : ''}, Sede: ${thirstRoll}`,
         timestamp: Date.now()
       }, ...prev].slice(0, 50));
 
-      setLastRoll({ result: finalResult, formula, rolls: [hungerRoll, thirstRoll], bonus: 0 });
+      setLastRoll({ result: finalResult, formula, rolls: [hungerRoll, thirstRoll], bonus: hungerProf });
       return;
     }
 
@@ -163,6 +186,46 @@ export default function App() {
     state.characters.find(c => c.id === state.activeCharacterId) || state.characters[0],
   [state]);
 
+  const climateProficiency = useMemo(() => {
+    if (!activeChar) return 0;
+    return calculateProficiencyBonus(activeChar.stats, 'Clima', ['ADP'], activeChar.fome, activeChar.sede);
+  }, [activeChar?.stats, activeChar?.fome, activeChar?.sede]);
+
+  const climateEffects = useMemo(() => {
+    if (!activeChar) return [];
+    const diff = Math.abs(activeChar.clima || 0) - climateProficiency;
+    const effects: string[] = [];
+    
+    if (diff >= 2) {
+      effects.push("-1 em proficiências que usem inteligência, aprendizado e ritual. -5 em mentalidade.");
+    }
+    if (diff >= 4) {
+      effects.push("-1 em proficiências que usem força, destreza, resistência, adaptabilidade e constituição.");
+    }
+    if (diff >= 6) {
+      const condition = (activeChar.clima || 0) < 0 ? "Hipotermia" : "Desidratação";
+      effects.push(`${condition}: ⅓ a mais de dano de ataques, 1/2 do deslocamento, 1/2 resistência a efeitos de dano, ataques Críticos com 18 no d20.`);
+    }
+    return effects;
+  }, [activeChar?.clima, climateProficiency]);
+
+  const fatigueEffects = useMemo(() => {
+    if (!activeChar) return [];
+    const fatigue = activeChar.cansaco ?? 8;
+    const effects: string[] = [];
+
+    if (fatigue <= 5) {
+      effects.push("Levemente cansado: não pode treinar nem estudar.");
+    }
+    if (fatigue <= 3) {
+      effects.push("Cansado: -1 em todas as proficiências.");
+    }
+    if (fatigue === 0) {
+      effects.push("Muito cansado: role um d100 puro a cada hora, abaixo de 30 irá desmaiar.");
+    }
+    return effects;
+  }, [activeChar?.cansaco]);
+
   // Auto-save
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -182,7 +245,7 @@ export default function App() {
   const vidaMax = getVidaMaxima(stats.CON);
   const manaMax = getManaMaxima(stats.APR);
   const cargaMax = getCargaMaxima(stats.RES);
-  const deslocamentoBase = getDeslocamentoBase(stats.DEX);
+  const deslocamentoBase = getDeslocamentoBase(stats.DEX, activeChar.fome, activeChar.sede, activeChar.clima, climateProficiency);
 
   const compartimentos = activeChar?.compartimentos || [];
   const armas = activeChar?.armas || [];
@@ -567,6 +630,80 @@ export default function App() {
                   <MiniBar label="Cansaço" value={activeChar?.cansaco || 0} max={8} color="bg-purple-500" onChange={v => updateChar({ cansaco: v })} />
                 </div>
 
+                {fatigueEffects.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {fatigueEffects.map((effect, idx) => (
+                      <div key={idx} className="text-[9px] leading-tight text-purple-400 bg-purple-400/10 p-1.5 rounded border border-purple-400/20 flex flex-col gap-1.5">
+                        <div className="flex gap-1.5 items-start">
+                          <Battery size={10} className="shrink-0 mt-0.5" />
+                          <span>{effect}</span>
+                        </div>
+                        {activeChar.cansaco === 0 && effect.includes("d100") && (
+                          <button 
+                            onClick={() => rollDice(100, 1, 0, 'Teste de Desmaio')}
+                            className="self-start px-2 py-0.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded text-[8px] font-bold uppercase transition-colors"
+                          >
+                            Rolar d100
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="pt-2">
+                  <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase mb-1">
+                    <span>Clima</span>
+                    <span className={cn(activeChar.clima > 0 ? "text-orange-400" : activeChar.clima < 0 ? "text-blue-400" : "text-zinc-400")}>
+                      {typeof activeChar.clima === 'number' ? (activeChar.clima > 0 ? `+${activeChar.clima}` : activeChar.clima) : 0}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => updateChar({ clima: Math.max(-10, (activeChar.clima || 0) - 1) })}
+                      className="p-2 hover:bg-zinc-800 rounded text-blue-400 transition-colors"
+                    >
+                      <Minus size={18} />
+                    </button>
+                    <div className="relative flex-1 h-1.5 flex items-center">
+                      <input 
+                        type="range" 
+                        min="-10" 
+                        max="10" 
+                        step="1" 
+                        value={activeChar.clima || 0} 
+                        onChange={e => updateChar({ clima: parseInt(e.target.value) })}
+                        className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-white"
+                        style={{
+                          background: `linear-gradient(to right, #3b82f6 0%, #27272a 50%, #ef4444 100%)`
+                        }}
+                      />
+                    </div>
+                    <button 
+                      onClick={() => updateChar({ clima: Math.min(10, (activeChar.clima || 0) + 1) })}
+                      className="p-2 hover:bg-zinc-800 rounded text-red-400 transition-colors"
+                    >
+                      <Plus size={18} />
+                    </button>
+                  </div>
+                  <div className="flex justify-between text-[8px] text-zinc-600 mt-1 px-8">
+                    <span>FRIO (-10)</span>
+                    <span>NORMAL (0)</span>
+                    <span>CALOR (+10)</span>
+                  </div>
+
+                  {climateEffects.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {climateEffects.map((effect, idx) => (
+                        <div key={idx} className="text-[9px] leading-tight text-red-400 bg-red-400/10 p-1.5 rounded border border-red-400/20 flex gap-1.5 items-start">
+                          <Activity size={10} className="shrink-0 mt-0.5" />
+                          <span>{effect}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div className="pt-4 border-t border-zinc-800">
                   <div className="flex justify-between text-xs mb-1">
                     <span className="text-zinc-500 uppercase font-bold tracking-tighter">Carga Total</span>
@@ -777,7 +914,16 @@ export default function App() {
           <Section title="Proficiências" icon={<Shield size={18}/>} collapsible defaultCollapsed={true}>
             <div className="grid grid-cols-1 gap-1 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
               {PROFICIENCIES.map(prof => {
-                const bonus = calculateProficiencyBonus(stats, prof.name, prof.stats as (keyof Stats)[], activeChar.fome, activeChar.sede);
+                const bonus = calculateProficiencyBonus(
+                  stats, 
+                  prof.name, 
+                  prof.stats as (keyof Stats)[], 
+                  activeChar.fome, 
+                  activeChar.sede,
+                  activeChar.cansaco,
+                  activeChar.clima,
+                  climateProficiency
+                );
                 return (
                   <div key={prof.name} className="flex justify-between items-center p-2 hover:bg-zinc-800/50 rounded transition-colors border-b border-zinc-800/50 last:border-0">
                     <div className="flex flex-col">
@@ -1017,8 +1163,8 @@ export default function App() {
                    const compVolume = (comp.itens || []).reduce((acc, i) => acc + ((i.volume || 0) * (i.quantidade || 0)), 0);
                    return (
                      <div key={comp.id} className="bg-zinc-900/50 rounded-lg border border-zinc-800 overflow-hidden">
-                       <div className="bg-zinc-800/50 px-3 py-2 flex flex-col sm:flex-row sm:justify-between sm:items-center border-b border-zinc-800 gap-2">
-                         <div className="flex-1 mr-2">
+                       <div className="bg-zinc-800/50 px-3 py-2 flex items-center border-b border-zinc-800 gap-2">
+                         <Package size={14} className="text-amber-500 shrink-0" />
                            <input 
                             value={comp.nome} 
                             onChange={e => {
@@ -1028,8 +1174,7 @@ export default function App() {
                             }}
                             className="bg-transparent text-sm font-bold focus:outline-none flex-1 min-w-0"
                            />
-                         </div>
-                         <div className="flex items-center gap-2">
+                           <div className="flex items-center gap-2 shrink-0 ml-auto">
                            <div className="flex items-center gap-1">
                              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter">Vol Máx</span>
                              <NumericInput 
@@ -1039,15 +1184,15 @@ export default function App() {
                                   nc[cIdx].volumeMax = v;
                                   updateChar({ compartimentos: nc });
                                 }}
-                                className="w-32"
-                                size="lg"
+                                className="w-16"
+                                size="sm"
                               />
                            </div>
                            <button 
                             onClick={() => updateChar({ compartimentos: compartimentos.filter(c => c.id !== comp.id) })}
                             className="text-red-500 hover:text-red-400 p-1"
                            >
-                             <Trash2 size={20} />
+                             <Trash2 size={18} />
                            </button>
                          </div>
                        </div>
@@ -1480,7 +1625,16 @@ export default function App() {
                   {/* Special 3d8 Preset */}
                   <button
                     onClick={() => {
-                      const acuraciaBonus = calculateProficiencyBonus(activeChar.stats, 'Acurácia', ['FOR', 'DEX'], activeChar.fome, activeChar.sede);
+                      const acuraciaBonus = calculateProficiencyBonus(
+                        activeChar.stats, 
+                        'Acurácia', 
+                        ['FOR', 'DEX'], 
+                        activeChar.fome, 
+                        activeChar.sede,
+                        activeChar.cansaco,
+                        activeChar.clima,
+                        climateProficiency
+                      );
                       rollDice(8, 3, diceBonus + acuraciaBonus, '3d8');
                     }}
                     className="flex flex-col items-center group"

@@ -14,7 +14,7 @@ export const getSurvivalPenalties = (hunger: number, thirst: number): SurvivalPe
   };
 
   const calculateFor = (value: number, type: 'Fome' | 'Sede') => {
-    if (value <= 0) {
+    if (value < 5) {
       penalties.damage -= 3;
       penalties.movement -= 2;
       penalties.proficiency -= 1;

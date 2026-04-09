@@ -13,11 +13,48 @@ export interface Stats {
   RIT: number;
 }
 
-export const calculateProficiencyBonus = (stats: Stats, name: string, statKeys: (keyof Stats)[], hunger?: number, thirst?: number) => {
-  let survivalPenalty = 0;
-  if (hunger !== undefined && thirst !== undefined) {
-    const penalties = getSurvivalPenalties(hunger, thirst);
-    survivalPenalty = penalties.proficiency;
+export const calculateProficiencyBonus = (
+  stats: Stats, 
+  name: string, 
+  statKeys: (keyof Stats)[], 
+  hunger?: number, 
+  thirst?: number,
+  fatigue?: number,
+  climate?: number,
+  climateProficiency?: number
+) => {
+  let penalty = 0;
+  
+  // Negative effects should not affect Fome and Clima
+  if (name !== 'Fome' && name !== 'Clima') {
+    // Survival penalties (Hunger/Thirst)
+    if (hunger !== undefined && thirst !== undefined) {
+      const penalties = getSurvivalPenalties(hunger, thirst);
+      penalty += penalties.proficiency;
+    }
+
+    // Fatigue penalties
+    if (fatigue !== undefined && fatigue <= 3) {
+      penalty -= 1;
+    }
+
+    // Climate penalties
+    if (climate !== undefined && climateProficiency !== undefined) {
+      const diff = Math.abs(climate) - climateProficiency;
+      if (diff >= 2) {
+        if (statKeys.some(k => ['INT', 'APR', 'RIT'].includes(k))) {
+          penalty -= 1;
+        }
+        if (name === 'Mentalidade') {
+          penalty -= 5;
+        }
+      }
+      if (diff >= 4) {
+        if (statKeys.some(k => ['FOR', 'DEX', 'RES', 'ADP', 'CON'].includes(k))) {
+          penalty -= 1;
+        }
+      }
+    }
   }
 
   // Special cases
@@ -33,7 +70,7 @@ export const calculateProficiencyBonus = (stats: Stats, name: string, statKeys: 
     baseBonus = Math.min(Math.floor(stats[statKeys[0]] / 5), Math.floor(stats[statKeys[1]] / 5));
   }
 
-  return Math.max(0, baseBonus + survivalPenalty);
+  return Math.max(0, baseBonus + penalty);
 };
 
 export const PROFICIENCIES = [

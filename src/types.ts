@@ -55,10 +55,7 @@ export interface Character {
     Pernas: number;
   };
   
-  clima: {
-    frio: number;
-    calor: number;
-  };
+  clima: number;
   
   stats: Stats;
   statsXP: Stats; // XP for each stat

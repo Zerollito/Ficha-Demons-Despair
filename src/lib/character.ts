@@ -12,7 +12,7 @@ export const createEmptyCharacter = (): Character => ({
   sede: 100,
   cansaco: 8,
   defesa: { Cabeça: 0, Torso: 0, Braços: 0, Pernas: 0 },
-  clima: { frio: 0, calor: 0 },
+  clima: 0,
   stats: { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 },
   statsXP: { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 },
   joias: [],
