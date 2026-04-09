@@ -20,6 +20,7 @@ console.log("Environment check:", {
   hasClientId: !!GOOGLE_CLIENT_ID,
   clientIdPrefix: GOOGLE_CLIENT_ID ? GOOGLE_CLIENT_ID.substring(0, 10) + "..." : "none",
   hasClientSecret: !!GOOGLE_CLIENT_SECRET,
+  APP_URL: process.env.APP_URL
 });
 
 async function startServer() {
@@ -103,15 +104,25 @@ async function startServer() {
   });
 
   apiRouter.get("/auth/google/callback", async (req, res) => {
-    const { code } = req.query;
-    if (!code) return res.status(400).send("No code");
+    const { code, error: queryError } = req.query;
+    if (queryError) {
+      console.error("Google Auth Error Query:", queryError);
+      return res.status(400).send(`Auth failed: ${queryError}`);
+    }
+    if (!code) return res.status(400).send("No code provided by Google");
+    
     try {
       const oauth2Client = getOAuthClient(req);
+      console.log("Exchanging code for tokens. Redirect URI used:", oauth2Client.redirectUri);
+      
       const { tokens } = await oauth2Client.getToken(code as string);
       req.session!.tokens = tokens;
+      
       res.send(`<html><body><script>if(window.opener){window.opener.postMessage({type:'OAUTH_AUTH_SUCCESS'},'*');window.close();}else{window.location.href='/';}</script></body></html>`);
-    } catch (error) {
-      res.status(500).send("Auth failed");
+    } catch (error: any) {
+      console.error("OAuth Token Exchange Error:", error);
+      const errorMsg = error.response?.data?.error_description || error.message || String(error);
+      res.status(500).send(`Auth failed: ${errorMsg}`);
     }
   });
 
