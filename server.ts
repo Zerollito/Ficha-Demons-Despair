@@ -25,12 +25,22 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  app.use(express.json({ limit: '10mb' }));
+  app.use(
+    cookieSession({
+      name: "session",
+      keys: [SESSION_SECRET],
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      secure: true,
+      sameSite: "none",
+    })
+  );
+
   const requestLog: string[] = [];
   app.use((req, res, next) => {
     const logEntry = `${new Date().toISOString()} - ${req.method} ${req.url} (Path: ${req.path})`;
     console.log(logEntry);
-    // Log anything that looks like an API call even with multiple slashes
-    if (req.url.match(/^\/+api/)) {
+    if (req.url.includes('/api/')) {
       requestLog.push(logEntry);
       if (requestLog.length > 50) requestLog.shift();
     }
@@ -74,7 +84,7 @@ async function startServer() {
   });
 
   apiRouter.get("/ping", (req, res) => {
-    res.json({ pong: true, time: new Date().toISOString() });
+    res.json({ pong: true, time: new Date().toISOString(), headers: req.headers });
   });
 
   apiRouter.use(express.json({ limit: '10mb' }));
@@ -170,18 +180,14 @@ async function startServer() {
   });
 
   // Mount the API router to handle /api, //api, etc.
-  app.use(/^\/+api/, apiRouter);
-
-  app.use(express.json({ limit: '10mb' }));
-  app.use(
-    cookieSession({
-      name: "session",
-      keys: [SESSION_SECRET],
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      secure: true,
-      sameSite: "none",
-    })
-  );
+  app.use((req, res, next) => {
+    if (req.url.match(/^\/+api\//)) {
+      // Normalize URL to single slash for the router
+      req.url = req.url.replace(/^\/+api/, '/api');
+    }
+    next();
+  });
+  app.use("/api", apiRouter);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
