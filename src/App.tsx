@@ -150,7 +150,7 @@ export default function App() {
         const preview = text.substring(0, 200);
         const base = (localStorage.getItem('backend_url') || window.location.origin).replace(/\/+$/, '');
         const currentApiUrl = `${base}/api/auth/google/url?origin=${encodeURIComponent(base)}`;
-        throw new Error(`[v2.0.7] Erro ao conectar: Resposta inválida do servidor (não é JSON).\nURL: ${currentApiUrl}\nConteúdo: "${preview}..."`);
+        throw new Error(`Erro ao conectar: Resposta inválida do servidor (não é JSON).\nURL: ${currentApiUrl}\nConteúdo: "${preview}..."`);
       }
       
       if (!res.ok) {
@@ -398,62 +398,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30">
-      {/* DEBUG BANNER */}
-      <div className="bg-red-600 text-white text-xs py-2 px-4 text-center font-bold sticky top-0 z-[9999] shadow-lg">
-        MODO DEBUG ATIVO - VERSÃO: v2.0.7
-        <div className="text-[8px] opacity-70 mt-1">Origin: {window.location.origin}</div>
-        <div className="flex flex-wrap gap-2 justify-center mt-2">
-          <button 
-            onClick={async () => {
-              try {
-                const base = (localStorage.getItem('backend_url') || window.location.origin).replace(/\/+$/, '');
-                const res = await fetch(`${base}/api/ping`);
-                const data = await res.json();
-                alert(`Ping Result: ${JSON.stringify(data)}`);
-              } catch (e) {
-                alert(`Ping Error: ${e}`);
-              }
-            }}
-            className="px-2 py-1 bg-white/20 hover:bg-white/30 rounded text-[10px]"
-          >
-            Ping API
-          </button>
-          <button 
-            onClick={async () => {
-              try {
-                const base = (localStorage.getItem('backend_url') || window.location.origin).replace(/\/+$/, '');
-                const res = await fetch(`${base}/api/debug/requests`);
-                const data = await res.json();
-                alert(`Debug Info:\nOrigin: ${base}\nLogs:\n${JSON.stringify(data.logs, null, 2)}`);
-              } catch (e) {
-                alert(`Erro ao acessar Debug API:\nOrigin: ${window.location.origin}\nErro: ${e}`);
-              }
-            }}
-            className="px-2 py-1 bg-white/20 hover:bg-white/30 rounded text-[10px]"
-          >
-            Diagnóstico
-          </button>
-          <button 
-            onClick={() => {
-              const url = prompt("Digite a URL do backend (ex: https://...run.app):", localStorage.getItem('backend_url') || "");
-              if (url !== null) {
-                localStorage.setItem('backend_url', url);
-                window.location.reload();
-              }
-            }}
-            className="px-2 py-1 bg-white/20 hover:bg-white/30 rounded text-[10px]"
-          >
-            Configurar Backend
-          </button>
-        </div>
-        {window.location.hostname.includes('workers.dev') && (
-          <div className="mt-2 text-[9px] bg-black/40 p-1 rounded border border-white/20">
-            ⚠️ ATENÇÃO: Você está usando um domínio .workers.dev. 
-            Se este for um host estático, o Google Drive NÃO funcionará. 
-            Use a URL do Cloud Run (.run.app) no seu APK.
-          </div>
-        )}
-      </div>
       {/* Header */}
       <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -655,7 +599,7 @@ export default function App() {
                     >
                       <Upload size={18} className="text-amber-500" /> Carregar do Drive
                     </button>
-                    <div className="text-[8px] text-zinc-600 text-center pt-1">v2.0.7 - Debug Mode</div>
+                    <div className="text-[8px] text-zinc-600 text-center pt-1">v2.1.0</div>
                   </div>
                 )}
               </div>

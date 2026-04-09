@@ -28,8 +28,13 @@ async function startServer() {
 
   // Enable CORS for all origins (important for APKs and proxies)
   app.use(cors({
-    origin: true,
-    credentials: true
+    origin: (origin, callback) => {
+      // Allow all origins to fix APK/Worker issues
+      callback(null, true);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
   }));
 
   app.use(express.json({ limit: '10mb' }));
@@ -44,14 +49,8 @@ async function startServer() {
   );
 
   // 1. Logging Middleware (Must be first)
-  const requestLog: string[] = [];
   app.use((req, res, next) => {
-    const logEntry = `${new Date().toISOString()} - ${req.method} ${req.url} (Path: ${req.path})`;
-    console.log(logEntry);
-    if (req.url.includes('/api/')) {
-      requestLog.push(logEntry);
-      if (requestLog.length > 50) requestLog.shift();
-    }
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
     next();
   });
 
@@ -80,34 +79,8 @@ async function startServer() {
   // 2. API Router Definition
   const apiRouter = express.Router();
 
-  apiRouter.get("/ping", (req, res) => {
-    res.json({ 
-      pong: true, 
-      time: new Date().toISOString(), 
-      headers: req.headers,
-      url: req.url,
-      method: req.method
-    });
-  });
-
-  apiRouter.get("/info", (req, res) => {
-    res.json({
-      node_env: process.env.NODE_ENV,
-      app_url: process.env.APP_URL,
-      version: "v2.0.7",
-      server_time: new Date().toISOString()
-    });
-  });
-
-  apiRouter.get("/debug/requests", (req, res) => {
-    res.json({
-      logs: requestLog,
-      env: {
-        hasClientId: !!GOOGLE_CLIENT_ID,
-        nodeEnv: process.env.NODE_ENV,
-        appUrl: process.env.APP_URL
-      }
-    });
+  apiRouter.get("/health", (req, res) => {
+    res.json({ status: "ok", time: new Date().toISOString() });
   });
 
   // Auth & Drive Routes inside apiRouter
