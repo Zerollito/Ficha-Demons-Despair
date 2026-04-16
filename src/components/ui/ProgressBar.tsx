@@ -33,12 +33,15 @@ export function ProgressBar({ label, current, max, color, onChange }: ProgressBa
               setInnerValue(e.target.value);
               onChange(parseInt(e.target.value) || 0);
             }}
-            className="min-w-[3rem] w-auto bg-transparent text-right font-bold text-sm focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className="min-w-[4.5rem] w-auto bg-transparent text-right font-bold text-base text-zinc-100 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
-          <span className="text-xs text-zinc-600">/ {max}</span>
+          <span className="text-sm text-zinc-500">/ {max}</span>
         </div>
       </div>
-      <div className="h-3 bg-zinc-800 rounded-full p-0.5 border border-zinc-700/50">
+      <div 
+      className="h-3 bg-zinc-800 rounded-full p-0.5 border border-zinc-700/50 cursor-pointer"
+      onDoubleClick={() => current < max && onChange(max)}
+    >
         <motion.div 
           className={cn("h-full rounded-full", color)}
           initial={{ width: 0 }}

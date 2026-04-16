@@ -19,6 +19,7 @@ export interface ArmorPiece {
 export interface Spell {
   id: string;
   nome: string;
+  tipo: string;
   efeito: string;
   dano: string;
   mana: number;

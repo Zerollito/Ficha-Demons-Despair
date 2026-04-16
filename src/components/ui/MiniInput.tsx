@@ -37,11 +37,13 @@ export function MiniInput({ label, value, type = "text", onChange }: MiniInputPr
         />
       ) : (
         <input 
-          type={type} 
+          type="text" 
+          inputMode={type === 'number' ? 'numeric' : 'text'}
           value={innerValue} 
           onChange={e => {
-            setInnerValue(e.target.value);
-            onChange(e.target.value);
+            const val = type === 'number' ? e.target.value.replace(/[^0-9.-]/g, '') : e.target.value;
+            setInnerValue(val);
+            onChange(val);
           }}
           className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />

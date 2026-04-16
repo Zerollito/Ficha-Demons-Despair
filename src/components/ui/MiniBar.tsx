@@ -31,10 +31,13 @@ export function MiniBar({ label, value, max = 100, color, onChange }: MiniBarPro
             setInnerValue(e.target.value);
             onChange(parseInt(e.target.value) || 0);
           }}
-          className="w-full bg-transparent text-xs font-bold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          className="w-full min-w-[3rem] bg-transparent text-base font-bold text-zinc-200 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
       </div>
-      <div className="h-1 bg-zinc-800 rounded-full mt-1 overflow-hidden">
+      <div 
+        className="h-2 bg-zinc-800 rounded-full mt-1 overflow-hidden cursor-pointer"
+        onDoubleClick={() => value < max && onChange(max)}
+      >
         <div className={cn("h-full", color)} style={{ width: `${percent}%` }} />
       </div>
     </div>

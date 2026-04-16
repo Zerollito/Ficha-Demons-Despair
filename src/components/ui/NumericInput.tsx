@@ -25,19 +25,19 @@ export function NumericInput({ label, value, onChange, className, min, max, size
     <div className={cn("flex flex-col min-w-0", className)}>
       {label && <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 truncate">{label}</label>}
       <input 
-        type="number" 
+        type="text" 
+        inputMode="numeric"
         value={innerValue} 
-        min={min}
-        max={max}
         onChange={e => {
-          setInnerValue(e.target.value);
-          onChange(parseInt(e.target.value) || 0);
+          const val = e.target.value.replace(/[^0-9]/g, '');
+          setInnerValue(val);
+          onChange(parseInt(val) || 0);
         }}
         className={cn(
-          "bg-black/20 border border-zinc-800/50 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold text-center w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
-          size === "sm" && "py-1 px-1 text-xs",
-          size === "md" && "py-2 px-2 text-sm",
-          size === "lg" && "py-3 px-3 text-lg"
+          "bg-black/40 border border-zinc-700/50 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-400 font-bold text-center w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none shadow-inner",
+          size === "sm" && "py-1 px-1 text-sm",
+          size === "md" && "py-2 px-2 text-base",
+          size === "lg" && "py-3 px-1 text-3xl"
         )}
       />
     </div>

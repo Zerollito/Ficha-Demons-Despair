@@ -375,7 +375,8 @@ export default function App() {
       <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="flex items-center bg-zinc-950/50 p-1.5 rounded-xl border border-zinc-800">
-            <button 
+            <motion.button 
+              whileTap={{ scale: 0.95 }}
               onClick={() => setActivePage('sheet')}
               className={cn(
                 "p-4 rounded-xl transition-all",
@@ -384,8 +385,9 @@ export default function App() {
               title="Ficha do Personagem"
             >
               <User size={28} />
-            </button>
-            <button 
+            </motion.button>
+            <motion.button 
+              whileTap={{ scale: 0.95 }}
               onClick={() => setActivePage('dice')}
               className={cn(
                 "p-4 rounded-xl transition-all",
@@ -394,8 +396,9 @@ export default function App() {
               title="Rolagem de Dados"
             >
               <Dices size={28} />
-            </button>
-            <button 
+            </motion.button>
+            <motion.button 
+              whileTap={{ scale: 0.95 }}
               onClick={() => setActivePage('notes')}
               className={cn(
                 "p-4 rounded-xl transition-all",
@@ -404,8 +407,9 @@ export default function App() {
               title="Anotações"
             >
               <FileText size={28} />
-            </button>
-            <button 
+            </motion.button>
+            <motion.button 
+              whileTap={{ scale: 0.95 }}
               onClick={() => setActivePage('gallery')}
               className={cn(
                 "p-4 rounded-xl transition-all",
@@ -414,17 +418,18 @@ export default function App() {
               title="Galeria de Imagens"
             >
               <Image size={28} />
-            </button>
+            </motion.button>
           </div>
         </div>
 
         <div className="flex items-center gap-2 relative" ref={menuRef}>
-          <button 
+          <motion.button 
+            whileTap={{ scale: 0.95 }}
             onClick={() => setIsMenuOpen(!isMenuOpen)}
             className="w-10 h-10 flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 rounded-full transition-all border border-zinc-700 shadow-lg"
           >
             <MoreVertical size={20} className="text-amber-500" />
-          </button>
+          </motion.button>
           
           <div className={cn(
             "absolute right-0 top-full mt-2 w-72 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl transition-all duration-200 z-[60] p-2 space-y-1 max-h-[80vh] overflow-y-auto custom-scrollbar",
@@ -446,7 +451,8 @@ export default function App() {
               </select>
             </div>
 
-            <button 
+            <motion.button 
+              whileTap={{ scale: 0.95 }}
               onClick={() => {
                 const nc = createEmptyCharacter();
                 setState(prev => ({ characters: [...prev.characters, nc], activeCharacterId: nc.id }));
@@ -455,9 +461,10 @@ export default function App() {
               className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
             >
               <Plus size={18} className="text-amber-500" /> Adicionar Nova Ficha
-            </button>
+            </motion.button>
 
-            <button 
+            <motion.button 
+              whileTap={{ scale: 0.95 }}
               onClick={() => {
                 duplicateChar();
                 setIsMenuOpen(false);
@@ -465,9 +472,10 @@ export default function App() {
               className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
             >
               <Copy size={18} className="text-amber-500" /> Copiar Ficha
-            </button>
+            </motion.button>
 
-            <button 
+            <motion.button 
+              whileTap={{ scale: 0.95 }}
               onClick={() => {
                 exportJSON();
                 setIsMenuOpen(false);
@@ -475,14 +483,15 @@ export default function App() {
               className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
             >
               <Download size={18} className="text-amber-500" /> Exportar JSON
-            </button>
+            </motion.button>
 
             <label className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300 cursor-pointer">
               <Upload size={18} className="text-amber-500" /> Importar JSON
               <input type="file" className="hidden" onChange={(e) => { importJSON(e); setIsMenuOpen(false); }} accept=".json" />
             </label>
 
-            <button 
+            <motion.button 
+              whileTap={{ scale: 0.95 }}
               onClick={() => {
                 exportPDF();
                 setIsMenuOpen(false);
@@ -490,10 +499,11 @@ export default function App() {
               className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
             >
               <Activity size={18} className="text-amber-500" /> Exportar PDF
-            </button>
+            </motion.button>
 
             <div className="pt-1 border-t border-zinc-800 mt-1">
-              <button 
+              <motion.button 
+                whileTap={{ scale: 0.95 }}
                 onClick={() => {
                   setShowDeleteConfirm(true);
                   setIsMenuOpen(false);
@@ -501,7 +511,7 @@ export default function App() {
                 className="w-full flex items-center gap-3 px-3 py-2 hover:bg-red-500/10 rounded-lg transition-colors text-sm font-medium text-red-400"
               >
                 <Trash2 size={18} /> Excluir Ficha
-              </button>
+              </motion.button>
             </div>
           </div>
         </div>
@@ -519,18 +529,20 @@ export default function App() {
                 <h3 className="text-lg font-bold mb-2">Excluir Personagem?</h3>
                 <p className="text-zinc-400 text-sm mb-6">Esta ação não pode ser desfeita. Tem certeza que deseja excluir "{activeChar.nome}"?</p>
                 <div className="flex gap-3">
-                  <button 
+                  <motion.button 
+                    whileTap={{ scale: 0.95 }}
                     onClick={() => setShowDeleteConfirm(false)}
                     className="flex-1 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm font-medium"
                   >
                     Cancelar
-                  </button>
-                  <button 
+                  </motion.button>
+                  <motion.button 
+                    whileTap={{ scale: 0.95 }}
                     onClick={deleteChar}
                     className="flex-1 py-2 bg-red-600 hover:bg-red-500 rounded-lg transition-colors text-sm font-medium"
                   >
                     Excluir
-                  </button>
+                  </motion.button>
                 </div>
               </motion.div>
             </div>
@@ -558,12 +570,13 @@ export default function App() {
                   </label>
                 </div>
                 {activeChar.imagem && (
-                  <button 
+                  <motion.button 
+                    whileTap={{ scale: 0.95 }}
                     onClick={() => updateChar({ imagem: '' })}
                     className="text-[10px] text-red-400 hover:text-red-300 uppercase font-bold"
                   >
                     Remover Imagem
-                  </button>
+                  </motion.button>
                 )}
               </div>
 
@@ -598,7 +611,8 @@ export default function App() {
 
           <Section title="Vitais" icon={<Activity size={18}/>} collapsible defaultCollapsed={true}>
             <div className="flex gap-2 mb-4 p-1 bg-zinc-950/50 rounded-lg border border-zinc-800">
-              <button 
+              <motion.button 
+                whileTap={{ scale: 0.95 }}
                 onClick={() => setVitaisTab('status')}
                 className={cn(
                   "flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all",
@@ -606,8 +620,9 @@ export default function App() {
                 )}
               >
                 Status
-              </button>
-              <button 
+              </motion.button>
+              <motion.button 
+                whileTap={{ scale: 0.95 }}
                 onClick={() => setVitaisTab('efeitos')}
                 className={cn(
                   "flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all",
@@ -615,7 +630,7 @@ export default function App() {
                 )}
               >
                 Efeitos Negativos
-              </button>
+              </motion.button>
             </div>
 
             {vitaisTab === 'status' ? (
@@ -649,12 +664,13 @@ export default function App() {
                           <span>{effect}</span>
                         </div>
                         {activeChar.cansaco === 0 && effect.includes("d100") && (
-                          <button 
+                          <motion.button 
+                            whileTap={{ scale: 0.95 }}
                             onClick={() => rollDice(100, 1, 0, 'Teste de Desmaio')}
                             className="self-start px-2 py-0.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded text-[8px] font-bold uppercase transition-colors"
                           >
                             Rolar d100
-                          </button>
+                          </motion.button>
                         )}
                       </div>
                     ))}
@@ -669,12 +685,13 @@ export default function App() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button 
+                    <motion.button 
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => updateChar({ clima: Math.max(-10, (activeChar.clima || 0) - 1) })}
                       className="p-2 hover:bg-zinc-800 rounded text-blue-400 transition-colors"
                     >
                       <Minus size={18} />
-                    </button>
+                    </motion.button>
                     <div className="relative flex-1 h-1.5 flex items-center">
                       <input 
                         type="range" 
@@ -689,12 +706,13 @@ export default function App() {
                         }}
                       />
                     </div>
-                    <button 
+                    <motion.button 
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => updateChar({ clima: Math.min(10, (activeChar.clima || 0) + 1) })}
                       className="p-2 hover:bg-zinc-800 rounded text-red-400 transition-colors"
                     >
                       <Plus size={18} />
-                    </button>
+                    </motion.button>
                   </div>
                   <div className="flex justify-between text-[8px] text-zinc-600 mt-1 px-8">
                     <span>FRIO (-10)</span>
@@ -753,7 +771,8 @@ export default function App() {
                   {NEGATIVE_EFFECTS.map(effect => {
                     const isActive = (activeChar.efeitosNegativos || []).includes(effect.id);
                     return (
-                      <button
+                      <motion.button
+                        whileTap={{ scale: 0.95 }}
                         key={effect.id}
                         onClick={() => {
                           const current = activeChar.efeitosNegativos || [];
@@ -772,7 +791,7 @@ export default function App() {
                       >
                         <effect.icon size={16} className={isActive ? effect.color : "text-zinc-600"} />
                         <span className="text-[10px] font-bold uppercase truncate">{effect.name}</span>
-                      </button>
+                      </motion.button>
                     );
                   })}
                 </div>
@@ -789,12 +808,13 @@ export default function App() {
                       <div key={id} className="group relative">
                         <div className={cn("p-2 bg-zinc-900 border border-zinc-800 rounded-lg flex items-center gap-2", effect.color)}>
                           <effect.icon size={18} />
-                          <button 
+                          <motion.button 
+                            whileTap={{ scale: 0.95 }}
                             onClick={() => updateChar({ efeitosNegativos: activeChar.efeitosNegativos.filter(eid => eid !== id) })}
                             className="p-0.5 hover:bg-zinc-800 rounded text-zinc-500"
                           >
                             <X size={12} />
-                          </button>
+                          </motion.button>
                         </div>
                       </div>
                     );
@@ -850,7 +870,7 @@ export default function App() {
           </Section>
 
           <Section title="Status" icon={<Zap size={18}/>} collapsible defaultCollapsed={true}>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-2">
               {(Object.keys(stats) as (keyof Stats)[]).map(stat => {
                 const statVal = stats[stat];
                 const xpLimit = 5 + (Math.floor(statVal / 15) * 5);
@@ -866,50 +886,35 @@ export default function App() {
                       size="lg"
                     />
                     <div className="flex flex-col items-center mt-2">
-                      <span className="text-[10px] text-zinc-600 font-bold uppercase mb-1">XP (Máx {xpLimit})</span>
-                      <div className="flex items-center gap-1">
-                        <button 
+                      <span className="text-[9px] text-zinc-600 font-bold uppercase mb-1">XP ({currentXP}/{xpLimit})</span>
+                      <div className="flex items-center gap-2 w-full">
+                        <motion.button 
+                          whileTap={{ scale: 0.95 }}
                           onClick={() => {
-                            const newXP = Math.max(0, currentXP - 1);
-                            updateChar({ statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: newXP } });
+                            const newVal = Math.max(0, currentXP - 1);
+                            updateChar({ statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: newVal } });
                           }}
-                          className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded hover:bg-zinc-700 text-zinc-400 transition-colors"
+                          className="flex-1 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 transition-colors flex justify-center"
                         >
-                          -
-                        </button>
-                          <NumericInput 
-                            value={currentXP}
-                            onChange={v => {
-                              if (v >= xpLimit) {
-                                updateChar({ 
-                                  stats: { ...stats, [stat]: statVal + 1 },
-                                  statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: 0 }
-                                });
-                              } else {
-                                updateChar({ 
-                                  statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: v }
-                                });
-                              }
-                            }}
-                            className="w-28"
-                            size="sm"
-                          />
-                        <button 
+                          <Minus size={14} />
+                        </motion.button>
+                        <motion.button 
+                          whileTap={{ scale: 0.95 }}
                           onClick={() => {
-                            const newXP = currentXP + 1;
-                            if (newXP >= xpLimit) {
+                            const newVal = currentXP + 1;
+                            if (newVal >= xpLimit) {
                               updateChar({ 
                                 stats: { ...stats, [stat]: statVal + 1 },
                                 statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: 0 }
                               });
                             } else {
-                              updateChar({ statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: newXP } });
+                              updateChar({ statsXP: { ...(activeChar?.statsXP || createEmptyCharacter().statsXP), [stat]: newVal } });
                             }
                           }}
-                          className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded hover:bg-zinc-700 text-zinc-400 transition-colors"
+                          className="flex-1 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 transition-colors flex justify-center"
                         >
-                          +
-                        </button>
+                          <Plus size={14} />
+                        </motion.button>
                       </div>
                     </div>
                   </div>
@@ -961,16 +966,18 @@ export default function App() {
                <SubSection title="Armas" icon={<Sword size={14} />} defaultCollapsed={false}>
                   <div className="flex justify-between items-center mb-2">
                     <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armas</h4>
-                    <button 
+                    <motion.button 
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => updateChar({ armas: [...(activeChar?.armas || []), { id: generateId(), nome: 'Nova Arma', dano: '0', acerto: 0, tipo: 'Arma', escala: '', atributoBase: 'FOR', peso: 0, volume: 0, durabilidade: 0, maxDurabilidade: 0, corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 }] })}
                       className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                     >
                       <Plus size={16} />
-                    </button>
+                    </motion.button>
                   </div>
                   
                   {clipboard && (clipboard.type === 'Arma' || (clipboard.type === 'Item' && clipboard.data.tipo === 'Arma')) && (
-                    <button 
+                    <motion.button 
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => {
                         updateChar({ armas: [...(activeChar?.armas || []), { ...clipboard.data, id: generateId() }] });
                         setClipboard(null);
@@ -978,7 +985,7 @@ export default function App() {
                       className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
                     >
                       Colar Arma
-                    </button>
+                    </motion.button>
                   )}
                  <div className="space-y-3">
                    {armas.map((w, idx) => (
@@ -994,19 +1001,19 @@ export default function App() {
                           className="bg-transparent font-bold focus:outline-none flex-1 text-amber-500"
                          />
                          <div className="flex items-center gap-2">
-                           <button 
+                           <motion.button whileTap={{ scale: 0.95 }} 
                              onClick={() => copyToClipboard('Arma', w)}
                              className="text-zinc-500 hover:text-zinc-300 p-1"
                              title="Copiar Arma"
                            >
                              <Copy size={20} />
-                           </button>
-                           <button 
+                           </motion.button>
+                           <motion.button whileTap={{ scale: 0.95 }} 
                             onClick={() => updateChar({ armas: armas.filter(a => a.id !== w.id) })}
                             className="text-red-500 hover:text-red-400 p-1"
                            >
                              <Trash2 size={20} />
-                           </button>
+                           </motion.button>
                          </div>
                        </div>
                        
@@ -1027,16 +1034,18 @@ export default function App() {
                <SubSection title="Armaduras" icon={<Shield size={14} />} defaultCollapsed={false}>
                    <div className="flex justify-between items-center mb-2">
                     <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armaduras</h4>
-                    <button 
+                    <motion.button 
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => updateChar({ armaduras: [...(activeChar?.armaduras || []), { id: generateId(), nome: 'Nova Armadura', tipo: 'Armadura', corte: 0, impacto: 0, perfuracao: 0, durabilidade: 0, peso: 0, volume: 0, reducaoDano: 0, efeito: '' }] })}
                       className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                     >
                       <Plus size={16} />
-                    </button>
+                    </motion.button>
                   </div>
 
                   {clipboard && (clipboard.type === 'Armadura' || (clipboard.type === 'Item' && clipboard.data.tipo === 'Armadura')) && (
-                    <button 
+                    <motion.button 
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => {
                         updateChar({ armaduras: [...(activeChar?.armaduras || []), { ...clipboard.data, id: generateId() }] });
                         setClipboard(null);
@@ -1044,7 +1053,7 @@ export default function App() {
                       className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
                     >
                       Colar Armadura
-                    </button>
+                    </motion.button>
                   )}
                  <div className="space-y-3">
                    {(activeChar?.armaduras || []).map((a, idx) => (
@@ -1060,19 +1069,19 @@ export default function App() {
                           className="bg-transparent font-bold focus:outline-none flex-1 text-amber-500"
                          />
                          <div className="flex items-center gap-2">
-                           <button 
+                           <motion.button whileTap={{ scale: 0.95 }} 
                              onClick={() => copyToClipboard('Armadura', a)}
                              className="text-zinc-500 hover:text-zinc-300 p-1"
                              title="Copiar Armadura"
                            >
                              <Copy size={20} />
-                           </button>
-                           <button 
+                           </motion.button>
+                           <motion.button whileTap={{ scale: 0.95 }} 
                             onClick={() => updateChar({ armaduras: (activeChar?.armaduras || []).filter(arm => arm.id !== a.id) })}
                             className="text-red-500 hover:text-red-400 p-1"
                            >
                              <Trash2 size={20} />
-                           </button>
+                           </motion.button>
                          </div>
                        </div>
                        
@@ -1093,16 +1102,18 @@ export default function App() {
                <SubSection title="Acessórios" icon={<Gem size={14} />} defaultCollapsed={false}>
                    <div className="flex justify-between items-center mb-2">
                     <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Acessórios</h4>
-                    <button 
+                    <motion.button 
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => updateChar({ acessorios: [...(activeChar?.acessorios || []), { id: generateId(), nome: 'Novo Acessório', tipo: 'Armadura', corte: 0, impacto: 0, perfuracao: 0, durabilidade: 0, peso: 0, volume: 0, reducaoDano: 0, efeito: '' }] })}
                       className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                     >
                       <Plus size={16} />
-                    </button>
+                    </motion.button>
                   </div>
 
                   {clipboard && (clipboard.type === 'Armadura' || (clipboard.type === 'Item' && clipboard.data.tipo === 'Armadura')) && (
-                    <button 
+                    <motion.button 
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => {
                         updateChar({ acessorios: [...(activeChar?.acessorios || []), { ...clipboard.data, id: generateId() }] });
                         setClipboard(null);
@@ -1110,7 +1121,7 @@ export default function App() {
                       className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
                     >
                       Colar Acessório
-                    </button>
+                    </motion.button>
                   )}
                  <div className="space-y-3">
                    {(activeChar?.acessorios || []).map((a, idx) => (
@@ -1126,19 +1137,19 @@ export default function App() {
                           className="bg-transparent font-bold focus:outline-none flex-1 text-amber-500"
                          />
                          <div className="flex items-center gap-2">
-                           <button 
+                           <motion.button whileTap={{ scale: 0.95 }} 
                              onClick={() => copyToClipboard('Armadura', a)}
                              className="text-zinc-500 hover:text-zinc-300 p-1"
                              title="Copiar Acessório"
                            >
                              <Copy size={20} />
-                           </button>
-                           <button 
+                           </motion.button>
+                           <motion.button whileTap={{ scale: 0.95 }} 
                             onClick={() => updateChar({ acessorios: (activeChar?.acessorios || []).filter(acc => acc.id !== a.id) })}
                             className="text-red-500 hover:text-red-400 p-1"
                            >
                              <Trash2 size={20} />
-                           </button>
+                           </motion.button>
                          </div>
                        </div>
                        
@@ -1160,12 +1171,13 @@ export default function App() {
              <div className="space-y-4">
                <div className="flex justify-between items-center">
                  <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Compartimentos</h4>
-                 <button 
+                 <motion.button 
+                  whileTap={{ scale: 0.95 }}
                   onClick={() => updateChar({ compartimentos: [...(activeChar?.compartimentos || []), { id: generateId(), nome: 'Novo Compartimento', volumeMax: 0, itens: [] }] })}
                   className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                  >
                    <Plus size={16} />
-                 </button>
+                 </motion.button>
                </div>
                
                <div className="space-y-4">
@@ -1198,12 +1210,12 @@ export default function App() {
                                 size="sm"
                               />
                            </div>
-                           <button 
+                           <motion.button whileTap={{ scale: 0.95 }} 
                             onClick={() => updateChar({ compartimentos: compartimentos.filter(c => c.id !== comp.id) })}
                             className="text-red-500 hover:text-red-400 p-1"
                            >
                              <Trash2 size={18} />
-                           </button>
+                           </motion.button>
                          </div>
                        </div>
 
@@ -1230,14 +1242,14 @@ export default function App() {
                                     className="bg-transparent text-sm font-bold focus:outline-none flex-1 text-amber-500"
                                    />
                                    <div className="flex items-center gap-2">
-                                     <button 
+                                     <motion.button whileTap={{ scale: 0.95 }} 
                                        onClick={() => copyToClipboard(item.tipo === 'Arma' ? 'Arma' : item.tipo === 'Armadura' ? 'Armadura' : 'Item', item)}
                                        className="text-zinc-500 hover:text-zinc-300 p-1"
                                        title="Copiar Item"
                                      >
                                        <Copy size={20} />
-                                     </button>
-                                     <button 
+                                     </motion.button>
+                                     <motion.button whileTap={{ scale: 0.95 }} 
                                       onClick={() => {
                                         const nc = [...compartimentos];
                                         nc[cIdx].itens = nc[cIdx].itens.filter(it => it.id !== item.id);
@@ -1246,7 +1258,7 @@ export default function App() {
                                       className="text-red-500 transition-opacity p-1"
                                      >
                                        <Trash2 size={20} />
-                                     </button>
+                                     </motion.button>
                                    </div>
                                  </div>
                                  
@@ -1284,14 +1296,14 @@ export default function App() {
                                     className="bg-transparent text-sm font-bold focus:outline-none flex-1 text-amber-500"
                                    />
                                    <div className="flex items-center gap-2">
-                                     <button 
+                                     <motion.button whileTap={{ scale: 0.95 }} 
                                        onClick={() => copyToClipboard(item.tipo === 'Arma' ? 'Arma' : item.tipo === 'Armadura' ? 'Armadura' : 'Item', item)}
                                        className="text-zinc-500 hover:text-zinc-300 p-1"
                                        title="Copiar Item"
                                      >
                                        <Copy size={20} />
-                                     </button>
-                                     <button 
+                                     </motion.button>
+                                     <motion.button whileTap={{ scale: 0.95 }} 
                                       onClick={() => {
                                         const nc = [...compartimentos];
                                         nc[cIdx].itens = nc[cIdx].itens.filter(it => it.id !== item.id);
@@ -1300,7 +1312,7 @@ export default function App() {
                                       className="text-red-500 transition-opacity p-1"
                                      >
                                        <Trash2 size={20} />
-                                     </button>
+                                     </motion.button>
                                    </div>
                                  </div>
                                  
@@ -1338,14 +1350,14 @@ export default function App() {
                                     className="bg-transparent text-sm font-bold focus:outline-none flex-1 text-amber-500"
                                    />
                                    <div className="flex items-center gap-2">
-                                     <button 
+                                     <motion.button whileTap={{ scale: 0.95 }} 
                                        onClick={() => copyToClipboard(item.tipo === 'Arma' ? 'Arma' : item.tipo === 'Armadura' ? 'Armadura' : 'Item', item)}
                                        className="text-zinc-500 hover:text-zinc-300 p-1"
                                        title="Copiar Item"
                                      >
                                        <Copy size={20} />
-                                     </button>
-                                     <button 
+                                     </motion.button>
+                                     <motion.button whileTap={{ scale: 0.95 }} 
                                       onClick={() => {
                                         const nc = [...compartimentos];
                                         nc[cIdx].itens = nc[cIdx].itens.filter(it => it.id !== item.id);
@@ -1354,7 +1366,7 @@ export default function App() {
                                       className="text-red-500 transition-opacity p-1"
                                      >
                                        <Trash2 size={20} />
-                                     </button>
+                                     </motion.button>
                                    </div>
                                  </div>
                                  
@@ -1375,7 +1387,8 @@ export default function App() {
                          </div>
                          
                          <div className="flex gap-2">
-                           <button 
+                           <motion.button 
+                            whileTap={{ scale: 0.95 }}
                             onClick={() => {
                               const nc = [...compartimentos];
                               nc[cIdx].itens.push({ id: generateId(), nome: 'Novo Item', peso: 0, volume: 0, quantidade: 0, tipo: 'Geral', durabilidade: 0, maxDurabilidade: 0, descricao: '' });
@@ -1384,8 +1397,9 @@ export default function App() {
                             className="flex-1 py-2 border border-dashed border-zinc-700 rounded text-[10px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all"
                            >
                              + Item
-                           </button>
-                           <button 
+                           </motion.button>
+                           <motion.button 
+                            whileTap={{ scale: 0.95 }}
                             onClick={() => {
                               const nc = [...compartimentos];
                               nc[cIdx].itens.push({ id: generateId(), nome: 'Nova Arma', peso: 0, volume: 0, quantidade: 0, tipo: 'Arma', durabilidade: 0, maxDurabilidade: 0, descricao: '', dano: '0', acerto: 0, escala: '', atributoBase: 'FOR', corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 });
@@ -1394,8 +1408,9 @@ export default function App() {
                             className="flex-1 py-2 border border-dashed border-zinc-700 rounded text-[10px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all"
                            >
                              + Arma
-                           </button>
-                           <button 
+                           </motion.button>
+                           <motion.button 
+                            whileTap={{ scale: 0.95 }}
                             onClick={() => {
                               const nc = [...compartimentos];
                               nc[cIdx].itens.push({ id: generateId(), nome: 'Nova Armadura', peso: 0, volume: 0, quantidade: 0, tipo: 'Armadura', durabilidade: 0, maxDurabilidade: 0, descricao: '', corte: 0, impacto: 0, perfuracao: 0, reducaoDano: 0, efeito: '' });
@@ -1404,10 +1419,11 @@ export default function App() {
                             className="flex-1 py-2 border border-dashed border-zinc-700 rounded text-[10px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all"
                            >
                              + Armadura
-                           </button>
+                           </motion.button>
                          </div>
                          {clipboard && (
-                           <button 
+                           <motion.button 
+                             whileTap={{ scale: 0.95 }}
                              onClick={() => {
                                const nc = [...compartimentos];
                                nc[cIdx].itens.push({ ...clipboard.data, id: generateId() });
@@ -1417,7 +1433,7 @@ export default function App() {
                              className="w-full py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
                            >
                              Colar {clipboard.type}
-                           </button>
+                           </motion.button>
                          )}
                        </div>
                      </div>
@@ -1433,7 +1449,8 @@ export default function App() {
                  <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Magias</h4>
                  <div className="flex items-center gap-2">
                    {clipboard?.type === 'Magia' && (
-                     <button 
+                     <motion.button 
+                       whileTap={{ scale: 0.95 }}
                        onClick={() => {
                          updateChar({ magias: [...(activeChar?.magias || []), { ...clipboard.data, id: generateId() }] });
                          setClipboard(null);
@@ -1441,14 +1458,15 @@ export default function App() {
                        className="text-emerald-500 hover:text-emerald-400 flex items-center gap-1 text-[10px] font-bold uppercase"
                      >
                        <Plus size={12} /> Colar
-                     </button>
+                     </motion.button>
                    )}
-                   <button 
-                    onClick={() => updateChar({ magias: [...(activeChar?.magias || []), { id: generateId(), nome: 'Nova Magia', efeito: '', dano: '0', mana: 0, acerto: 0 }] })}
+                   <motion.button 
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => updateChar({ magias: [...(activeChar?.magias || []), { id: generateId(), nome: 'Nova Magia', tipo: '', efeito: '', dano: '0', mana: 0, acerto: 0 }] })}
                     className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                    >
                      <Plus size={16} />
-                   </button>
+                   </motion.button>
                  </div>
                </div>
                <div className="space-y-3">
@@ -1464,19 +1482,35 @@ export default function App() {
                         }}
                         className="bg-transparent font-bold focus:outline-none flex-1 text-amber-500"
                        />
-                       <button 
+                       <motion.button 
+                        whileTap={{ scale: 0.95 }}
                         onClick={() => updateChar({ magias: (activeChar?.magias || []).filter(mag => mag.id !== m.id) })}
                         className="text-red-500 hover:text-red-400 p-1"
                        >
                          <Trash2 size={20} />
-                       </button>
+                       </motion.button>
                      </div>
                      
-                     <div className="grid grid-cols-3 gap-2">
+                     <div className="grid grid-cols-2 gap-2">
                        <MiniInput label="Dano" value={m.dano} onChange={v => { const na = [...(activeChar?.magias || [])]; na[idx].dano = v; updateChar({ magias: na }); }} />
+                       <MiniInput label="Tipo" value={m.tipo} onChange={v => { const na = [...(activeChar?.magias || [])]; na[idx].tipo = v; updateChar({ magias: na }); }} />
+                     </div>
+                     <div className="grid grid-cols-2 gap-2">
                        <MiniInput label="Mana" value={m.mana} type="number" onChange={v => { const na = [...(activeChar?.magias || [])]; na[idx].mana = parseInt(v) || 0; updateChar({ magias: na }); }} />
                        <MiniInput label="Acerto" value={m.acerto} type="number" onChange={v => { const na = [...(activeChar?.magias || [])]; na[idx].acerto = parseInt(v) || 0; updateChar({ magias: na }); }} />
                      </div>
+
+                     <motion.button 
+                       whileTap={{ scale: 0.95 }}
+                       onClick={() => {
+                         const currentMana = activeChar.manaAtual || 0;
+                         const cost = m.mana || 0;
+                         updateChar({ manaAtual: Math.max(0, currentMana - cost) });
+                       }}
+                       className="w-full py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded font-bold uppercase text-[10px] transition-all flex items-center justify-center gap-2"
+                     >
+                       <Zap size={12} /> Usar Magia
+                     </motion.button>
 
                      <TextArea label="Efeito" value={m.efeito} onChange={v => { const na = [...(activeChar?.magias || [])]; na[idx].efeito = v; updateChar({ magias: na }); }} />
                    </div>
@@ -1489,12 +1523,13 @@ export default function App() {
              <div className="space-y-3">
                <div className="flex justify-between items-center">
                  <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Habilidades</h4>
-                 <button 
-                  onClick={() => updateChar({ habilidades: [...(activeChar?.habilidades || []), { id: generateId(), nome: 'Nova Habilidade', efeito: '' }] })}
+                  <motion.button 
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => updateChar({ habilidades: [...(activeChar?.habilidades || []), { id: generateId(), nome: 'Nova Habilidade', efeito: '' }] })}
                   className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                  >
                    <Plus size={16} />
-                 </button>
+                 </motion.button>
                </div>
                <div className="space-y-3">
                  {(activeChar?.habilidades || []).map((h, idx) => (
@@ -1509,12 +1544,13 @@ export default function App() {
                         }}
                         className="bg-transparent font-bold focus:outline-none flex-1 text-amber-500"
                        />
-                       <button 
+                       <motion.button 
+                        whileTap={{ scale: 0.95 }}
                         onClick={() => updateChar({ habilidades: (activeChar?.habilidades || []).filter(hab => hab.id !== h.id) })}
                         className="text-red-500 hover:text-red-400 p-1"
                        >
                          <Trash2 size={20} />
-                       </button>
+                       </motion.button>
                      </div>
                      
                      <TextArea label="Efeito" value={h.efeito} onChange={v => { const na = [...(activeChar?.habilidades || [])]; na[idx].efeito = v; updateChar({ habilidades: na }); }} />
@@ -1580,7 +1616,7 @@ export default function App() {
         <div className="flex flex-col h-full max-w-4xl mx-auto bg-zinc-950 rounded-xl overflow-hidden border border-zinc-800 shadow-2xl">
           {/* Tabs Header */}
           <div className="flex border-b border-zinc-800 bg-zinc-900/50">
-            <button 
+            <motion.button whileTap={{ scale: 0.95 }} 
               onClick={() => setDiceTab('mesa')}
               className={cn(
                 "flex-1 py-4 text-sm font-bold uppercase tracking-widest transition-all relative",
@@ -1589,8 +1625,8 @@ export default function App() {
             >
               Mesa
               {diceTab === 'mesa' && <motion.div layoutId="diceTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500" />}
-            </button>
-            <button 
+            </motion.button>
+            <motion.button whileTap={{ scale: 0.95 }} 
               onClick={() => setDiceTab('historico')}
               className={cn(
                 "flex-1 py-4 text-sm font-bold uppercase tracking-widest transition-all relative",
@@ -1599,7 +1635,7 @@ export default function App() {
             >
               Histórico
               {diceTab === 'historico' && <motion.div layoutId="diceTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500" />}
-            </button>
+            </motion.button>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
@@ -1616,7 +1652,8 @@ export default function App() {
                     { sides: 20, img: 'd20.png' },
                     { sides: 100, img: 'd100.png' },
                   ].map(dice => (
-                    <button
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
                       key={`d${dice.sides}`}
                       onClick={() => rollDice(dice.sides, diceQuantity, diceBonus)}
                       className="flex flex-col items-center group"
@@ -1629,11 +1666,12 @@ export default function App() {
                         />
                       </div>
                       <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">d{dice.sides}</span>
-                    </button>
+                    </motion.button>
                   ))}
                   
                   {/* Special 3d8 Preset */}
-                  <button
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
                     onClick={() => {
                       const acuraciaBonus = calculateProficiencyBonus(
                         activeChar.stats, 
@@ -1658,10 +1696,10 @@ export default function App() {
                       <div className="absolute -top-1 -right-1 bg-amber-500 text-zinc-950 text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">3d8</div>
                     </div>
                     <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">3d8</span>
-                  </button>
+                  </motion.button>
 
                   {/* Fome e Sede Roll */}
-                  <button
+                  <motion.button whileTap={{ scale: 0.95 }} 
                     onClick={() => rollDice(0, 0, 0, 'Fome e Sede')}
                     className="flex flex-col items-center group"
                   >
@@ -1673,7 +1711,7 @@ export default function App() {
                       <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">SURV</div>
                     </div>
                     <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">Fome & Sede</span>
-                  </button>
+                  </motion.button>
                 </div>
 
                 {/* Controls Bar - Moved below dice grid */}
@@ -1681,19 +1719,21 @@ export default function App() {
                   <div className="flex flex-col items-center gap-1">
                     <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Quantidade</span>
                     <div className="flex items-center gap-3">
-                      <button 
+                      <motion.button 
+                        whileTap={{ scale: 0.95 }}
                         onClick={() => setDiceQuantity(Math.max(1, diceQuantity - 1))}
                         className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
                       >
                         <Minus size={16} />
-                      </button>
+                      </motion.button>
                       <span className="text-xl font-black text-amber-500 min-w-[2ch] text-center">{diceQuantity}</span>
-                      <button 
+                      <motion.button 
+                        whileTap={{ scale: 0.95 }}
                         onClick={() => setDiceQuantity(Math.min(99, diceQuantity + 1))}
                         className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
                       >
                         <Plus size={16} />
-                      </button>
+                      </motion.button>
                     </div>
                   </div>
 
@@ -1702,21 +1742,23 @@ export default function App() {
                   <div className="flex flex-col items-center gap-1">
                     <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Bônus</span>
                     <div className="flex items-center gap-3">
-                      <button 
+                      <motion.button 
+                        whileTap={{ scale: 0.95 }}
                         onClick={() => setDiceBonus(diceBonus - 1)}
                         className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
                       >
                         <Minus size={16} />
-                      </button>
+                      </motion.button>
                       <span className="text-xl font-black text-amber-500 min-w-[3ch] text-center">
                         {diceBonus > 0 ? '+' : ''}{diceBonus}
                       </span>
-                      <button 
+                      <motion.button 
+                        whileTap={{ scale: 0.95 }}
                         onClick={() => setDiceBonus(diceBonus + 1)}
                         className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
                       >
                         <Plus size={16} />
-                      </button>
+                      </motion.button>
                     </div>
                   </div>
                 </div>
@@ -1727,19 +1769,21 @@ export default function App() {
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-2">
                       {activeChar.dadosCustomizados.map(dice => (
                         <div key={dice.id} className="relative group">
-                          <button
+                          <motion.button
+                            whileTap={{ scale: 0.95 }}
                             onClick={() => rollDice(dice.lados, diceQuantity, diceBonus, dice.nome)}
                             className="w-full flex flex-col items-center justify-center p-4 bg-zinc-900/30 border border-zinc-800 rounded-xl hover:border-amber-500/30 transition-all"
                           >
                             <Dices size={24} className="text-amber-500/50 mb-2" />
                             <span className="text-[10px] font-bold text-zinc-400 uppercase truncate w-full text-center">{dice.nome}</span>
-                          </button>
-                          <button 
+                          </motion.button>
+                          <motion.button 
+                            whileTap={{ scale: 0.95 }}
                             onClick={() => updateChar({ dadosCustomizados: activeChar.dadosCustomizados.filter(d => d.id !== dice.id) })}
                             className="absolute -top-1 -right-1 p-1 bg-zinc-950 border border-zinc-800 text-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-all"
                           >
                             <Trash2 size={10} />
-                          </button>
+                          </motion.button>
                         </div>
                       ))}
                     </div>
@@ -1768,7 +1812,8 @@ export default function App() {
                           placeholder="Ex: Dado de Sorte"
                         />
                       </div>
-                      <button 
+                      <motion.button 
+                        whileTap={{ scale: 0.95 }}
                         onClick={() => {
                           const sidesInput = document.getElementById('new-dice-sides-v2') as HTMLInputElement;
                           const nameInput = document.getElementById('new-dice-name-v2') as HTMLInputElement;
@@ -1780,7 +1825,7 @@ export default function App() {
                         className="h-10 px-4 bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-zinc-950 rounded-md transition-all flex items-center gap-2 font-bold text-xs uppercase"
                       >
                         <Plus size={16} /> Adicionar
-                      </button>
+                      </motion.button>
                     </div>
                   </div>
                 </SubSection>
@@ -1789,12 +1834,13 @@ export default function App() {
               <div className="space-y-4">
                 {diceHistory.length > 0 && (
                   <div className="flex justify-end">
-                    <button 
+                    <motion.button 
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => setDiceHistory([])}
                       className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-[10px] font-bold uppercase transition-all"
                     >
                       <Trash2 size={14} /> Limpar Histórico
-                    </button>
+                    </motion.button>
                   </div>
                 )}
                 <div className="space-y-3">
@@ -1840,12 +1886,13 @@ export default function App() {
               <h2 className="text-xl font-bold text-amber-500 flex items-center gap-2">
                 <FileText size={24} /> Anotações
               </h2>
-              <button 
+              <motion.button 
+                whileTap={{ scale: 0.95 }}
                 onClick={() => updateChar({ anotacoes: [...(activeChar.anotacoes || []), { id: generateId(), titulo: 'Nova Anotação', conteudo: '' }] })}
                 className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 px-4 py-2 rounded-lg font-bold transition-all shadow-lg shadow-amber-500/20"
               >
                 <Plus size={18} /> Adicionar Aba
-              </button>
+              </motion.button>
             </div>
 
             <div className="grid grid-cols-1 gap-6">
@@ -1871,7 +1918,8 @@ export default function App() {
                             placeholder="Digite o título..."
                           />
                         </div>
-                        <button 
+                        <motion.button 
+                          whileTap={{ scale: 0.95 }}
                           onClick={() => {
                             const newNotes = activeChar.anotacoes.filter(n => n.id !== note.id);
                             updateChar({ anotacoes: newNotes });
@@ -1880,7 +1928,7 @@ export default function App() {
                           title="Excluir Aba"
                         >
                           <Trash2 size={20} />
-                        </button>
+                        </motion.button>
                       </div>
                       <div>
                         <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Conteúdo</label>
@@ -1905,12 +1953,13 @@ export default function App() {
                 <div className="text-center py-20 bg-zinc-900/20 border border-dashed border-zinc-800 rounded-xl">
                   <FileText size={48} className="mx-auto text-zinc-800 mb-4" />
                   <p className="text-zinc-500">Nenhuma aba de anotação criada.</p>
-                  <button 
+                  <motion.button 
+                    whileTap={{ scale: 0.95 }}
                     onClick={() => updateChar({ anotacoes: [{ id: generateId(), titulo: 'Anotações Gerais', conteudo: '' }] })}
                     className="mt-4 text-amber-500 hover:text-amber-400 font-bold uppercase text-xs tracking-widest"
                   >
                     Criar Primeira Aba
-                  </button>
+                  </motion.button>
                 </div>
               )}
             </div>
@@ -1951,7 +2000,8 @@ export default function App() {
                       className="w-full h-full object-cover"
                       referrerPolicy="no-referrer"
                     />
-                    <button 
+                    <motion.button 
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => {
                         const newImgs = activeChar.imagens.filter(i => i.id !== img.id);
                         updateChar({ imagens: newImgs });
@@ -1960,7 +2010,7 @@ export default function App() {
                       title="Remover Imagem"
                     >
                       <Trash2 size={20} />
-                    </button>
+                    </motion.button>
                   </div>
                 ))}
               </div>
@@ -2132,20 +2182,24 @@ function ProgressBar({ label, current, max, color, onChange }: { label: string, 
   }, [current]);
 
   return (
-    <div>
+    <div 
+      onDoubleClick={() => current < max && onChange(max)}
+      className="space-y-1 cursor-pointer"
+    >
       <div className="flex justify-between items-end mb-1.5">
         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{label}</span>
         <div className="flex items-center gap-1">
           <input 
             type="number" 
             value={innerValue} 
+            onDoubleClick={e => e.stopPropagation()}
             onChange={e => {
               setInnerValue(e.target.value);
               onChange(parseInt(e.target.value) || 0);
             }}
-            className="min-w-[3rem] w-auto bg-transparent text-right font-bold text-sm focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className="w-12 bg-transparent text-right font-bold text-sm focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
-          <span className="text-xs text-zinc-600">/ {max}</span>
+          <span className="text-xs text-zinc-600" onDoubleClick={e => e.stopPropagation()}>/ {max}</span>
         </div>
       </div>
       <div className="h-3 bg-zinc-800 rounded-full p-0.5 border border-zinc-700/50">
@@ -2172,17 +2226,21 @@ function MiniBar({ label, value, max = 100, color, onChange }: { label: string, 
   }, [value]);
 
   return (
-    <div className="bg-zinc-900/50 border border-zinc-800 p-2 rounded-lg">
+    <div 
+      onDoubleClick={() => value < max && onChange(max)}
+      className="bg-zinc-900/50 border border-zinc-800 p-2 rounded-lg cursor-pointer"
+    >
       <div className="text-[9px] text-zinc-500 font-bold uppercase mb-1">{label}</div>
       <div className="flex items-center gap-2">
         <input 
           type="number" 
           value={innerValue} 
+          onDoubleClick={e => e.stopPropagation()}
           onChange={e => {
             setInnerValue(e.target.value);
             onChange(parseInt(e.target.value) || 0);
           }}
-          className="w-full bg-transparent text-xs font-bold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          className="w-10 bg-transparent text-xs font-bold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
       </div>
       <div className="h-1 bg-zinc-800 rounded-full mt-1 overflow-hidden">
@@ -2281,42 +2339,22 @@ function NumericInput({ label, value, onChange, className, min, max, size = "md"
   return (
     <div className={cn("flex flex-col min-w-0", className)}>
       {label && <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 truncate">{label}</label>}
-      <div className="flex items-center gap-1">
-        <button 
-          onClick={() => {
-            const newVal = Math.max(min ?? -999, value - 1);
-            onChange(newVal);
-          }}
-          className="p-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 transition-colors"
-        >
-          <ChevronDown size={size === "lg" ? 20 : 16} />
-        </button>
-        <input 
-          type="number" 
-          value={innerValue} 
-          min={min}
-          max={max}
-          onChange={e => {
-            setInnerValue(e.target.value);
-            onChange(parseInt(e.target.value) || 0);
-          }}
-          className={cn(
-            "bg-black/20 border border-zinc-800/50 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold text-center flex-1 min-w-[2rem] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
-            size === "sm" && "py-1 px-1 text-xs",
-            size === "md" && "py-2 px-2 text-sm",
-            size === "lg" && "py-3 px-3 text-lg"
-          )}
-        />
-        <button 
-          onClick={() => {
-            const newVal = Math.min(max ?? 999, value + 1);
-            onChange(newVal);
-          }}
-          className="p-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400 transition-colors"
-        >
-          <ChevronUp size={size === "lg" ? 20 : 16} />
-        </button>
-      </div>
+      <input 
+        type="text" 
+        inputMode="numeric"
+        value={innerValue} 
+        onChange={e => {
+          const val = e.target.value.replace(/[^0-9-]/g, '');
+          setInnerValue(val);
+          onChange(parseInt(val) || 0);
+        }}
+        className={cn(
+          "bg-black/40 border border-zinc-700/50 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-400 font-bold text-center w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none shadow-inner",
+          size === "sm" && "py-1 px-1 text-sm",
+          size === "md" && "py-2 px-2 text-base",
+          size === "lg" && "py-3 px-1 text-3xl"
+        )}
+      />
     </div>
   );
 }
@@ -2351,11 +2389,13 @@ function MiniInput({ label, value, type = "text", onChange }: { label: string, v
         />
       ) : (
         <input 
-          type={type} 
+          type="text" 
+          inputMode="numeric"
           value={innerValue} 
           onChange={e => {
-            setInnerValue(e.target.value);
-            onChange(e.target.value);
+            const val = e.target.value.replace(/[^0-9-]/g, '');
+            setInnerValue(val);
+            onChange(val);
           }}
           className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />

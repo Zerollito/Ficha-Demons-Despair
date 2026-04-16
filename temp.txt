@@ -1,0 +1,2 @@
+                             onClick={() => copyToClipboard('Arma', w)}
+--

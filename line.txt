@@ -1,0 +1,1 @@
+1544:                        onClick={() => updateChar({ habilidades: (activeChar?.habilidades || []).filter(hab => hab.id !== h.id) })}
