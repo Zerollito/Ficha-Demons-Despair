@@ -19,10 +19,11 @@
     "xpIncrement": 5
   },
   "scales": {
-    "C": 0.25,
-    "B": 0.5,
-    "A": 0.75,
-    "S": 1.0
+    "0": 0,
+    "D": 0.25,
+    "C": 0.5,
+    "B": 0.75,
+    "A": 1.0
   },
   "penalties": {
     "loadThresholds": [

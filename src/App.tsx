@@ -977,7 +977,7 @@ export default function App() {
                     <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armas</h4>
                     <motion.button 
                       whileTap={{ scale: 0.95 }}
-                      onClick={() => updateChar({ armas: [...(activeChar?.armas || []), { id: generateId(), nome: 'Nova Arma', dano: '0', acerto: 0, tipo: 'Arma', escala: '', atributoBase: 'FOR', peso: 0, volume: 0, durabilidade: 0, maxDurabilidade: 0, corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 }] })}
+                      onClick={() => updateChar({ armas: [...(activeChar?.armas || []), { id: generateId(), nome: 'Nova Arma', dano: '0', acerto: 0, tipo: 'Arma', escala: '0', atributoBase: 'Força', peso: 0, volume: 0, durabilidade: 0, maxDurabilidade: 0, corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 }] })}
                       className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                     >
                       <Plus size={16} />
@@ -1411,7 +1411,7 @@ export default function App() {
                             whileTap={{ scale: 0.95 }}
                             onClick={() => {
                               const nc = [...compartimentos];
-                              nc[cIdx].itens.push({ id: generateId(), nome: 'Nova Arma', peso: 0, volume: 0, quantidade: 0, tipo: 'Arma', durabilidade: 0, maxDurabilidade: 0, descricao: '', dano: '0', acerto: 0, escala: '', atributoBase: 'FOR', corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 });
+                              nc[cIdx].itens.push({ id: generateId(), nome: 'Nova Arma', peso: 0, volume: 0, quantidade: 0, tipo: 'Arma', durabilidade: 0, maxDurabilidade: 0, descricao: '', dano: '0', acerto: 0, escala: '0', atributoBase: 'Força', corte: 0, impacto: 0, perfuracao: 0, resistencia: 0 });
                               updateChar({ compartimentos: nc });
                             }}
                             className="flex-1 py-2 border border-dashed border-zinc-700 rounded text-[10px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all"
@@ -1502,7 +1502,22 @@ export default function App() {
                      
                      <div className="grid grid-cols-2 gap-2">
                        <MiniInput label="Dano" value={m.dano} onChange={v => { const na = [...(activeChar?.magias || [])]; na[idx].dano = v; updateChar({ magias: na }); }} />
-                       <MiniInput label="Tipo" value={m.tipo} onChange={v => { const na = [...(activeChar?.magias || [])]; na[idx].tipo = v; updateChar({ magias: na }); }} />
+                       <div className="flex flex-col min-w-0">
+                         <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter mb-0.5 truncate">Tipo</span>
+                         <select 
+                           value={m.tipo || 'Feitiço'}
+                           onChange={e => {
+                             const na = [...(activeChar?.magias || [])];
+                             na[idx].tipo = e.target.value;
+                             updateChar({ magias: na });
+                           }}
+                           className="bg-black/40 border border-zinc-700/50 rounded px-2 py-0.5 text-xs text-zinc-300 font-bold focus:outline-none focus:border-amber-500/50"
+                         >
+                           <option value="Feitiço">Feitiço</option>
+                           <option value="elemental">Elemental</option>
+                           <option value="magia negra">Magia Negra</option>
+                         </select>
+                       </div>
                      </div>
                      <div className="grid grid-cols-2 gap-2">
                        <MiniInput label="Mana" value={m.mana} type="number" onChange={v => { const na = [...(activeChar?.magias || [])]; na[idx].mana = parseInt(v) || 0; updateChar({ magias: na }); }} />
@@ -1667,7 +1682,7 @@ export default function App() {
                 <motion.button
                   whileTap={{ scale: 0.95 }}
                   onClick={() => {
-                    const newEscalas = [...(activeChar.escalas || []), { id: generateId(), nome: 'Nova Escala', nivel: 0, xp: 0 }];
+                    const newEscalas = [...(activeChar.escalas || []), { id: generateId(), nome: 'Nova Escala', nivel: 0, xp: 0, bonus: 'Força' }];
                     updateChar({ escalas: newEscalas });
                   }}
                   className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 px-3 py-1.5 rounded-lg font-bold text-xs uppercase"
@@ -1683,12 +1698,13 @@ export default function App() {
                   const isSelectorOpen = openLevelSelectorId === s.id;
                   return (
                     <div key={s.id} className={cn(
-                      "bg-zinc-900/50 p-3 rounded-lg border transition-all space-y-2",
+                      "bg-zinc-900/50 p-4 rounded-lg border transition-all space-y-4",
                       isSelectorOpen 
                         ? "z-[100] relative scale-[1.02] shadow-2xl border-amber-500 ring-1 ring-amber-500/20 bg-zinc-900" 
                         : "border-zinc-800/50"
                     )}>
-                      <div className="flex justify-between items-center gap-1.5">
+                      {/* Top Row: Name and Delete */}
+                      <div className="flex justify-between items-center gap-2">
                         <input 
                           value={s.nome}
                           onChange={e => {
@@ -1696,75 +1712,97 @@ export default function App() {
                             newEscalas[idx].nome = e.target.value;
                             updateChar({ escalas: newEscalas });
                           }}
-                          className="bg-transparent font-bold uppercase tracking-widest text-zinc-300 focus:outline-none flex-1 min-w-0 border-b border-transparent focus:border-amber-500/30"
+                          className="bg-transparent font-bold uppercase tracking-widest text-zinc-300 focus:outline-none flex-1 min-w-0 border-b border-transparent focus:border-amber-500/30 text-sm"
                         />
-                        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-                          <div className="flex items-center gap-1 sm:gap-2">
-                            <span className="text-[9px] sm:text-[10px] text-zinc-500 font-bold uppercase shrink-0">Nível</span>
-                            <div className="relative">
-                              <motion.button 
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => setOpenLevelSelectorId(isSelectorOpen ? null : s.id)}
-                                className={cn(
-                                  "w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center bg-zinc-950 border rounded-lg font-black text-lg sm:text-xl transition-all",
-                                  isSelectorOpen 
-                                    ? "border-amber-500 text-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.3)]" 
-                                    : "border-zinc-700/50 text-amber-500/80 hover:border-amber-500/50"
-                                )}
-                              >
-                                {levelLetter}
-                              </motion.button>
-                              
-                              <AnimatePresence>
-                                {openLevelSelectorId === s.id && (
-                                  <>
-                                    <div 
-                                      className="fixed inset-0 z-[100] cursor-default bg-transparent" 
-                                      onClick={() => setOpenLevelSelectorId(null)} 
-                                    />
-                                    <motion.div
-                                      initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                                      exit={{ opacity: 0, scale: 0.9, y: 10 }}
-                                      className="absolute bottom-full right-0 mb-2 bg-zinc-900 border border-zinc-700 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-1 z-[110] flex flex-col gap-1 min-w-[50px]"
-                                    >
-                                      {['0', 'D', 'C', 'B', 'A'].map((letter, lIdx) => (
-                                        <button
-                                          key={letter}
-                                          onClick={() => {
-                                            const newEscalas = [...(activeChar.escalas || [])];
-                                            newEscalas[idx].nivel = lIdx;
-                                            updateChar({ escalas: newEscalas });
-                                            setOpenLevelSelectorId(null);
-                                          }}
-                                          className={cn(
-                                            "w-full py-2 px-3 rounded-lg font-black text-lg transition-colors text-center",
-                                            s.nivel === lIdx 
-                                              ? "bg-amber-500 text-zinc-950" 
-                                              : "text-zinc-400 hover:bg-zinc-800 hover:text-white"
-                                          )}
-                                        >
-                                          {letter}
-                                        </button>
-                                      ))}
-                                    </motion.div>
-                                  </>
-                                )}
-                              </AnimatePresence>
-                            </div>
-                          </div>
-                          <motion.button 
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => {
-                              const newEscalas = (activeChar.escalas || []).filter(item => item.id !== s.id);
+                        <motion.button 
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => {
+                            const newEscalas = (activeChar.escalas || []).filter(item => item.id !== s.id);
+                            updateChar({ escalas: newEscalas });
+                          }}
+                          className="text-red-500 hover:text-red-400 transition-colors p-1"
+                        >
+                          <Trash2 size={20} />
+                        </motion.button>
+                      </div>
+
+                      {/* Middle Row: Bonus and Level Selection */}
+                      <div className="flex flex-wrap items-center gap-6">
+                        <div className="flex flex-col gap-1 min-w-[120px]">
+                          <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Atributo Bônus</span>
+                          <select 
+                            value={s.bonus || 'Força'}
+                            onChange={e => {
+                              const newEscalas = [...(activeChar.escalas || [])];
+                              newEscalas[idx].bonus = e.target.value;
                               updateChar({ escalas: newEscalas });
                             }}
-                            className="text-red-500 hover:text-red-400 p-1"
+                            className="bg-black/60 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-amber-500 font-bold focus:outline-none focus:border-amber-500/50 ring-offset-black"
                           >
-                            <Trash2 size={18} />
-                          </motion.button>
+                            <option value="Força">Força</option>
+                            <option value="Destreza">Destreza</option>
+                            <option value="Inteligência">Inteligência</option>
+                            <option value="Ritual">Ritual</option>
+                          </select>
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Nível de Escala</span>
+                          <div className="relative">
+                            <motion.button 
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => setOpenLevelSelectorId(isSelectorOpen ? null : s.id)}
+                              className={cn(
+                                "w-10 h-10 flex items-center justify-center bg-zinc-950 border rounded-lg font-black text-xl transition-all",
+                                isSelectorOpen 
+                                  ? "border-amber-500 text-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.4)]" 
+                                  : "border-zinc-700/50 text-amber-500/80 hover:border-amber-500/50"
+                              )}
+                            >
+                              {levelLetter}
+                            </motion.button>
+                            
+                            <AnimatePresence>
+                              {openLevelSelectorId === s.id && (
+                                <>
+                                  <div 
+                                    className="fixed inset-0 z-[100] cursor-default bg-transparent" 
+                                    onClick={() => setOpenLevelSelectorId(null)} 
+                                  />
+                                  <motion.div
+                                    initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.9, y: 10 }}
+                                    className="absolute bottom-full left-0 mb-2 bg-zinc-900 border border-zinc-700 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-1 z-[110] flex flex-col gap-1 min-w-[60px]"
+                                  >
+                                    {['0', 'D', 'C', 'B', 'A'].map((letter, lIdx) => (
+                                      <button
+                                        key={letter}
+                                        onClick={() => {
+                                          const newEscalas = [...(activeChar.escalas || [])];
+                                          newEscalas[idx].nivel = lIdx;
+                                          updateChar({ escalas: newEscalas });
+                                          setOpenLevelSelectorId(null);
+                                        }}
+                                        className={cn(
+                                          "w-full py-2 px-3 rounded-lg font-black text-lg transition-colors text-center",
+                                          s.nivel === lIdx 
+                                            ? "bg-amber-500 text-zinc-950" 
+                                            : "text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                                        )}
+                                      >
+                                        {letter}
+                                      </button>
+                                    ))}
+                                  </motion.div>
+                                </>
+                              )}
+                            </AnimatePresence>
+                          </div>
                         </div>
                       </div>
+
+                      {/* Bottom Row: XP Progress */}
                       
                       <div className="flex items-center gap-3">
                         <div className="flex-1 h-3 bg-zinc-800 rounded-full overflow-hidden border border-zinc-700/50">
@@ -2494,12 +2532,45 @@ function MiniBar({ label, value, max = 100, color, onChange }: { label: string, 
 
 function WeaponProperties({ item, onChange }: { item: any, onChange: (updates: any) => void }) {
   return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-2">
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
         <MiniInput label="Dano" value={item.dano || '0'} onChange={v => onChange({ dano: v })} />
         <MiniInput label="Acerto" value={item.acerto || 0} type="number" onChange={v => onChange({ acerto: parseInt(v) || 0 })} />
-        <MiniInput label="Escala" value={item.escala ?? ''} onChange={v => onChange({ escala: v })} />
       </div>
+
+      <div className="bg-zinc-950/30 p-2 rounded-lg border border-zinc-800/50 space-y-2">
+        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">Dimensionamento (Escala)</span>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="flex flex-col gap-1">
+            <span className="text-[9px] text-zinc-600 font-bold uppercase">Nível</span>
+            <select 
+              value={item.escala || '0'}
+              onChange={e => onChange({ escala: e.target.value })}
+              className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-amber-500 font-bold focus:outline-none focus:border-amber-500/50"
+            >
+              <option value="0">0</option>
+              <option value="D">D</option>
+              <option value="C">C</option>
+              <option value="B">B</option>
+              <option value="A">A</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[9px] text-zinc-600 font-bold uppercase">Bônus</span>
+            <select 
+              value={item.atributoBase || 'Força'}
+              onChange={e => onChange({ atributoBase: e.target.value })}
+              className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-amber-500 font-bold focus:outline-none focus:border-amber-500/50"
+            >
+              <option value="Força">Força</option>
+              <option value="Destreza">Destreza</option>
+              <option value="Inteligência">Inteligência</option>
+              <option value="Ritual">Ritual</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-3 gap-2">
         <MiniInput label="Corte" value={item.corte || 0} type="number" onChange={v => onChange({ corte: parseInt(v) || 0 })} />
         <MiniInput label="Impacto" value={item.impacto || 0} type="number" onChange={v => onChange({ impacto: parseInt(v) || 0 })} />

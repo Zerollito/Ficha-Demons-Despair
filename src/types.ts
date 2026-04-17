@@ -82,6 +82,7 @@ export interface Escala {
   nome: string;
   nivel: number;
   xp: number;
+  bonus?: string;
 }
 
 export interface AppState {

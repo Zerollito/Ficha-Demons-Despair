@@ -1,6 +1,6 @@
 import { CONFIG } from './statusRules';
 
-export type Scale = 'C' | 'B' | 'A' | 'S';
+export type Scale = '0' | 'D' | 'C' | 'B' | 'A';
 
 export interface Weapon {
   id: string;
@@ -9,7 +9,7 @@ export interface Weapon {
   acerto: number;
   tipo: string;
   escala: Scale;
-  atributoBase: 'FOR' | 'DEX' | 'INT' | 'RIT';
+  atributoBase: 'Força' | 'Destreza' | 'Inteligência' | 'Ritual';
   peso: number;
   volume: number;
   durabilidade: number;
