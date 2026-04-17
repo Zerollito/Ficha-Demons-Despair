@@ -1903,6 +1903,59 @@ export default function App() {
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
             {diceTab === 'mesa' ? (
               <div className="space-y-8 pb-24">
+                {/* Armas do Personagem */}
+                <SubSection title="Dano de Armas" icon={<Sword size={14} />} defaultCollapsed={false}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                    {(activeChar.armas || []).map((arma, aIdx) => {
+                      // Map full attribute names to Stats keys
+                      const statMap: Record<string, keyof Stats> = {
+                        'Força': 'FOR',
+                        'Destreza': 'DEX',
+                        'Inteligência': 'INT',
+                        'Ritual': 'RIT'
+                      };
+                      const statKey = statMap[arma.atributoBase || 'Força'];
+                      const statValue = activeChar.stats[statKey] || 0;
+                      const scalingBonus = calculateWeaponDamageBonus(arma as any, statValue);
+                      
+                      return (
+                        <motion.button
+                          key={`${arma.id}-${aIdx}`}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => {
+                            // Parse '1d4', '2d6', etc.
+                            const danoStr = arma.dano || '1d6';
+                            const match = danoStr.match(/(\d+)d(\d+)/i);
+                            if (match) {
+                              const qty = parseInt(match[1]);
+                              const sides = parseInt(match[2]);
+                              rollDice(sides, qty, diceBonus + scalingBonus, `${arma.nome} (Dano)`);
+                            } else {
+                              // If it's just a number or fixed value
+                              const fixedDano = parseInt(danoStr) || 0;
+                              rollDice(0, 0, diceBonus + scalingBonus + fixedDano, `${arma.nome} (Dano Fixo)`);
+                            }
+                          }}
+                          className="flex items-center justify-between p-3 bg-zinc-900/40 border border-zinc-800 rounded-xl hover:border-amber-500/30 transition-all text-left"
+                        >
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-[10px] font-black text-amber-500 uppercase tracking-tighter truncate max-w-[150px]">{arma.nome}</span>
+                            <span className="text-xs font-bold text-zinc-300">{arma.dano} <span className="text-zinc-500">+{scalingBonus}</span></span>
+                          </div>
+                          <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
+                            <Sword size={16} className="text-amber-500/50" />
+                          </div>
+                        </motion.button>
+                      );
+                    })}
+                    {(!(activeChar.armas?.length)) && (
+                      <div className="col-span-full py-4 text-center text-zinc-600 text-[10px] font-bold uppercase italic">
+                        Nenhuma arma equipada na aba de equipamentos
+                      </div>
+                    )}
+                  </div>
+                </SubSection>
+
                 {/* Dice Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
                   {[
