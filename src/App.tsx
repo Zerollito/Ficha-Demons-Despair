@@ -4,7 +4,7 @@ import {
   Shield, Sword, Backpack, BookOpen, Activity, Coins, User, MapPin, 
   Thermometer, Utensils, Droplets, Battery, Weight, Package, Gem, Zap,
   MoreVertical, Flame, Skull, Biohazard, Bone, RotateCw, X, Droplet, FileText, Dices,
-  History, Minus, Image, TrendingUp
+  History, Minus, Image, TrendingUp, Target
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -111,7 +111,22 @@ export default function App() {
   const [diceQuantity, setDiceQuantity] = useState(1);
   const [diceBonus, setDiceBonus] = useState(0);
   const [diceHistory, setDiceHistory] = useState<{ id: string; result: number; formula: string; timestamp: number }[]>([]);
-  const [lastRoll, setLastRoll] = useState<{ result: number; formula: string; rolls: number[]; bonus: number } | null>(null);
+  const [lastRoll, setLastRoll] = useState<{ 
+    result: number; 
+    formula: string; 
+    rolls: number[]; 
+    bonus: number;
+    isCombat?: boolean;
+    hitResult?: number;
+    dmgResult?: number;
+    hitRolls?: number[];
+    dmgRolls?: number[];
+    hitBonus?: number;
+    dmgBonus?: number;
+    armaNome?: string;
+    dmgFormula?: string;
+    hitFormula?: string;
+  } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const rollDice = (sides: number, quantity: number, bonus: number, label?: string) => {
@@ -154,6 +169,21 @@ export default function App() {
       return;
     }
 
+    if (label === 'Cansaço') {
+      const roll = Math.floor(Math.random() * activeChar.cansaco) + 1;
+      updateChar({ cansaco: roll });
+
+      setDiceHistory(prev => [{
+        id: generateId(),
+        result: roll,
+        formula: `Cansaço: ${roll} (1d${activeChar.cansaco})`,
+        timestamp: Date.now()
+      }, ...prev].slice(0, 50));
+
+      setLastRoll({ result: roll, formula: `1d${activeChar.cansaco} (Cansaço)`, rolls: [roll], bonus: 0 });
+      return;
+    }
+
     const rolls: number[] = [];
     let total = 0;
     for (let i = 0; i < quantity; i++) {
@@ -172,6 +202,99 @@ export default function App() {
     }, ...prev].slice(0, 50));
 
     setLastRoll({ result: finalResult, formula, rolls, bonus });
+  };
+
+  const rollCombat = (arma: any, bonusManual: number) => {
+    // 1. Calculate Hit Bonus (Acurácia + Arma.acerto)
+    const acuraciaBonus = calculateProficiencyBonus(
+      activeChar.stats, 
+      'Acurácia', 
+      ['FOR', 'DEX'], 
+      activeChar.fome, 
+      activeChar.sede,
+      activeChar.cansaco,
+      activeChar.clima,
+      climateProficiency
+    );
+    const totalHitBonus = acuraciaBonus + (arma.acerto || 0) + bonusManual;
+    
+    // 2. Roll Hit (3d8)
+    const hitRolls: number[] = [];
+    let hitTotal = 0;
+    for (let i = 0; i < 3; i++) {
+      const r = Math.floor(Math.random() * 8) + 1;
+      hitRolls.push(r);
+      hitTotal += r;
+    }
+    const finalHit = hitTotal + totalHitBonus;
+    const hitFormula = `3d8${totalHitBonus >= 0 ? '+' : ''}${totalHitBonus}`;
+
+    // 3. Calculate Damage Bonus (Scaling + Manual)
+    const statMap: Record<string, keyof Stats> = {
+      'Força': 'FOR',
+      'Destreza': 'DEX',
+      'Inteligência': 'INT',
+      'Ritual': 'RIT'
+    };
+    const statKey = statMap[arma.atributoBase || 'Força'];
+    const statValue = activeChar.stats[statKey] || 0;
+    const scalingBonus = calculateWeaponDamageBonus(arma as any, statValue);
+    const totalDmgBonus = scalingBonus + bonusManual;
+
+    // 4. Roll Damage
+    const danoStr = (arma.dano || '1d6').toLowerCase().replace(/\s+/g, '');
+    const match = danoStr.match(/^(\d*)d(\d+)([+-]\d+)?$/);
+    let dmgTotal = 0;
+    let dmgRolls: number[] = [];
+    let dmgFullFormula = "";
+
+    if (match) {
+      const qty = parseInt(match[1]) || 1;
+      const sides = parseInt(match[2]);
+      const extra = parseInt(match[3]) || 0;
+      for (let i = 0; i < qty; i++) {
+        const r = Math.floor(Math.random() * sides) + 1;
+        dmgRolls.push(r);
+        dmgTotal += r;
+      }
+      dmgTotal += (totalDmgBonus + extra);
+      dmgFullFormula = `${qty}d${sides}${ (totalDmgBonus + extra) !== 0 ? ((totalDmgBonus + extra) > 0 ? '+' : '') + (totalDmgBonus + extra) : '' }`;
+    } else {
+      const fixedDano = parseInt(danoStr) || 0;
+      dmgTotal = fixedDano + totalDmgBonus;
+      dmgFullFormula = `${fixedDano}${totalDmgBonus !== 0 ? (totalDmgBonus > 0 ? '+' : '') + totalDmgBonus : ''}`;
+    }
+
+    // 5. Update History & Last Roll
+    const combinedFormula = `${arma.nome}: ACERTO ${finalHit} | DANO ${dmgTotal}`;
+    const detailedFormula = `${arma.nome}: Acerto ${finalHit} (${hitFormula}) | Dano ${dmgTotal} (${dmgFullFormula})`;
+    
+    setDiceHistory(prev => [{
+      id: generateId(),
+      result: finalHit, // Use Hit as the primary number for the History icon
+      formula: detailedFormula,
+      timestamp: Date.now()
+    }, ...prev].slice(0, 50));
+
+    setLastRoll({ 
+      result: finalHit, 
+      formula: combinedFormula, 
+      rolls: [...hitRolls], 
+      bonus: totalHitBonus,
+      isCombat: true,
+      hitResult: finalHit,
+      dmgResult: dmgTotal,
+      hitRolls: hitRolls,
+      dmgRolls: dmgRolls,
+      hitBonus: totalHitBonus,
+      dmgBonus: totalDmgBonus,
+      armaNome: arma.nome,
+      hitFormula: hitFormula,
+      dmgFormula: dmgFullFormula
+    });
+
+    // Also show toast with complete result
+    // setToast({ message: combinedFormula, type: 'info' });
   };
 
   useEffect(() => {
@@ -1904,10 +2027,9 @@ export default function App() {
             {diceTab === 'mesa' ? (
               <div className="space-y-8 pb-24">
                 {/* Armas do Personagem */}
-                <SubSection title="Dano de Armas" icon={<Sword size={14} />} defaultCollapsed={false}>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                <SubSection title="Combate (Acerto & Dano)" icon={<Sword size={14} />} defaultCollapsed={false}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
                     {(activeChar.armas || []).map((arma, aIdx) => {
-                      // Map full attribute names to Stats keys
                       const statMap: Record<string, keyof Stats> = {
                         'Força': 'FOR',
                         'Destreza': 'DEX',
@@ -1922,34 +2044,28 @@ export default function App() {
                         <motion.button
                           key={`${arma.id}-${aIdx}`}
                           whileTap={{ scale: 0.98 }}
-                          onClick={() => {
-                            // Parse '1d4', '2d6', etc.
-                            const danoStr = arma.dano || '1d6';
-                            const match = danoStr.match(/(\d+)d(\d+)/i);
-                            if (match) {
-                              const qty = parseInt(match[1]);
-                              const sides = parseInt(match[2]);
-                              rollDice(sides, qty, diceBonus + scalingBonus, `${arma.nome} (Dano)`);
-                            } else {
-                              // If it's just a number or fixed value
-                              const fixedDano = parseInt(danoStr) || 0;
-                              rollDice(0, 0, diceBonus + scalingBonus + fixedDano, `${arma.nome} (Dano Fixo)`);
-                            }
-                          }}
-                          className="flex items-center justify-between p-3 bg-zinc-900/40 border border-zinc-800 rounded-xl hover:border-amber-500/30 transition-all text-left"
+                          onClick={() => rollCombat(arma, diceBonus)}
+                          className="flex flex-col gap-3 p-4 bg-zinc-900/40 border border-zinc-800 rounded-xl hover:border-amber-500/30 transition-all text-left relative group overflow-hidden"
                         >
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-[10px] font-black text-amber-500 uppercase tracking-tighter truncate max-w-[150px]">{arma.nome}</span>
-                            <span className="text-xs font-bold text-zinc-300">{arma.dano} <span className="text-zinc-500">+{scalingBonus}</span></span>
+                          <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-100 transition-opacity">
+                            <Sword size={24} className="text-amber-500" />
                           </div>
-                          <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
-                            <Sword size={16} className="text-amber-500/50" />
+                          
+                          <div className="flex flex-col">
+                            <span className="text-xs font-black text-amber-500 uppercase tracking-tighter truncate pr-8">{arma.nome}</span>
+                            <span className="text-[9px] text-zinc-500 font-bold uppercase">Escala {arma.escala || '0'} • {arma.atributoBase}</span>
+                          </div>
+                          
+                          <div className="pt-2 border-t border-zinc-800/50">
+                            <span className="text-[10px] font-black text-amber-500/80 uppercase tracking-widest flex items-center gap-1">
+                              Rolar Combate <Plus size={10} />
+                            </span>
                           </div>
                         </motion.button>
                       );
                     })}
                     {(!(activeChar.armas?.length)) && (
-                      <div className="col-span-full py-4 text-center text-zinc-600 text-[10px] font-bold uppercase italic">
+                      <div className="col-span-full py-4 text-center text-zinc-600 text-[10px] font-bold uppercase italic border border-dashed border-zinc-800 rounded-xl">
                         Nenhuma arma equipada na aba de equipamentos
                       </div>
                     )}
@@ -2026,6 +2142,18 @@ export default function App() {
                       <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">SURV</div>
                     </div>
                     <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">Fome & Sede</span>
+                  </motion.button>
+
+                  {/* Cansaço Roll */}
+                  <motion.button whileTap={{ scale: 0.95 }} 
+                    onClick={() => rollDice(0, 0, 0, 'Cansaço')}
+                    className="flex flex-col items-center group"
+                  >
+                    <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
+                      <Battery size={24} className="text-yellow-500" />
+                      <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">SURV</div>
+                    </div>
+                    <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">Cansaço</span>
                   </motion.button>
                 </div>
 
@@ -2344,33 +2472,108 @@ export default function App() {
       {lastRoll && (
         <div 
           onClick={() => setLastRoll(null)}
-          className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] cursor-pointer p-4"
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] cursor-pointer p-4 backdrop-blur-sm"
         >
           <div 
-            className="bg-zinc-900 border-2 border-amber-500 rounded-3xl p-8 flex flex-col items-center gap-4 max-w-[280px] w-full pointer-events-auto"
+            className={cn(
+              "bg-zinc-900 border-2 border-amber-500 rounded-3xl flex flex-col items-center pointer-events-auto shadow-2xl overflow-hidden",
+              lastRoll.isCombat ? "max-w-md w-full" : "max-w-[280px] w-full p-8 gap-4"
+            )}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex flex-col items-center gap-1">
-              <span className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">{lastRoll.formula}</span>
-              <span className="text-6xl font-black text-amber-500">{lastRoll.result}</span>
-            </div>
-            
-            {lastRoll.rolls.length > 1 && (
-              <div className="w-full space-y-2">
-                <div className="h-px bg-zinc-800 w-full" />
-                <div className="flex flex-wrap justify-center gap-1.5">
-                  {lastRoll.rolls.map((roll, idx) => (
-                    <div key={idx} className="w-8 h-8 bg-zinc-800 border border-zinc-700 rounded-lg flex items-center justify-center text-zinc-300 font-bold text-xs">
-                      {roll}
+            {lastRoll.isCombat ? (
+              <div className="w-full">
+                {/* Combat Banner */}
+                <div className="bg-amber-500 p-2 flex items-center justify-center gap-2">
+                  <Sword size={16} className="text-zinc-950" />
+                  <span className="text-xs font-black text-zinc-950 uppercase tracking-widest">{lastRoll.armaNome}</span>
+                </div>
+
+                <div className="p-4 space-y-4">
+                  {/* Results Row */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col items-center bg-zinc-950/50 p-3 rounded-xl border border-zinc-800">
+                      <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-0.5">Acerto</span>
+                      <span className="text-3xl font-black text-amber-500">{lastRoll.hitResult}</span>
+                      <span className="text-[8px] font-bold text-zinc-600 uppercase">{lastRoll.hitFormula}</span>
                     </div>
-                  ))}
-                  {lastRoll.bonus !== 0 && (
-                    <div className="w-8 h-8 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-center text-amber-500 font-bold text-xs">
-                      {lastRoll.bonus > 0 ? `+${lastRoll.bonus}` : lastRoll.bonus}
+                    <div className="flex flex-col items-center bg-zinc-950/50 p-3 rounded-xl border border- zinc-800">
+                      <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-0.5">Dano</span>
+                      <span className="text-3xl font-black text-amber-500">{lastRoll.dmgResult}</span>
+                      <span className="text-[8px] font-bold text-zinc-600 uppercase">{lastRoll.dmgFormula}</span>
                     </div>
-                  )}
+                  </div>
+
+                  {/* Dice Results - Compact Side-by-Side */}
+                  <div className="grid grid-cols-2 gap-6 bg-zinc-950/30 p-3 rounded-xl border border-zinc-800/50">
+                    <div className="space-y-2">
+                      <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest block text-center">Dados de Acerto</span>
+                      <div className="flex flex-wrap justify-center gap-1.5">
+                        {lastRoll.hitRolls?.map((roll, idx) => (
+                          <div key={idx} className="w-7 h-7 bg-zinc-800 border border-zinc-700 rounded-lg flex items-center justify-center text-zinc-100 font-black text-[10px] shadow-inner">
+                            {roll}
+                          </div>
+                        ))}
+                        <div className="w-7 h-7 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-center text-amber-500 font-black text-[10px]">
+                          {lastRoll.hitBonus! >= 0 ? '+' : ''}{lastRoll.hitBonus}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 relative">
+                      <div className="absolute left-[-12px] top-0 bottom-0 w-px bg-zinc-800" />
+                      <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest block text-center">Dados de Dano</span>
+                      <div className="flex flex-wrap justify-center gap-1.5">
+                        {lastRoll.dmgRolls?.length === 0 ? (
+                           <span className="text-[8px] font-bold text-zinc-600 uppercase italic mt-2">Fixo</span>
+                        ) : (
+                          lastRoll.dmgRolls?.map((roll, idx) => (
+                            <div key={idx} className="w-7 h-7 bg-zinc-900 border border-zinc-800 rounded-lg flex items-center justify-center text-zinc-300 font-bold text-[10px] shadow-inner">
+                              {roll}
+                            </div>
+                          ))
+                        )}
+                        <div className="w-7 h-7 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-center text-amber-500 font-black text-[10px]">
+                          {lastRoll.dmgBonus! >= 0 ? '+' : ''}{lastRoll.dmgBonus}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setLastRoll(null)}
+                    className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-black text-[10px] uppercase tracking-widest rounded-lg transition-all border border-zinc-700/50"
+                  >
+                    Fechar Resultado
+                  </motion.button>
                 </div>
               </div>
+            ) : (
+              <>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">{lastRoll.formula}</span>
+                  <span className="text-6xl font-black text-amber-500">{lastRoll.result}</span>
+                </div>
+                
+                {lastRoll.rolls.length > 1 && (
+                  <div className="w-full space-y-2">
+                    <div className="h-px bg-zinc-800 w-full" />
+                    <div className="flex flex-wrap justify-center gap-1.5">
+                      {lastRoll.rolls.map((roll, idx) => (
+                        <div key={idx} className="w-8 h-8 bg-zinc-800 border border-zinc-700 rounded-lg flex items-center justify-center text-zinc-300 font-bold text-xs">
+                          {roll}
+                        </div>
+                      ))}
+                      {lastRoll.bonus !== 0 && (
+                        <div className="w-8 h-8 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-center text-amber-500 font-bold text-xs">
+                          {lastRoll.bonus > 0 ? `+${lastRoll.bonus}` : lastRoll.bonus}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
