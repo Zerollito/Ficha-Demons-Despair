@@ -4,7 +4,7 @@ import {
   Shield, Sword, Backpack, BookOpen, Activity, Coins, User, MapPin, 
   Thermometer, Utensils, Droplets, Battery, Weight, Package, Gem, Zap,
   MoreVertical, Flame, Skull, Biohazard, Bone, RotateCw, X, Droplet, FileText, Dices,
-  History, Minus, Image
+  History, Minus, Image, TrendingUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -61,6 +61,7 @@ const createEmptyCharacter = (): Character => ({
     { id: generateId(), nome: 'Bolsa de Cinto', volumeMax: 3, itens: [] }
   ],
   conhecimentos: INITIAL_KNOWLEDGES.map(name => ({ name, nivel: 0, xp: 0, limite: 5 })),
+  escalas: [],
   efeitosNegativos: [],
   anotacoes: [{ id: generateId(), titulo: 'Anotações Gerais', conteudo: '' }],
   dadosCustomizados: [],
@@ -87,7 +88,8 @@ export default function App() {
         if (parsed && typeof parsed === 'object' && Array.isArray(parsed.characters)) {
           parsed.characters = parsed.characters.map((char: any) => ({
             ...char,
-            clima: typeof char.clima === 'object' ? 0 : (char.clima || 0)
+            clima: typeof char.clima === 'object' ? 0 : (char.clima || 0),
+            escalas: char.escalas || []
           }));
           return parsed;
         }
@@ -102,7 +104,9 @@ export default function App() {
   const [clipboard, setClipboard] = useState<{ type: 'Arma' | 'Armadura' | 'Item' | 'Magia' | 'Habilidade', data: any } | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [vitaisTab, setVitaisTab] = useState<'status' | 'efeitos'>('status');
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' | 'info' } | null>(null);
   const [activePage, setActivePage] = useState<'sheet' | 'notes' | 'dice' | 'gallery'>('sheet');
+  const [openLevelSelectorId, setOpenLevelSelectorId] = useState<string | null>(null);
   const [diceTab, setDiceTab] = useState<'mesa' | 'historico'>('mesa');
   const [diceQuantity, setDiceQuantity] = useState(1);
   const [diceBonus, setDiceBonus] = useState(0);
@@ -250,6 +254,11 @@ export default function App() {
     }));
   }, []);
 
+  const showToast = useCallback((message: string, type: 'error' | 'success' | 'info' = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 1500);
+  }, []);
+
   // Derived Values
   const stats = activeChar?.stats || createEmptyCharacter().stats;
   const vidaMax = getVidaMaxima(stats.CON);
@@ -370,7 +379,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30">
+    <div className="min-h-screen w-full bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30 overflow-x-hidden">
       {/* Header */}
       <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -379,7 +388,7 @@ export default function App() {
               whileTap={{ scale: 0.95 }}
               onClick={() => setActivePage('sheet')}
               className={cn(
-                "p-4 rounded-xl transition-all",
+                "p-2 sm:p-4 rounded-xl transition-all",
                 activePage === 'sheet' ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" : "text-zinc-500 hover:text-zinc-300"
               )}
               title="Ficha do Personagem"
@@ -390,7 +399,7 @@ export default function App() {
               whileTap={{ scale: 0.95 }}
               onClick={() => setActivePage('dice')}
               className={cn(
-                "p-4 rounded-xl transition-all",
+                "p-2 sm:p-4 rounded-xl transition-all",
                 activePage === 'dice' ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" : "text-zinc-500 hover:text-zinc-300"
               )}
               title="Rolagem de Dados"
@@ -401,7 +410,7 @@ export default function App() {
               whileTap={{ scale: 0.95 }}
               onClick={() => setActivePage('notes')}
               className={cn(
-                "p-4 rounded-xl transition-all",
+                "p-2 sm:p-4 rounded-xl transition-all",
                 activePage === 'notes' ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" : "text-zinc-500 hover:text-zinc-300"
               )}
               title="Anotações"
@@ -412,7 +421,7 @@ export default function App() {
               whileTap={{ scale: 0.95 }}
               onClick={() => setActivePage('gallery')}
               className={cn(
-                "p-4 rounded-xl transition-all",
+                "p-2 sm:p-4 rounded-xl transition-all",
                 activePage === 'gallery' ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" : "text-zinc-500 hover:text-zinc-300"
               )}
               title="Galeria de Imagens"
@@ -927,7 +936,7 @@ export default function App() {
         {/* Center Column: Proficiencies */}
         <div className="lg:col-span-4 space-y-6">
           <Section title="Proficiências" icon={<Shield size={18}/>} collapsible defaultCollapsed={true}>
-            <div className="grid grid-cols-1 gap-1 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+            <div className="grid grid-cols-1 gap-1">
               {PROFICIENCIES.map(prof => {
                 const bonus = calculateProficiencyBonus(
                   stats, 
@@ -998,7 +1007,7 @@ export default function App() {
                             newArmas[idx].nome = e.target.value;
                             updateChar({ armas: newArmas });
                           }}
-                          className="bg-transparent font-bold focus:outline-none flex-1 text-amber-500"
+                          className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
                          />
                          <div className="flex items-center gap-2">
                            <motion.button whileTap={{ scale: 0.95 }} 
@@ -1066,7 +1075,7 @@ export default function App() {
                             newArms[idx].nome = e.target.value;
                             updateChar({ armaduras: newArms });
                           }}
-                          className="bg-transparent font-bold focus:outline-none flex-1 text-amber-500"
+                          className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
                          />
                          <div className="flex items-center gap-2">
                            <motion.button whileTap={{ scale: 0.95 }} 
@@ -1134,7 +1143,7 @@ export default function App() {
                             newAccs[idx].nome = e.target.value;
                             updateChar({ acessorios: newAccs });
                           }}
-                          className="bg-transparent font-bold focus:outline-none flex-1 text-amber-500"
+                          className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
                          />
                          <div className="flex items-center gap-2">
                            <motion.button whileTap={{ scale: 0.95 }} 
@@ -1480,7 +1489,7 @@ export default function App() {
                           newMags[idx].nome = e.target.value;
                           updateChar({ magias: newMags });
                         }}
-                        className="bg-transparent font-bold focus:outline-none flex-1 text-amber-500"
+                        className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
                        />
                        <motion.button 
                         whileTap={{ scale: 0.95 }}
@@ -1505,6 +1514,10 @@ export default function App() {
                        onClick={() => {
                          const currentMana = activeChar.manaAtual || 0;
                          const cost = m.mana || 0;
+                         if (currentMana < cost) {
+                           showToast("Mana insuficiente", "error");
+                           return;
+                         }
                          updateChar({ manaAtual: Math.max(0, currentMana - cost) });
                        }}
                        className="w-full py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded font-bold uppercase text-[10px] transition-all flex items-center justify-center gap-2"
@@ -1542,7 +1555,7 @@ export default function App() {
                           newHabs[idx].nome = e.target.value;
                           updateChar({ habilidades: newHabs });
                         }}
-                        className="bg-transparent font-bold focus:outline-none flex-1 text-amber-500"
+                        className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
                        />
                        <motion.button 
                         whileTap={{ scale: 0.95 }}
@@ -1560,54 +1573,265 @@ export default function App() {
              </div>
           </Section>
           <Section title="Conhecimentos" icon={<BookOpen size={18}/>} collapsible defaultCollapsed>
-            <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-              {(activeChar?.conhecimentos || []).map((k, idx) => (
+            <div className="space-y-3">
+              {(activeChar?.conhecimentos || []).map((k, idx) => {
+                const isMaxLevel = k.nivel >= 5;
+                return (
                 <div key={k.name} className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50 space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-bold uppercase tracking-widest text-zinc-300">{k.name}</span>
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="text-sm font-bold uppercase tracking-widest text-zinc-300 truncate safe-lock">{k.name}</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-[12px] text-zinc-500 font-bold">NÍVEL</span>
+                      <span className="text-[10px] text-zinc-500 font-bold">NÍVEL</span>
                       <NumericInput 
                         value={k.nivel} 
                         onChange={v => {
                           const newKs = [...(activeChar?.conhecimentos || [])];
-                          newKs[idx].nivel = v;
+                          newKs[idx].nivel = Math.min(5, v);
                           updateChar({ conhecimentos: newKs });
                         }}
-                        className="w-32"
-                        size="lg"
+                        className="w-20"
+                        size="sm"
                       />
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="flex-1 h-3 bg-zinc-800 rounded-full overflow-hidden border border-zinc-700/50">
                       <div 
-                        className="h-full bg-amber-500 transition-all shadow-[0_0_10px_rgba(245,158,11,0.3)]" 
-                        style={{ width: `${(k.xp / getXpToNextLevel(k.nivel)) * 100}%` }}
+                        className={cn("h-full transition-all shadow-[0_0_10px_rgba(245,158,11,0.3)]", isMaxLevel ? "bg-emerald-500 shadow-emerald-500/30" : "bg-amber-500")} 
+                        style={{ width: `${isMaxLevel ? 100 : (k.xp / getXpToNextLevel(k.nivel)) * 100}%` }}
                       />
                     </div>
                     <div className="flex items-center gap-1">
-                      <NumericInput 
-                        value={k.xp} 
-                        onChange={v => {
-                          const nextXp = getXpToNextLevel(k.nivel);
-                          let updatedK = { ...k, xp: v };
-                          if (v >= nextXp) {
-                            updatedK.nivel += 1;
-                            updatedK.xp = 0;
-                          }
-                          const newKs = [...(activeChar?.conhecimentos || [])];
-                          newKs[idx] = updatedK;
-                          updateChar({ conhecimentos: newKs });
-                        }}
-                        className="w-28"
-                        size="sm"
-                      />
-                      <span className="text-sm text-zinc-500 font-bold">/ {getXpToNextLevel(k.nivel)}</span>
+                      {!isMaxLevel && (
+                        <>
+                          <motion.button 
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              const newKs = [...(activeChar?.conhecimentos || [])];
+                              newKs[idx].xp = Math.max(0, k.xp - 1);
+                              updateChar({ conhecimentos: newKs });
+                            }}
+                            className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded text-zinc-400 hover:text-white"
+                          >
+                            <Minus size={12} />
+                          </motion.button>
+                          <NumericInput 
+                            value={k.xp} 
+                            onChange={v => {
+                              const nextXp = getXpToNextLevel(k.nivel);
+                              let updatedK = { ...k, xp: v };
+                              if (v >= nextXp) {
+                                updatedK.nivel = Math.min(5, updatedK.nivel + 1);
+                                updatedK.xp = 0;
+                              }
+                              const newKs = [...(activeChar?.conhecimentos || [])];
+                              newKs[idx] = updatedK;
+                              updateChar({ conhecimentos: newKs });
+                            }}
+                            className="w-16"
+                            size="sm"
+                          />
+                          <motion.button 
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              const nextXp = getXpToNextLevel(k.nivel);
+                              let updatedK = { ...k, xp: k.xp + 1 };
+                              if (updatedK.xp >= nextXp) {
+                                updatedK.nivel = Math.min(5, updatedK.nivel + 1);
+                                updatedK.xp = 0;
+                              }
+                              const newKs = [...(activeChar?.conhecimentos || [])];
+                              newKs[idx] = updatedK;
+                              updateChar({ conhecimentos: newKs });
+                            }}
+                            className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded text-zinc-400 hover:text-white"
+                          >
+                            <Plus size={12} />
+                          </motion.button>
+                          <span className="text-sm text-zinc-500 font-bold">/ {getXpToNextLevel(k.nivel)}</span>
+                        </>
+                      )}
+                      {isMaxLevel && (
+                        <span className="text-[10px] font-black text-emerald-500 uppercase tracking-tighter bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Máximo</span>
+                      )}
                     </div>
                   </div>
                 </div>
-              ))}
+              )})}
+            </div>
+          </Section>
+
+          <Section title="Escalas" icon={<TrendingUp size={18}/>} collapsible defaultCollapsed>
+            <div className="space-y-4">
+              <div className="flex justify-end">
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    const newEscalas = [...(activeChar.escalas || []), { id: generateId(), nome: 'Nova Escala', nivel: 0, xp: 0 }];
+                    updateChar({ escalas: newEscalas });
+                  }}
+                  className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 px-3 py-1.5 rounded-lg font-bold text-xs uppercase"
+                >
+                  <Plus size={14} /> Adicionar Escala
+                </motion.button>
+              </div>
+              
+              <div className="space-y-3">
+                {(activeChar.escalas || []).map((s, idx) => {
+                  const levelLetter = s.nivel === 0 ? '0' : s.nivel === 1 ? 'D' : s.nivel === 2 ? 'C' : s.nivel === 3 ? 'B' : 'A';
+                  const isMaxLevel = s.nivel >= 4;
+                  const isSelectorOpen = openLevelSelectorId === s.id;
+                  return (
+                    <div key={s.id} className={cn(
+                      "bg-zinc-900/50 p-3 rounded-lg border transition-all space-y-2",
+                      isSelectorOpen 
+                        ? "z-[100] relative scale-[1.02] shadow-2xl border-amber-500 ring-1 ring-amber-500/20 bg-zinc-900" 
+                        : "border-zinc-800/50"
+                    )}>
+                      <div className="flex justify-between items-center gap-1.5">
+                        <input 
+                          value={s.nome}
+                          onChange={e => {
+                            const newEscalas = [...(activeChar.escalas || [])];
+                            newEscalas[idx].nome = e.target.value;
+                            updateChar({ escalas: newEscalas });
+                          }}
+                          className="bg-transparent font-bold uppercase tracking-widest text-zinc-300 focus:outline-none flex-1 min-w-0 border-b border-transparent focus:border-amber-500/30"
+                        />
+                        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+                          <div className="flex items-center gap-1 sm:gap-2">
+                            <span className="text-[9px] sm:text-[10px] text-zinc-500 font-bold uppercase shrink-0">Nível</span>
+                            <div className="relative">
+                              <motion.button 
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => setOpenLevelSelectorId(isSelectorOpen ? null : s.id)}
+                                className={cn(
+                                  "w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center bg-zinc-950 border rounded-lg font-black text-lg sm:text-xl transition-all",
+                                  isSelectorOpen 
+                                    ? "border-amber-500 text-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.3)]" 
+                                    : "border-zinc-700/50 text-amber-500/80 hover:border-amber-500/50"
+                                )}
+                              >
+                                {levelLetter}
+                              </motion.button>
+                              
+                              <AnimatePresence>
+                                {openLevelSelectorId === s.id && (
+                                  <>
+                                    <div 
+                                      className="fixed inset-0 z-[100] cursor-default bg-transparent" 
+                                      onClick={() => setOpenLevelSelectorId(null)} 
+                                    />
+                                    <motion.div
+                                      initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                                      exit={{ opacity: 0, scale: 0.9, y: 10 }}
+                                      className="absolute bottom-full right-0 mb-2 bg-zinc-900 border border-zinc-700 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-1 z-[110] flex flex-col gap-1 min-w-[50px]"
+                                    >
+                                      {['0', 'D', 'C', 'B', 'A'].map((letter, lIdx) => (
+                                        <button
+                                          key={letter}
+                                          onClick={() => {
+                                            const newEscalas = [...(activeChar.escalas || [])];
+                                            newEscalas[idx].nivel = lIdx;
+                                            updateChar({ escalas: newEscalas });
+                                            setOpenLevelSelectorId(null);
+                                          }}
+                                          className={cn(
+                                            "w-full py-2 px-3 rounded-lg font-black text-lg transition-colors text-center",
+                                            s.nivel === lIdx 
+                                              ? "bg-amber-500 text-zinc-950" 
+                                              : "text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                                          )}
+                                        >
+                                          {letter}
+                                        </button>
+                                      ))}
+                                    </motion.div>
+                                  </>
+                                )}
+                              </AnimatePresence>
+                            </div>
+                          </div>
+                          <motion.button 
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              const newEscalas = (activeChar.escalas || []).filter(item => item.id !== s.id);
+                              updateChar({ escalas: newEscalas });
+                            }}
+                            className="text-red-500 hover:text-red-400 p-1"
+                          >
+                            <Trash2 size={18} />
+                          </motion.button>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 h-3 bg-zinc-800 rounded-full overflow-hidden border border-zinc-700/50">
+                          <div 
+                            className={cn("h-full transition-all shadow-[0_0_10px_rgba(245,158,11,0.3)]", isMaxLevel ? "bg-emerald-500 shadow-emerald-500/30" : "bg-amber-500")} 
+                            style={{ width: `${isMaxLevel ? 100 : (s.xp / getXpToNextLevel(s.nivel)) * 100}%` }}
+                          />
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {!isMaxLevel && (
+                            <>
+                              <motion.button 
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => {
+                                  const newEscalas = [...(activeChar.escalas || [])];
+                                  newEscalas[idx].xp = Math.max(0, s.xp - 1);
+                                  updateChar({ escalas: newEscalas });
+                                }}
+                                className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded text-zinc-400 hover:text-white"
+                              >
+                                <Minus size={12} />
+                              </motion.button>
+                              <NumericInput 
+                                value={s.xp} 
+                                onChange={v => {
+                                  const nextXp = getXpToNextLevel(s.nivel);
+                                  let updatedS = { ...s, xp: v };
+                                  if (v >= nextXp) {
+                                    updatedS.nivel = Math.min(4, updatedS.nivel + 1);
+                                    updatedS.xp = updatedS.nivel === 4 ? 0 : 0;
+                                  }
+                                  const newEscalas = [...(activeChar.escalas || [])];
+                                  newEscalas[idx] = updatedS;
+                                  updateChar({ escalas: newEscalas });
+                                }}
+                                className="w-16"
+                                size="sm"
+                              />
+                              <motion.button 
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => {
+                                  const nextXp = getXpToNextLevel(s.nivel);
+                                  let updatedS = { ...s, xp: s.xp + 1 };
+                                  if (updatedS.xp >= nextXp) {
+                                    updatedS.nivel = Math.min(4, updatedS.nivel + 1);
+                                    updatedS.xp = 0;
+                                  }
+                                  const newEscalas = [...(activeChar.escalas || [])];
+                                  newEscalas[idx] = updatedS;
+                                  updateChar({ escalas: newEscalas });
+                                }}
+                                className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded text-zinc-400 hover:text-white"
+                              >
+                                <Plus size={12} />
+                              </motion.button>
+                              <span className="text-xs text-zinc-500 font-bold">/ {getXpToNextLevel(s.nivel)}</span>
+                            </>
+                          )}
+                          {isMaxLevel && (
+                            <span className="text-[10px] font-black text-emerald-500 uppercase tracking-tighter bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Máximo</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </Section>
           </div>
@@ -2061,6 +2285,22 @@ export default function App() {
         </div>
       )}
 
+       <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 border border-zinc-700/50 backdrop-blur-md bg-zinc-900/90 text-white"
+          >
+            {toast.type === 'error' && <Zap size={18} className="text-red-500" />}
+            {toast.type === 'success' && <RotateCw size={18} className="text-emerald-500 animate-spin" />}
+            {toast.type === 'info' && <Zap size={18} className="text-blue-500" />}
+            <span className="font-bold text-sm tracking-tight">{toast.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -2078,14 +2318,14 @@ function SubSection({ title, icon, children, defaultCollapsed = true }: { title:
   if (!hasChildren) return null;
 
   return (
-    <div className="border border-zinc-800 rounded-lg overflow-hidden bg-zinc-900/20">
+    <div className="border border-zinc-800 rounded-lg bg-zinc-900/20">
       <div 
         className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-zinc-800/30 transition-colors bg-zinc-800/20"
         onClick={() => setIsCollapsed(!isCollapsed)}
       >
-        <div className="flex items-center gap-2">
-          <span className="text-amber-500/70">{icon}</span>
-          <h4 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{title}</h4>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-amber-500 shrink-0">{icon}</span>
+          <h4 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 truncate safe-lock">{title}</h4>
         </div>
         {isCollapsed ? <ChevronDown size={14} className="text-zinc-500" /> : <ChevronUp size={14} className="text-zinc-500" />}
       </div>
@@ -2096,8 +2336,9 @@ function SubSection({ title, icon, children, defaultCollapsed = true }: { title:
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2 }}
+            className="!overflow-visible"
           >
-            <div className="p-2 space-y-2 border-t border-zinc-800">
+            <div className="p-2 space-y-2 border-t border-zinc-800 !overflow-visible">
               {children}
             </div>
           </motion.div>
@@ -2110,14 +2351,14 @@ function SubSection({ title, icon, children, defaultCollapsed = true }: { title:
 function Section({ title, icon, children, collapsible = false, defaultCollapsed = false }: { title: string, icon: React.ReactNode, children: React.ReactNode, collapsible?: boolean, defaultCollapsed?: boolean }) {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   return (
-    <div className="bg-zinc-900/30 border-y sm:border border-zinc-800 sm:rounded-xl overflow-hidden -mx-4 sm:mx-0">
+    <div className="bg-zinc-900/30 border-y sm:border border-zinc-800 sm:rounded-xl -mx-4 sm:mx-0">
       <div 
         className={cn("px-4 py-3 flex items-center justify-between border-b border-zinc-800 bg-zinc-900/50", collapsible && "cursor-pointer hover:bg-zinc-800/50")}
         onClick={() => collapsible && setIsCollapsed(!isCollapsed)}
       >
-        <div className="flex items-center gap-2">
-          <span className="text-amber-500">{icon}</span>
-          <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-300">{title}</h3>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-amber-500 shrink-0">{icon}</span>
+          <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-300 truncate safe-lock">{title}</h3>
         </div>
         {collapsible && (isCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />)}
       </div>
@@ -2128,8 +2369,9 @@ function Section({ title, icon, children, collapsible = false, defaultCollapsed 
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2 }}
+            className="!overflow-visible"
           >
-            <div className="p-4">{children}</div>
+            <div className="p-4 !overflow-visible">{children}</div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -2187,7 +2429,7 @@ function ProgressBar({ label, current, max, color, onChange }: { label: string, 
       className="space-y-1 cursor-pointer"
     >
       <div className="flex justify-between items-end mb-1.5">
-        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{label}</span>
+        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest truncate">{label}</span>
         <div className="flex items-center gap-1">
           <input 
             type="number" 

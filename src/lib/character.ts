@@ -27,6 +27,7 @@ export const createEmptyCharacter = (): Character => ({
     { id: crypto.randomUUID(), nome: 'Bolsa de Cinto', volumeMax: 3, itens: [] }
   ],
   conhecimentos: INITIAL_KNOWLEDGES.map(name => ({ name, nivel: 0, xp: 0, limite: 5 })),
+  escalas: [],
   efeitosNegativos: [],
   anotacoes: [{ id: crypto.randomUUID(), titulo: 'Anotações Gerais', conteudo: '' }],
   dadosCustomizados: [],

@@ -36,3 +36,27 @@
 button, a, select, input {
   touch-action: manipulation;
 }
+
+@layer base {
+  html, body {
+    max-width: 100vw;
+    overflow-x: hidden;
+    position: relative;
+  }
+  
+  /* Garantia universal para elementos de mídia */
+  img, video, canvas, svg {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+@layer utilities {
+  /* Classe de "trava" para elementos que podem empurrar o layout */
+  .safe-lock {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+}
