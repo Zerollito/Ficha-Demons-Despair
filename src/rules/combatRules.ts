@@ -24,7 +24,9 @@ export interface Weapon {
 export const getStatBonus = (statValue: number) => Math.floor(statValue / CONFIG.bonuses.statDivisor);
 
 export const calculateWeaponDamageBonus = (weapon: Weapon, statValue: number) => {
-  const baseBonus = getStatBonus(statValue);
-  const scaleMult = CONFIG.scales[weapon.escala];
-  return Math.floor(baseBonus * scaleMult);
+  const baseBonus = getStatBonus(statValue || 0);
+  const escala = weapon?.escala || '0';
+  const scaleMult = CONFIG.scales[escala as keyof typeof CONFIG.scales] ?? 0;
+  const result = Math.floor(baseBonus * scaleMult);
+  return isNaN(result) ? 0 : result;
 };

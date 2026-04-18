@@ -57,17 +57,23 @@ export const calculateProficiencyBonus = (
     }
   }
 
-  // Special cases
+  // Special cases and general scaling logic
   let baseBonus = 0;
-  if (name === 'Fome') baseBonus = Math.min(stats.RES, stats.ADP);
-  else if (name === 'Clima') baseBonus = Math.floor(stats.ADP / 10);
-  else if (name === 'Resistência') baseBonus = Math.floor(stats.RES / 2);
-  else if (name === 'Adaptabilidade') baseBonus = Math.floor(stats.ADP / 2);
-  else if (name === 'Mentalidade') baseBonus = Math.floor(stats.MEN / 2);
-  else if (statKeys.length === 1) {
-    baseBonus = stats[statKeys[0]] >= CONFIG.bonuses.proficiencySingleThreshold ? 1 : 0;
+  if (name === 'Fome') {
+    // 2+2 rule for dual stat
+    baseBonus = Math.min(Math.floor(stats.RES / 2), Math.floor(stats.ADP / 2));
+  } else if (name === 'Clima') {
+    // 10 points = 1
+    baseBonus = Math.floor(stats.ADP / 10);
+  } else if (statKeys.length === 1) {
+    // Scaling: 10 points = +1
+    baseBonus = Math.floor(stats[statKeys[0]] / (CONFIG.bonuses.proficiencySingleThreshold || 10));
   } else if (statKeys.length === 2) {
-    baseBonus = Math.min(Math.floor(stats[statKeys[0]] / 5), Math.floor(stats[statKeys[1]] / 5));
+    // Scaling: 5 points in one AND 5 in other = +1
+    baseBonus = Math.min(
+      Math.floor(stats[statKeys[0]] / (CONFIG.bonuses.proficiencyDualThreshold || 5)), 
+      Math.floor(stats[statKeys[1]] / (CONFIG.bonuses.proficiencyDualThreshold || 5))
+    );
   }
 
   return Math.max(0, baseBonus + penalty);

@@ -216,7 +216,7 @@ export default function App() {
       activeChar.clima,
       climateProficiency
     );
-    const totalHitBonus = acuraciaBonus + (arma.acerto || 0) + bonusManual;
+    const totalHitBonus = (acuraciaBonus || 0) + (arma.acerto || 0) + (bonusManual || 0);
     
     // 2. Roll Hit (3d8)
     const hitRolls: number[] = [];
@@ -227,7 +227,7 @@ export default function App() {
       hitTotal += r;
     }
     const finalHit = hitTotal + totalHitBonus;
-    const hitFormula = `3d8${totalHitBonus >= 0 ? '+' : ''}${totalHitBonus}`;
+    const hitFormula = `3d8${totalHitBonus !== 0 ? (totalHitBonus > 0 ? '+' : '') + totalHitBonus : ''}`;
 
     // 3. Calculate Damage Bonus (Scaling + Manual)
     const statMap: Record<string, keyof Stats> = {
@@ -236,10 +236,10 @@ export default function App() {
       'Inteligência': 'INT',
       'Ritual': 'RIT'
     };
-    const statKey = statMap[arma.atributoBase || 'Força'];
+    const statKey = statMap[arma.atributoBase || 'Força'] || 'FOR';
     const statValue = activeChar.stats[statKey] || 0;
-    const scalingBonus = calculateWeaponDamageBonus(arma as any, statValue);
-    const totalDmgBonus = scalingBonus + bonusManual;
+    const scalingBonus = calculateWeaponDamageBonus(arma as any, statValue) || 0;
+    const totalDmgBonus = scalingBonus + (bonusManual || 0);
 
     // 4. Roll Damage
     const danoStr = (arma.dano || '1d6').toLowerCase().replace(/\s+/g, '');
@@ -257,8 +257,9 @@ export default function App() {
         dmgRolls.push(r);
         dmgTotal += r;
       }
-      dmgTotal += (totalDmgBonus + extra);
-      dmgFullFormula = `${qty}d${sides}${ (totalDmgBonus + extra) !== 0 ? ((totalDmgBonus + extra) > 0 ? '+' : '') + (totalDmgBonus + extra) : '' }`;
+      const finalExtra = totalDmgBonus + extra;
+      dmgTotal += finalExtra;
+      dmgFullFormula = `${qty}d${sides}${ finalExtra !== 0 ? (finalExtra > 0 ? '+' : '') + finalExtra : '' }`;
     } else {
       const fixedDano = parseInt(danoStr) || 0;
       dmgTotal = fixedDano + totalDmgBonus;
