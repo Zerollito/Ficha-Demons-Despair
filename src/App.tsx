@@ -3089,7 +3089,7 @@ function WeaponProperties({ item, onChange }: { item: any, onChange: (updates: a
       </div>
 
       <div className="bg-zinc-950/30 p-2 rounded-lg border border-zinc-800/50 space-y-2">
-        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">Dimensionamento (Escala)</span>
+        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">Escala</span>
         <div className="grid grid-cols-2 gap-2">
           <div className="flex flex-col gap-1">
             <span className="text-[9px] text-zinc-600 font-bold uppercase">Nível</span>
@@ -3143,7 +3143,7 @@ function CatalystProperties({ item, onChange }: { item: any, onChange: (updates:
   return (
     <div className="space-y-4">
       <div className="bg-zinc-950/30 p-2 rounded-lg border border-zinc-800/50 space-y-2">
-        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">Dimensionamento (Escala)</span>
+        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">Escala</span>
         <div className="grid grid-cols-2 gap-2">
           <div className="flex flex-col gap-1">
             <span className="text-[9px] text-zinc-600 font-bold uppercase">Nível</span>
