@@ -19,6 +19,11 @@ export interface Item {
   impacto?: number;
   perfuracao?: number;
   resistencia?: number;
+  // Campos de Catalisador
+  feitico?: number;
+  elemental?: number;
+  magiaNegra?: number;
+  potencial?: number;
   // Campos de Armadura
   reducaoDano?: number;
   efeito?: string;

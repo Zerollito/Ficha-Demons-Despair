@@ -18,6 +18,7 @@ export const createEmptyCharacter = (): Character => ({
   joias: [],
   imagem: '',
   armas: [],
+  catalisadores: [],
   habilidades: [],
   magias: [],
   armaduras: [],

@@ -1,6 +1,6 @@
 import { Stats } from './rules/proficiencyRules';
 import { Item, Compartment } from './rules/inventoryRules';
-import { Weapon } from './rules/combatRules';
+import { Weapon, Catalyst } from './rules/combatRules';
 import { Knowledge } from './rules/knowledgeRules';
 
 export interface ArmorPiece {
@@ -19,7 +19,9 @@ export interface ArmorPiece {
 export interface Spell {
   id: string;
   nome: string;
-  tipo: string;
+  escola: string;
+  tipo: 'Ataque' | 'Efeito' | 'Utilidade';
+  escala: '0' | 'D' | 'C' | 'B' | 'A';
   efeito: string;
   dano: string;
   mana: number;
@@ -64,6 +66,7 @@ export interface Character {
   joias: string[];
   imagem?: string;
   armas: Weapon[];
+  catalisadores: Catalyst[];
   habilidades: Ability[];
   magias: Spell[];
   armaduras: ArmorPiece[];

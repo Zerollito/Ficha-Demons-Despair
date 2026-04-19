@@ -21,9 +21,26 @@ export interface Weapon {
   efeito?: string;
 }
 
+export interface Catalyst {
+  id: string;
+  nome: string;
+  tipo: string;
+  escala: Scale;
+  atributoBase: 'Inteligência';
+  peso: number;
+  volume: number;
+  durabilidade: number;
+  maxDurabilidade: number;
+  feitico: number;
+  elemental: number;
+  magiaNegra: number;
+  potencial: number;
+  efeito?: string;
+}
+
 export const getStatBonus = (statValue: number) => Math.floor(statValue / CONFIG.bonuses.statDivisor);
 
-export const calculateWeaponDamageBonus = (weapon: Weapon, statValue: number) => {
+export const calculateWeaponDamageBonus = (weapon: Weapon | Catalyst, statValue: number) => {
   const baseBonus = getStatBonus(statValue || 0);
   const escala = weapon?.escala || '0';
   const scaleMult = CONFIG.scales[escala as keyof typeof CONFIG.scales] ?? 0;

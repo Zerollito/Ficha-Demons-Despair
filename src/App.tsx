@@ -16,7 +16,7 @@ import { Character, AppState, ArmorPiece } from './types';
 import { Stats, PROFICIENCIES, calculateProficiencyBonus } from './rules/proficiencyRules';
 import { getVidaMaxima, getManaMaxima, getCargaMaxima, getDeslocamentoBase } from './rules/statusRules';
 import { Item, calculateInventoryTotals, getLoadPenalties } from './rules/inventoryRules';
-import { Weapon, getStatBonus, calculateWeaponDamageBonus } from './rules/combatRules';
+import { Weapon, Catalyst, getStatBonus, calculateWeaponDamageBonus } from './rules/combatRules';
 import { Knowledge, getXpToNextLevel, INITIAL_KNOWLEDGES } from './rules/knowledgeRules';
 import { getSurvivalPenalties } from './rules/survivalRules';
 
@@ -52,6 +52,7 @@ const createEmptyCharacter = (): Character => ({
   joias: [],
   imagem: '',
   armas: [],
+  catalisadores: [],
   habilidades: [],
   magias: [],
   armaduras: [],
@@ -89,7 +90,8 @@ export default function App() {
           parsed.characters = parsed.characters.map((char: any) => ({
             ...char,
             clima: typeof char.clima === 'object' ? 0 : (char.clima || 0),
-            escalas: char.escalas || []
+            escalas: char.escalas || [],
+            catalisadores: char.catalisadores || []
           }));
           return parsed;
         }
@@ -101,7 +103,7 @@ export default function App() {
     return { characters: [initialChar], activeCharacterId: initialChar.id };
   });
 
-  const [clipboard, setClipboard] = useState<{ type: 'Arma' | 'Armadura' | 'Item' | 'Magia' | 'Habilidade', data: any } | null>(null);
+  const [clipboard, setClipboard] = useState<{ type: 'Arma' | 'Catalisador' | 'Armadura' | 'Item' | 'Magia' | 'Habilidade', data: any } | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [vitaisTab, setVitaisTab] = useState<'status' | 'efeitos'>('status');
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' | 'info' } | null>(null);
@@ -312,9 +314,10 @@ export default function App() {
     };
   }, []);
 
-  const copyToClipboard = (type: 'Arma' | 'Armadura' | 'Item' | 'Magia' | 'Habilidade', data: any) => {
+  const copyToClipboard = (type: 'Arma' | 'Catalisador' | 'Armadura' | 'Item' | 'Magia' | 'Habilidade', data: any) => {
     const dataWithTipo = { ...data, id: generateId() };
     if (type === 'Arma') dataWithTipo.tipo = 'Arma';
+    if (type === 'Catalisador') dataWithTipo.tipo = 'Catalisador';
     if (type === 'Armadura') dataWithTipo.tipo = 'Armadura';
     setClipboard({ type, data: dataWithTipo });
   };
@@ -392,14 +395,16 @@ export default function App() {
 
   const compartimentos = activeChar?.compartimentos || [];
   const armas = activeChar?.armas || [];
+  const catalisadores = activeChar?.catalisadores || [];
   const armaduras = activeChar?.armaduras || [];
   const acessorios = activeChar?.acessorios || [];
 
   const invTotals = calculateInventoryTotals(compartimentos);
   const weaponPeso = armas.reduce((acc, w) => acc + (w.peso || 0), 0);
+  const catalystPeso = catalisadores.reduce((acc, c) => acc + (c.peso || 0), 0);
   const armorPeso = armaduras.reduce((acc, a) => acc + (a.peso || 0), 0);
   const accessoryPeso = acessorios.reduce((acc, a) => acc + (a.peso || 0), 0);
-  const pesoTotal = invTotals.peso + weaponPeso + armorPeso + accessoryPeso;
+  const pesoTotal = invTotals.peso + weaponPeso + catalystPeso + armorPeso + accessoryPeso;
   
   const penalties = getLoadPenalties(pesoTotal, cargaMax);
   const survivalPenalties = getSurvivalPenalties(activeChar.fome, activeChar.sede);
@@ -742,7 +747,7 @@ export default function App() {
             </div>
           </Section>
 
-          <Section title="Vitais" icon={<Activity size={18}/>} collapsible defaultCollapsed={true}>
+          <Section title="Vitais" icon={<Activity size={18}/>} collapsible defaultCollapsed={false}>
             <div className="flex gap-2 mb-4 p-1 bg-zinc-950/50 rounded-lg border border-zinc-800">
               <motion.button 
                 whileTap={{ scale: 0.95 }}
@@ -1163,6 +1168,74 @@ export default function App() {
                  </div>
                </SubSection>
 
+               {/* Catalisadores Section */}
+               <SubSection title="Catalisadores" icon={<Zap size={14} />} defaultCollapsed={false}>
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Catalisadores</h4>
+                    <motion.button 
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => updateChar({ catalisadores: [...(activeChar?.catalisadores || []), { id: generateId(), nome: 'Novo Catalisador', tipo: 'Catalisador', escala: '0', atributoBase: 'Inteligência', peso: 0, volume: 0, durabilidade: 0, maxDurabilidade: 0, feitico: 0, elemental: 0, magiaNegra: 0, potencial: 0 }] })}
+                      className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
+                    >
+                      <Plus size={16} />
+                    </motion.button>
+                  </div>
+                  
+                  {clipboard && (clipboard.type === 'Catalisador' || (clipboard.type === 'Item' && clipboard.data.tipo === 'Catalisador')) && (
+                    <motion.button 
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => {
+                        updateChar({ catalisadores: [...(activeChar?.catalisadores || []), { ...clipboard.data, id: generateId() }] });
+                        setClipboard(null);
+                      }}
+                      className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
+                    >
+                      Colar Catalisador
+                    </motion.button>
+                  )}
+                 <div className="space-y-3">
+                   {catalisadores.map((c, idx) => (
+                     <div key={c.id} className="bg-zinc-900 p-3 rounded-lg border border-zinc-800 text-xs relative group space-y-2">
+                       <div className="flex justify-between items-center">
+                         <input 
+                          value={c.nome} 
+                          onChange={e => {
+                            const newCats = [...catalisadores];
+                            newCats[idx].nome = e.target.value;
+                            updateChar({ catalisadores: newCats });
+                          }}
+                          className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
+                         />
+                         <div className="flex items-center gap-2">
+                           <motion.button whileTap={{ scale: 0.95 }} 
+                             onClick={() => copyToClipboard('Catalisador', c)}
+                             className="text-zinc-500 hover:text-zinc-300 p-1"
+                             title="Copiar Catalisador"
+                           >
+                             <Copy size={20} />
+                           </motion.button>
+                           <motion.button whileTap={{ scale: 0.95 }} 
+                            onClick={() => updateChar({ catalisadores: catalisadores.filter(cat => cat.id !== c.id) })}
+                            className="text-red-500 hover:text-red-400 p-1"
+                           >
+                             <Trash2 size={20} />
+                           </motion.button>
+                         </div>
+                       </div>
+                       
+                        <CatalystProperties 
+                          item={c} 
+                          onChange={updates => {
+                            const na = [...catalisadores];
+                            na[idx] = { ...na[idx], ...updates };
+                            updateChar({ catalisadores: na });
+                          }} 
+                        />
+                     </div>
+                   ))}
+                 </div>
+               </SubSection>
+
                {/* Armaduras Section */}
                <SubSection title="Armaduras" icon={<Shield size={14} />} defaultCollapsed={false}>
                    <div className="flex justify-between items-center mb-2">
@@ -1415,6 +1488,60 @@ export default function App() {
                              ) : null)}
                            </SubSection>
 
+                           <SubSection title="Catalisadores" icon={<Zap size={14} />} defaultCollapsed={false}>
+                             {(comp.itens || []).map((item, iIdx) => item.tipo === 'Catalisador' ? (
+                               <div key={item.id} className="bg-zinc-900 p-2 rounded border border-zinc-800 group relative space-y-2">
+                                 <div className="flex justify-between items-center mb-1">
+                                   <input 
+                                    value={item.nome} 
+                                    onChange={e => {
+                                      const nc = [...compartimentos];
+                                      nc[cIdx].itens[iIdx].nome = e.target.value;
+                                      updateChar({ compartimentos: nc });
+                                    }}
+                                    className="bg-transparent text-sm font-bold focus:outline-none flex-1 text-amber-500"
+                                   />
+                                   <div className="flex items-center gap-2">
+                                     <motion.button whileTap={{ scale: 0.95 }} 
+                                       onClick={() => copyToClipboard(item.tipo === 'Arma' ? 'Arma' : item.tipo === 'Catalisador' ? 'Catalisador' : item.tipo === 'Armadura' ? 'Armadura' : 'Item', item)}
+                                       className="text-zinc-500 hover:text-zinc-300 p-1"
+                                       title="Copiar Item"
+                                     >
+                                       <Copy size={20} />
+                                     </motion.button>
+                                     <motion.button whileTap={{ scale: 0.95 }} 
+                                      onClick={() => {
+                                        const nc = [...compartimentos];
+                                        nc[cIdx].itens = nc[cIdx].itens.filter(it => it.id !== item.id);
+                                        updateChar({ compartimentos: nc });
+                                      }}
+                                      className="text-red-500 transition-opacity p-1"
+                                     >
+                                       <Trash2 size={20} />
+                                     </motion.button>
+                                   </div>
+                                 </div>
+                                 
+                                 <div className="grid grid-cols-4 gap-2">
+                                   <MiniInput label="Qtd" type="number" value={item.quantidade} onChange={v => { const nc = [...compartimentos]; nc[cIdx].itens[iIdx].quantidade = parseInt(v) || 1; updateChar({ compartimentos: nc }); }} />
+                                   <div className="flex flex-col">
+                                     <span className="text-[10px] text-zinc-600 uppercase tracking-tighter font-bold">Total</span>
+                                     <span className="text-xs font-bold text-zinc-400">{(item.peso * item.quantidade).toFixed(1)}kg</span>
+                                   </div>
+                                 </div>
+
+                                 <CatalystProperties 
+                                   item={item} 
+                                   onChange={updates => {
+                                     const nc = [...compartimentos];
+                                     nc[cIdx].itens[iIdx] = { ...nc[cIdx].itens[iIdx], ...updates };
+                                     updateChar({ compartimentos: nc });
+                                   }} 
+                                 />
+                               </div>
+                             ) : null)}
+                           </SubSection>
+
                            <SubSection title="Armaduras" icon={<Shield size={14} />} defaultCollapsed={false}>
                              {(comp.itens || []).map((item, iIdx) => item.tipo === 'Armadura' ? (
                                <div key={item.id} className="bg-zinc-900 p-2 rounded border border-zinc-800 group relative space-y-2">
@@ -1430,7 +1557,7 @@ export default function App() {
                                    />
                                    <div className="flex items-center gap-2">
                                      <motion.button whileTap={{ scale: 0.95 }} 
-                                       onClick={() => copyToClipboard(item.tipo === 'Arma' ? 'Arma' : item.tipo === 'Armadura' ? 'Armadura' : 'Item', item)}
+                                       onClick={() => copyToClipboard(item.tipo === 'Arma' ? 'Arma' : item.tipo === 'Catalisador' ? 'Catalisador' : item.tipo === 'Armadura' ? 'Armadura' : 'Item', item)}
                                        className="text-zinc-500 hover:text-zinc-300 p-1"
                                        title="Copiar Item"
                                      >
@@ -1543,6 +1670,17 @@ export default function App() {
                              + Arma
                            </motion.button>
                            <motion.button 
+                             whileTap={{ scale: 0.95 }}
+                             onClick={() => {
+                               const nc = [...compartimentos];
+                               nc[cIdx].itens.push({ id: generateId(), nome: 'Novo Catalisador', peso: 0, volume: 0, quantidade: 0, tipo: 'Catalisador', durabilidade: 0, maxDurabilidade: 0, descricao: '', escala: '0', atributoBase: 'Inteligência', feitico: 0, elemental: 0, magiaNegra: 0, potencial: 0 });
+                               updateChar({ compartimentos: nc });
+                             }}
+                             className="flex-1 py-2 border border-dashed border-zinc-700 rounded text-[10px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all"
+                           >
+                             + Catalisador
+                           </motion.button>
+                           <motion.button 
                             whileTap={{ scale: 0.95 }}
                             onClick={() => {
                               const nc = [...compartimentos];
@@ -1595,7 +1733,7 @@ export default function App() {
                    )}
                    <motion.button 
                     whileTap={{ scale: 0.95 }}
-                    onClick={() => updateChar({ magias: [...(activeChar?.magias || []), { id: generateId(), nome: 'Nova Magia', tipo: '', efeito: '', dano: '0', mana: 0, acerto: 0 }] })}
+                    onClick={() => updateChar({ magias: [...(activeChar?.magias || []), { id: generateId(), nome: 'Nova Magia', escola: 'Feitiço', tipo: 'Ataque', escala: '0', efeito: '', dano: '0', mana: 0, acerto: 0 }] })}
                     className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                    >
                      <Plus size={16} />
@@ -1625,28 +1763,64 @@ export default function App() {
                      </div>
                      
                      <div className="grid grid-cols-2 gap-2">
-                       <MiniInput label="Dano" value={m.dano} onChange={v => { const na = [...(activeChar?.magias || [])]; na[idx].dano = v; updateChar({ magias: na }); }} />
-                       <div className="flex flex-col min-w-0">
-                         <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter mb-0.5 truncate">Tipo</span>
-                         <select 
-                           value={m.tipo || 'Feitiço'}
-                           onChange={e => {
-                             const na = [...(activeChar?.magias || [])];
-                             na[idx].tipo = e.target.value;
-                             updateChar({ magias: na });
-                           }}
-                           className="bg-black/40 border border-zinc-700/50 rounded px-2 py-0.5 text-xs text-zinc-300 font-bold focus:outline-none focus:border-amber-500/50"
-                         >
-                           <option value="Feitiço">Feitiço</option>
-                           <option value="elemental">Elemental</option>
-                           <option value="magia negra">Magia Negra</option>
-                         </select>
-                       </div>
-                     </div>
-                     <div className="grid grid-cols-2 gap-2">
-                       <MiniInput label="Mana" value={m.mana} type="number" onChange={v => { const na = [...(activeChar?.magias || [])]; na[idx].mana = parseInt(v) || 0; updateChar({ magias: na }); }} />
-                       <MiniInput label="Acerto" value={m.acerto} type="number" onChange={v => { const na = [...(activeChar?.magias || [])]; na[idx].acerto = parseInt(v) || 0; updateChar({ magias: na }); }} />
-                     </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter mb-0.5 truncate">Escola</span>
+                          <select 
+                            value={m.escola || 'Feitiço'}
+                            onChange={e => {
+                              const na = [...(activeChar?.magias || [])];
+                              na[idx].escola = e.target.value;
+                              updateChar({ magias: na });
+                            }}
+                            className="bg-black/40 border border-zinc-700/50 rounded px-2 py-0.5 text-xs text-zinc-300 font-bold focus:outline-none focus:border-amber-500/50"
+                          >
+                            <option value="Feitiço">Feitiço</option>
+                            <option value="elemental">Elemental</option>
+                            <option value="magia negra">Magia Negra</option>
+                          </select>
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter mb-0.5 truncate">Tipo</span>
+                          <select 
+                            value={m.tipo || 'Ataque'}
+                            onChange={e => {
+                              const na = [...(activeChar?.magias || [])];
+                              na[idx].tipo = e.target.value as any;
+                              updateChar({ magias: na });
+                            }}
+                            className="bg-black/40 border border-zinc-700/50 rounded px-2 py-0.5 text-xs text-zinc-300 font-bold focus:outline-none focus:border-amber-500/50"
+                          >
+                            <option value="Ataque">Ataque</option>
+                            <option value="Efeito">Efeito</option>
+                            <option value="Utilidade">Utilidade</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <MiniInput label="Dano" value={m.dano} onChange={v => { const na = [...(activeChar?.magias || [])]; na[idx].dano = v; updateChar({ magias: na }); }} disabled={m.tipo === 'Utilidade'} />
+                        <MiniInput label="Acerto" value={m.acerto} type="number" onChange={v => { const na = [...(activeChar?.magias || [])]; na[idx].acerto = parseInt(v) || 0; updateChar({ magias: na }); }} disabled={m.tipo === 'Utilidade'} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <MiniInput label="Mana" value={m.mana} type="number" onChange={v => { const na = [...(activeChar?.magias || [])]; na[idx].mana = parseInt(v) || 0; updateChar({ magias: na }); }} />
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter mb-0.5 truncate">Escala</span>
+                          <select 
+                            value={m.escala || '0'}
+                            onChange={e => {
+                              const na = [...(activeChar?.magias || [])];
+                              na[idx].escala = e.target.value as any;
+                              updateChar({ magias: na });
+                            }}
+                            className="bg-black/40 border border-zinc-700/50 rounded px-2 py-0.5 text-xs text-zinc-300 font-bold focus:outline-none focus:border-amber-500/50"
+                          >
+                            <option value="0">0</option>
+                            <option value="D">D</option>
+                            <option value="C">C</option>
+                            <option value="B">B</option>
+                            <option value="A">A</option>
+                          </select>
+                        </div>
+                      </div>
 
                      <motion.button 
                        whileTap={{ scale: 0.95 }}
@@ -1657,7 +1831,126 @@ export default function App() {
                            showToast("Mana insuficiente", "error");
                            return;
                          }
-                         updateChar({ manaAtual: Math.max(0, currentMana - cost) });
+                          // Handle rolls based on type
+                          if (m.tipo === 'Ataque') {
+                            // 1. Calculate Hit Bonus (Acurácia)
+                            const acuraciaBonus = calculateProficiencyBonus(
+                              activeChar.stats, 
+                              'Acurácia', 
+                              ['FOR', 'DEX'], 
+                              activeChar.fome, 
+                              activeChar.sede,
+                              activeChar.cansaco,
+                              activeChar.clima,
+                              climateProficiency
+                            );
+                            const totalHitBonus = (acuraciaBonus || 0);
+                            
+                            // 2. Roll Hit (3d8)
+                            const hitRolls: number[] = [];
+                            let hitTotal = 0;
+                            for (let i = 0; i < 3; i++) {
+                              const r = Math.floor(Math.random() * 8) + 1;
+                              hitRolls.push(r);
+                              hitTotal += r;
+                            }
+                            const finalHit = hitTotal + totalHitBonus;
+                            const hitFormula = `3d8${totalHitBonus !== 0 ? (totalHitBonus > 0 ? '+' : '') + totalHitBonus : ''}`;
+
+                            // 3. Calculate Scaling Damage Bonus
+                            const scalingBonus = calculateWeaponDamageBonus(m as any, activeChar.stats.INT);
+                            
+                            // 4. Roll Damage
+                            const danoStr = (m.dano || '1d6').toLowerCase().replace(/\s+/g, '');
+                            const match = danoStr.match(/^(\d*)d(\d+)([+-]\d+)?$/);
+                            let dmgTotal = 0;
+                            let dmgRolls: number[] = [];
+                            let dmgFullFormula = "";
+
+                            if (match) {
+                              const qty = parseInt(match[1]) || 1;
+                              const sides = parseInt(match[2]);
+                              const extra = parseInt(match[3]) || 0;
+                              for (let i = 0; i < qty; i++) {
+                                const r = Math.floor(Math.random() * sides) + 1;
+                                dmgRolls.push(r);
+                                dmgTotal += r;
+                              }
+                              const finalExtra = scalingBonus + extra;
+                              dmgTotal += finalExtra;
+                              dmgFullFormula = `${qty}d${sides}${ finalExtra !== 0 ? (finalExtra > 0 ? '+' : '') + finalExtra : '' }`;
+                            } else {
+                              const fixedDano = parseInt(danoStr) || 0;
+                              dmgTotal = fixedDano + scalingBonus;
+                              dmgFullFormula = `${fixedDano}${scalingBonus !== 0 ? (scalingBonus > 0 ? '+' : '') + scalingBonus : ''}`;
+                            }
+
+                            // 5. Update History & Last Roll
+                            const combinedFormula = `${m.nome}: ACERTO ${finalHit} (Dificuldade: ${m.acerto || 0}) | DANO ${dmgTotal}`;
+                            const detailedFormula = `${m.nome}: Acerto ${finalHit} (Rolado: ${hitFormula} | Mín: ${m.acerto || 0}) | Dano ${dmgTotal} (${dmgFullFormula})`;
+                            
+                            setDiceHistory(prev => [{
+                              id: generateId(),
+                              result: finalHit,
+                              formula: detailedFormula,
+                              timestamp: Date.now()
+                            }, ...prev].slice(0, 50));
+
+                            setLastRoll({ 
+                              result: finalHit, 
+                              formula: combinedFormula, 
+                              rolls: [...hitRolls], 
+                              bonus: totalHitBonus,
+                              isCombat: true,
+                              hitResult: finalHit,
+                              dmgResult: dmgTotal,
+                              hitRolls: hitRolls,
+                              dmgRolls: dmgRolls,
+                              hitBonus: totalHitBonus,
+                              dmgBonus: scalingBonus,
+                              armaNome: m.nome,
+                              hitFormula: hitFormula,
+                              dmgFormula: dmgFullFormula
+                            });
+                          } else if (m.tipo === 'Efeito') {
+                            const acuraciaBonus = calculateProficiencyBonus(
+                              activeChar.stats, 
+                              'Acurácia', 
+                              ['FOR', 'DEX'], 
+                              activeChar.fome, 
+                              activeChar.sede,
+                              activeChar.cansaco, 
+                              activeChar.clima,
+                              climateProficiency
+                            );
+                            const totalHitBonus = (acuraciaBonus || 0);
+
+                            const hitRolls: number[] = [];
+                            let hitTotal = 0;
+                            for (let i = 0; i < 3; i++) {
+                              const r = Math.floor(Math.random() * 8) + 1;
+                              hitRolls.push(r);
+                              hitTotal += r;
+                            }
+                            const finalHit = hitTotal + totalHitBonus;
+                            const hitFormula = `3d8${totalHitBonus !== 0 ? (totalHitBonus > 0 ? '+' : '') + totalHitBonus : ''}`;
+
+                            setDiceHistory(prev => [{
+                              id: generateId(),
+                              result: finalHit,
+                              formula: `${m.nome}: Acerto ${finalHit} (Rolado: ${hitFormula} | Mín: ${m.acerto || 0})`,
+                              timestamp: Date.now()
+                            }, ...prev].slice(0, 50));
+
+                            setLastRoll({ 
+                              result: finalHit, 
+                              formula: `${m.nome}: ACERTO ${finalHit} (Dificuldade: ${m.acerto || 0})`, 
+                              rolls: [...hitRolls], 
+                              bonus: totalHitBonus
+                            });
+                          }
+                          
+                          updateChar({ manaAtual: Math.max(0, currentMana - cost) });
                        }}
                        className="w-full py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded font-bold uppercase text-[10px] transition-all flex items-center justify-center gap-2"
                      >
@@ -2028,7 +2321,7 @@ export default function App() {
             {diceTab === 'mesa' ? (
               <div className="space-y-8 pb-24">
                 {/* Armas do Personagem */}
-                <SubSection title="Combate (Acerto & Dano)" icon={<Sword size={14} />} defaultCollapsed={false}>
+                <SubSection title="Combate (Acerto & Dano)" icon={<Sword size={14} />} defaultCollapsed={true}>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
                     {(activeChar.armas || []).map((arma, aIdx) => {
                       const statMap: Record<string, keyof Stats> = {
@@ -2846,6 +3139,53 @@ function WeaponProperties({ item, onChange }: { item: any, onChange: (updates: a
   );
 }
 
+function CatalystProperties({ item, onChange }: { item: any, onChange: (updates: any) => void }) {
+  return (
+    <div className="space-y-4">
+      <div className="bg-zinc-950/30 p-2 rounded-lg border border-zinc-800/50 space-y-2">
+        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">Dimensionamento (Escala)</span>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="flex flex-col gap-1">
+            <span className="text-[9px] text-zinc-600 font-bold uppercase">Nível</span>
+            <select 
+              value={item.escala || '0'}
+              onChange={e => onChange({ escala: e.target.value })}
+              className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-amber-500 font-bold focus:outline-none focus:border-amber-500/50"
+            >
+              <option value="0">0</option>
+              <option value="D">D</option>
+              <option value="C">C</option>
+              <option value="B">B</option>
+              <option value="A">A</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[9px] text-zinc-600 font-bold uppercase">Bônus</span>
+            <div className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-amber-500 font-bold">
+              Inteligência
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <MiniInput label="Feitiço" value={item.feitico || 0} type="number" onChange={v => onChange({ feitico: parseInt(v) || 0 })} />
+        <MiniInput label="Elemental" value={item.elemental || 0} type="number" onChange={v => onChange({ elemental: parseInt(v) || 0 })} />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <MiniInput label="Magia Negra" value={item.magiaNegra || 0} type="number" onChange={v => onChange({ magiaNegra: parseInt(v) || 0 })} />
+        <MiniInput label="Potencial" value={item.potencial || 0} type="number" onChange={v => onChange({ potencial: parseInt(v) || 0 })} />
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <MiniInput label="Durab." value={item.durabilidade || 0} type="number" onChange={v => onChange({ durabilidade: parseInt(v) || 0 })} />
+        <MiniInput label="Peso" value={item.peso || 0} type="number" onChange={v => onChange({ peso: parseFloat(v) || 0 })} />
+        <MiniInput label="Vol" value={item.volume || 0} type="number" onChange={v => onChange({ volume: parseFloat(v) || 0 })} />
+      </div>
+      <TextArea label="Descrição" value={item.descricao || item.efeito || ''} onChange={v => onChange({ descricao: v, efeito: v })} />
+    </div>
+  );
+}
+
 function ArmorProperties({ item, onChange }: { item: any, onChange: (updates: any) => void }) {
   return (
     <div className="space-y-2">
@@ -2929,7 +3269,7 @@ function NumericInput({ label, value, onChange, className, min, max, size = "md"
   );
 }
 
-function MiniInput({ label, value, type = "text", onChange }: { label: string, value: any, type?: string, onChange: (v: string) => void }) {
+function MiniInput({ label, value, type = "text", onChange, disabled }: { label: string, value: any, type?: string, onChange: (v: string) => void, disabled?: boolean }) {
   const [innerValue, setInnerValue] = useState(value?.toString() ?? '');
 
   useEffect(() => {
@@ -2940,11 +3280,12 @@ function MiniInput({ label, value, type = "text", onChange }: { label: string, v
   }, [value]);
 
   return (
-    <div className="flex flex-col min-w-0">
+    <div className={cn("flex flex-col min-w-0 transition-opacity", disabled && "opacity-40 grayscale pointer-events-none")}>
       <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter mb-0.5 truncate">{label}</span>
       {type === "text" ? (
         <textarea 
           value={innerValue} 
+          disabled={disabled}
           onChange={e => {
             setInnerValue(e.target.value);
             onChange(e.target.value);
@@ -2962,6 +3303,7 @@ function MiniInput({ label, value, type = "text", onChange }: { label: string, v
           type="text" 
           inputMode="numeric"
           value={innerValue} 
+          disabled={disabled}
           onChange={e => {
             const val = e.target.value.replace(/[^0-9-]/g, '');
             setInnerValue(val);
