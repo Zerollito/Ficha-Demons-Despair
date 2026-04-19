@@ -79,6 +79,15 @@ const NEGATIVE_EFFECTS = [
   { id: 'tontura', name: 'Tontura', icon: RotateCw, color: 'text-amber-400', info: 'Ponto fraco\nRedução de acerto e esquiva a 0 por 2 turnos\n-⅔ de deslocamento por 2 turnos\nProficiências e testes tem desvantagem de -2 por 2 turnos' },
 ];
 
+const HIT_LOCATIONS = [
+  'Braço Esquerdo',
+  'Braço Direito',
+  'Perna Esquerda',
+  'Perna Direita',
+  'Tronco',
+  'Cabeça'
+];
+
 export default function App() {
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -91,7 +100,11 @@ export default function App() {
             ...char,
             clima: typeof char.clima === 'object' ? 0 : (char.clima || 0),
             escalas: char.escalas || [],
-            catalisadores: char.catalisadores || []
+            catalisadores: char.catalisadores || [],
+            magias: (char.magias || []).map((m: any) => ({
+              ...m,
+              tipo: m.tipo === 'ataque' ? 'Ataque' : m.tipo
+            }))
           }));
           return parsed;
         }
@@ -128,6 +141,7 @@ export default function App() {
     armaNome?: string;
     dmgFormula?: string;
     hitFormula?: string;
+    hitLocation?: string;
   } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -268,9 +282,13 @@ export default function App() {
       dmgFullFormula = `${fixedDano}${totalDmgBonus !== 0 ? (totalDmgBonus > 0 ? '+' : '') + totalDmgBonus : ''}`;
     }
 
+    // 4.5. Roll Hit Location (1d6)
+    const locationIdx = Math.floor(Math.random() * 6);
+    const locationName = HIT_LOCATIONS[locationIdx];
+
     // 5. Update History & Last Roll
-    const combinedFormula = `${arma.nome}: ACERTO ${finalHit} | DANO ${dmgTotal}`;
-    const detailedFormula = `${arma.nome}: Acerto ${finalHit} (${hitFormula}) | Dano ${dmgTotal} (${dmgFullFormula})`;
+    const combinedFormula = `${arma.nome}: ACERTO ${finalHit} | LOCAL: ${locationName} | DANO ${dmgTotal}`;
+    const detailedFormula = `${arma.nome}: Acerto ${finalHit} (${hitFormula}) | Local: ${locationName} | Dano ${dmgTotal} (${dmgFullFormula})`;
     
     setDiceHistory(prev => [{
       id: generateId(),
@@ -293,7 +311,8 @@ export default function App() {
       dmgBonus: totalDmgBonus,
       armaNome: arma.nome,
       hitFormula: hitFormula,
-      dmgFormula: dmgFullFormula
+      dmgFormula: dmgFullFormula,
+      hitLocation: locationName
     });
 
     // Also show toast with complete result
@@ -1822,136 +1841,152 @@ export default function App() {
                         </div>
                       </div>
 
-                     <motion.button 
-                       whileTap={{ scale: 0.95 }}
-                       onClick={() => {
-                         const currentMana = activeChar.manaAtual || 0;
-                         const cost = m.mana || 0;
-                         if (currentMana < cost) {
-                           showToast("Mana insuficiente", "error");
-                           return;
-                         }
-                          // Handle rolls based on type
-                          if (m.tipo === 'Ataque') {
-                            // 1. Calculate Hit Bonus (Acurácia)
-                            const acuraciaBonus = calculateProficiencyBonus(
-                              activeChar.stats, 
-                              'Acurácia', 
-                              ['FOR', 'DEX'], 
-                              activeChar.fome, 
-                              activeChar.sede,
-                              activeChar.cansaco,
-                              activeChar.clima,
-                              climateProficiency
-                            );
-                            const totalHitBonus = (acuraciaBonus || 0);
-                            
-                            // 2. Roll Hit (3d8)
-                            const hitRolls: number[] = [];
-                            let hitTotal = 0;
-                            for (let i = 0; i < 3; i++) {
-                              const r = Math.floor(Math.random() * 8) + 1;
-                              hitRolls.push(r);
-                              hitTotal += r;
-                            }
-                            const finalHit = hitTotal + totalHitBonus;
-                            const hitFormula = `3d8${totalHitBonus !== 0 ? (totalHitBonus > 0 ? '+' : '') + totalHitBonus : ''}`;
-
-                            // 3. Calculate Scaling Damage Bonus
-                            const scalingBonus = calculateWeaponDamageBonus(m as any, activeChar.stats.INT);
-                            
-                            // 4. Roll Damage
-                            const danoStr = (m.dano || '1d6').toLowerCase().replace(/\s+/g, '');
-                            const match = danoStr.match(/^(\d*)d(\d+)([+-]\d+)?$/);
-                            let dmgTotal = 0;
-                            let dmgRolls: number[] = [];
-                            let dmgFullFormula = "";
-
-                            if (match) {
-                              const qty = parseInt(match[1]) || 1;
-                              const sides = parseInt(match[2]);
-                              const extra = parseInt(match[3]) || 0;
-                              for (let i = 0; i < qty; i++) {
-                                const r = Math.floor(Math.random() * sides) + 1;
-                                dmgRolls.push(r);
-                                dmgTotal += r;
-                              }
-                              const finalExtra = scalingBonus + extra;
-                              dmgTotal += finalExtra;
-                              dmgFullFormula = `${qty}d${sides}${ finalExtra !== 0 ? (finalExtra > 0 ? '+' : '') + finalExtra : '' }`;
-                            } else {
-                              const fixedDano = parseInt(danoStr) || 0;
-                              dmgTotal = fixedDano + scalingBonus;
-                              dmgFullFormula = `${fixedDano}${scalingBonus !== 0 ? (scalingBonus > 0 ? '+' : '') + scalingBonus : ''}`;
-                            }
-
-                            // 5. Update History & Last Roll
-                            const combinedFormula = `${m.nome}: ACERTO ${finalHit} (Dificuldade: ${m.acerto || 0}) | DANO ${dmgTotal}`;
-                            const detailedFormula = `${m.nome}: Acerto ${finalHit} (Rolado: ${hitFormula} | Mín: ${m.acerto || 0}) | Dano ${dmgTotal} (${dmgFullFormula})`;
-                            
-                            setDiceHistory(prev => [{
-                              id: generateId(),
-                              result: finalHit,
-                              formula: detailedFormula,
-                              timestamp: Date.now()
-                            }, ...prev].slice(0, 50));
-
-                            setLastRoll({ 
-                              result: finalHit, 
-                              formula: combinedFormula, 
-                              rolls: [...hitRolls], 
-                              bonus: totalHitBonus,
-                              isCombat: true,
-                              hitResult: finalHit,
-                              dmgResult: dmgTotal,
-                              hitRolls: hitRolls,
-                              dmgRolls: dmgRolls,
-                              hitBonus: totalHitBonus,
-                              dmgBonus: scalingBonus,
-                              armaNome: m.nome,
-                              hitFormula: hitFormula,
-                              dmgFormula: dmgFullFormula
-                            });
-                          } else if (m.tipo === 'Efeito') {
-                            const acuraciaBonus = calculateProficiencyBonus(
-                              activeChar.stats, 
-                              'Acurácia', 
-                              ['FOR', 'DEX'], 
-                              activeChar.fome, 
-                              activeChar.sede,
-                              activeChar.cansaco, 
-                              activeChar.clima,
-                              climateProficiency
-                            );
-                            const totalHitBonus = (acuraciaBonus || 0);
-
-                            const hitRolls: number[] = [];
-                            let hitTotal = 0;
-                            for (let i = 0; i < 3; i++) {
-                              const r = Math.floor(Math.random() * 8) + 1;
-                              hitRolls.push(r);
-                              hitTotal += r;
-                            }
-                            const finalHit = hitTotal + totalHitBonus;
-                            const hitFormula = `3d8${totalHitBonus !== 0 ? (totalHitBonus > 0 ? '+' : '') + totalHitBonus : ''}`;
-
-                            setDiceHistory(prev => [{
-                              id: generateId(),
-                              result: finalHit,
-                              formula: `${m.nome}: Acerto ${finalHit} (Rolado: ${hitFormula} | Mín: ${m.acerto || 0})`,
-                              timestamp: Date.now()
-                            }, ...prev].slice(0, 50));
-
-                            setLastRoll({ 
-                              result: finalHit, 
-                              formula: `${m.nome}: ACERTO ${finalHit} (Dificuldade: ${m.acerto || 0})`, 
-                              rolls: [...hitRolls], 
-                              bonus: totalHitBonus
-                            });
+                      <motion.button 
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => {
+                          const currentMana = activeChar.manaAtual || 0;
+                          const cost = m.mana || 0;
+                          if (currentMana < cost) {
+                            showToast("Mana insuficiente", "error");
+                            return;
                           }
-                          
-                          updateChar({ manaAtual: Math.max(0, currentMana - cost) });
-                       }}
+                           // Handle rolls based on type
+                           if (m.tipo === 'Ataque') {
+                             // 1. Calculate Hit Bonus (Acurácia)
+                             const acuraciaBonus = calculateProficiencyBonus(
+                               activeChar.stats, 
+                               'Acurácia', 
+                               ['FOR', 'DEX'], 
+                               activeChar.fome, 
+                               activeChar.sede,
+                               activeChar.cansaco,
+                               activeChar.clima,
+                               climateProficiency
+                             );
+                             const totalHitBonus = (acuraciaBonus || 0);
+                             
+                             // 2. Roll Hit (3d8)
+                             const hitRolls: number[] = [];
+                             let hitTotal = 0;
+                             for (let i = 0; i < 3; i++) {
+                               const r = Math.floor(Math.random() * 8) + 1;
+                               hitRolls.push(r);
+                               hitTotal += r;
+                             }
+                             const finalHit = hitTotal + totalHitBonus;
+                             const hitFormula = `3d8${totalHitBonus !== 0 ? (totalHitBonus > 0 ? '+' : '') + totalHitBonus : ''}`;
+
+                             // 3. Calculate Scaling Damage Bonus
+                             const scalingBonus = calculateWeaponDamageBonus(m as any, activeChar.stats.INT);
+                             
+                             // 4. Roll Damage
+                             const danoStr = (m.dano || '1d6').toLowerCase().replace(/\s+/g, '');
+                             const match = danoStr.match(/^(\d*)d(\d+)([+-]\d+)?$/);
+                             let dmgTotal = 0;
+                             let dmgRolls: number[] = [];
+                             let dmgFullFormula = "";
+
+                             if (match) {
+                               const qty = parseInt(match[1]) || 1;
+                               const sides = parseInt(match[2]);
+                               const extra = parseInt(match[3]) || 0;
+                               for (let i = 0; i < qty; i++) {
+                                 const r = Math.floor(Math.random() * sides) + 1;
+                                 dmgRolls.push(r);
+                                 dmgTotal += r;
+                               }
+                               const finalExtra = scalingBonus + extra;
+                               dmgTotal += finalExtra;
+                               dmgFullFormula = `${qty}d${sides}${ finalExtra !== 0 ? (finalExtra > 0 ? '+' : '') + finalExtra : '' }`;
+                             } else {
+                               const fixedDano = parseInt(danoStr) || 0;
+                               dmgTotal = fixedDano + scalingBonus;
+                               dmgFullFormula = `${fixedDano}${scalingBonus !== 0 ? (scalingBonus > 0 ? '+' : '') + scalingBonus : ''}`;
+                             }
+
+                             // 4.5. Roll Hit Location (1d6)
+                             const locationIdx = Math.floor(Math.random() * 6);
+                             const locationName = HIT_LOCATIONS[locationIdx];
+
+                             // 5. Update History & Last Roll
+                             const combinedFormula = `${m.nome}: ACERTO ${finalHit} (Dificuldade: ${m.acerto || 0}) | LOCAL: ${locationName} | DANO ${dmgTotal}`;
+                             const detailedFormula = `${m.nome}: Acerto ${finalHit} (Rolado: ${hitFormula} | Mín: ${m.acerto || 0}) | Local: ${locationName} | Dano ${dmgTotal} (${dmgFullFormula})`;
+                             
+                             setDiceHistory(prev => [{
+                               id: generateId(),
+                               result: finalHit,
+                               formula: detailedFormula,
+                               timestamp: Date.now()
+                             }, ...prev].slice(0, 50));
+
+                             setLastRoll({ 
+                               result: finalHit, 
+                               formula: combinedFormula, 
+                               rolls: [...hitRolls], 
+                               bonus: totalHitBonus,
+                               isCombat: true,
+                               hitResult: finalHit,
+                               dmgResult: dmgTotal,
+                               hitRolls: hitRolls,
+                               dmgRolls: dmgRolls,
+                               hitBonus: totalHitBonus,
+                               dmgBonus: scalingBonus,
+                               armaNome: m.nome,
+                               hitFormula: hitFormula,
+                               dmgFormula: dmgFullFormula,
+                               hitLocation: locationName
+                             });
+                           } else if (m.tipo === 'Efeito') {
+                             const acuraciaBonus = calculateProficiencyBonus(
+                               activeChar.stats, 
+                               'Acurácia', 
+                               ['FOR', 'DEX'], 
+                               activeChar.fome, 
+                               activeChar.sede,
+                               activeChar.cansaco, 
+                               activeChar.clima,
+                               climateProficiency
+                             );
+                             const totalHitBonus = (acuraciaBonus || 0);
+
+                             const hitRolls: number[] = [];
+                             let hitTotal = 0;
+                             for (let i = 0; i < 3; i++) {
+                               const r = Math.floor(Math.random() * 8) + 1;
+                               hitRolls.push(r);
+                               hitTotal += r;
+                             }
+                             const finalHit = hitTotal + totalHitBonus;
+                             const hitFormula = `3d8${totalHitBonus !== 0 ? (totalHitBonus > 0 ? '+' : '') + totalHitBonus : ''}`;
+
+                             // 4.5. Roll Hit Location (1d6)
+                             const locationIdx = Math.floor(Math.random() * 6);
+                             const locationName = HIT_LOCATIONS[locationIdx];
+
+                             setDiceHistory(prev => [{
+                               id: generateId(),
+                               result: finalHit,
+                               formula: `${m.nome}: Acerto ${finalHit} (Rolado: ${hitFormula} | Mín: ${m.acerto || 0}) | Local: ${locationName}`,
+                               timestamp: Date.now()
+                             }, ...prev].slice(0, 50));
+
+                             setLastRoll({ 
+                               result: finalHit, 
+                               formula: `${m.nome}: ACERTO ${finalHit} (Dificuldade: ${m.acerto || 0}) | LOCAL: ${locationName}`, 
+                               rolls: [...hitRolls], 
+                               bonus: totalHitBonus,
+                               isCombat: true,
+                               hitResult: finalHit,
+                               hitRolls: hitRolls,
+                               hitBonus: totalHitBonus,
+                               armaNome: m.nome,
+                               hitFormula: hitFormula,
+                               hitLocation: locationName
+                             });
+                           }
+                           
+                           updateChar({ manaAtual: Math.max(0, currentMana - cost) });
+                        }}
                        className="w-full py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded font-bold uppercase text-[10px] transition-all flex items-center justify-center gap-2"
                      >
                        <Zap size={12} /> Usar Magia
@@ -2791,12 +2826,25 @@ export default function App() {
                       <span className="text-3xl font-black text-amber-500">{lastRoll.hitResult}</span>
                       <span className="text-[8px] font-bold text-zinc-600 uppercase">{lastRoll.hitFormula}</span>
                     </div>
-                    <div className="flex flex-col items-center bg-zinc-950/50 p-3 rounded-xl border border- zinc-800">
+                    <div className="flex flex-col items-center bg-zinc-950/50 p-3 rounded-xl border border-zinc-800">
                       <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-0.5">Dano</span>
                       <span className="text-3xl font-black text-amber-500">{lastRoll.dmgResult}</span>
                       <span className="text-[8px] font-bold text-zinc-600 uppercase">{lastRoll.dmgFormula}</span>
                     </div>
                   </div>
+
+                  {/* Hit Location Row */}
+                  {lastRoll.hitLocation && (
+                    <div className="bg-zinc-950/50 p-2.5 rounded-xl border border-amber-500/10 flex items-center justify-between px-4">
+                      <div className="flex flex-col">
+                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">Localização do Acerto</span>
+                        <span className="text-sm font-black text-zinc-100 uppercase tracking-tight">{lastRoll.hitLocation}</span>
+                      </div>
+                      <div className="w-8 h-8 bg-amber-500/10 rounded-full flex items-center justify-center border border-amber-500/20">
+                        <Target size={16} className="text-amber-500" />
+                      </div>
+                    </div>
+                  )}
 
                   {/* Dice Results - Compact Side-by-Side */}
                   <div className="grid grid-cols-2 gap-6 bg-zinc-950/30 p-3 rounded-xl border border-zinc-800/50">
