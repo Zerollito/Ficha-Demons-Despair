@@ -278,12 +278,25 @@ export default function App() {
 
     try {
       const currentOrigin = window.location.origin;
-      const res = await fetch(`/api/auth/google/url?origin=${encodeURIComponent(currentOrigin)}`);
+      // Adicionando um timestamp (t=...) para quebrar qualquer cache do PWA/Cloudflare
+      const url = `/api/auth/google/url?origin=${encodeURIComponent(currentOrigin)}&t=${Date.now()}`;
+      console.log("Chamando API:", url);
+      
+      const res = await fetch(url);
+      
+      // Se não for JSON, o erro vai cair aqui com o status
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await res.text();
+        console.error("Resposta não é JSON!", text.substring(0, 100));
+        throw new Error("O servidor enviou HTML em vez de dados. Tente atualizar a página com Shift+F5.");
+      }
+
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || "Falha ao obter URL");
       }
-      const { url } = await res.json();
+      const { url: authUrl } = await res.json();
 
       const width = 600;
       const height = 700;
@@ -291,7 +304,7 @@ export default function App() {
       const top = window.screenY + (window.outerHeight - height) / 2;
 
       const authWindow = window.open(
-        url,
+        authUrl,
         "google_oauth",
         `width=${width},height=${height},left=${left},top=${top}`,
       );

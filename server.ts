@@ -68,6 +68,16 @@ async function startServer() {
 
   // 2. API Router
   const apiRouter = express.Router();
+  apiRouter.use(express.json());
+
+  // Forçar que qualquer resposta da API seja JSON e NÃO tenha cache (essencial para Cloudflare/PWA)
+  apiRouter.use((req, res, next) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    next();
+  });
 
   apiRouter.get("/health", (req, res) => {
     res.json({ status: "ok", time: new Date().toISOString() });
