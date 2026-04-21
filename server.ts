@@ -302,8 +302,8 @@ async function startServer() {
     // Serve static files (but don't fallback to index.html for API paths)
     app.use(express.static(distPath));
     
-    // SPA fallback: EXCLUDE /api routes from being handled as SPA routes
-    app.get(/^(?!\/api).*/, (req, res) => {
+    // SPA fallback: Serve index.html para qualquer rota que não seja um arquivo estático ou API (já filtrado acima)
+    app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
