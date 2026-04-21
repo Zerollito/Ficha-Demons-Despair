@@ -27,6 +27,25 @@ export function GoogleDriveSync({
 }: GoogleDriveSyncProps) {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
+  const handleHardReset = async () => {
+    if (confirm("Isso irá limpar o cache do app e recarregar. Deseja continuar?")) {
+        try {
+            // Limpa Caches
+            const cacheKeys = await caches.keys();
+            await Promise.all(cacheKeys.map(key => caches.delete(key)));
+            
+            // Unregister Service Workers
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(registrations.map(r => r.unregister()));
+            
+            // Recarrega do servidor
+            window.location.reload();
+        } catch (e) {
+            window.location.reload();
+        }
+    }
+  };
+
   // Menu variant renders as a button for the dropdown
   if (variant === 'menu') {
     return (
@@ -51,9 +70,13 @@ export function GoogleDriveSync({
         )}
 
         {error && (
-          <div className="px-3 py-1 text-[10px] text-red-500 font-bold flex items-center gap-1 bg-red-500/5 mt-1 rounded">
-             <AlertCircle size={10} /> {error}
-          </div>
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={handleHardReset}
+            className="w-full flex items-center gap-3 px-3 py-2 hover:bg-red-500/10 rounded-lg transition-colors text-[10px] font-bold text-red-400 mt-1"
+          >
+            <RefreshCw size={14} /> Corrigir Erro de Cache
+          </motion.button>
         )}
 
         {/* Logout Confirmation Modal */}

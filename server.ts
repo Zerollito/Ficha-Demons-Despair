@@ -34,6 +34,7 @@ async function startServer() {
   // Requisito para cookies seguros em proxies (Cloudflare/Run.app)
   app.set("trust proxy", 1);
 
+  // 1. Standard middlewares (Cookie e Session precisam vir antes das rotas que os usam)
   app.use(cookieParser());
   app.use(session({
     secret: process.env.SESSION_SECRET || 'rpg-secret-key',
@@ -47,31 +48,24 @@ async function startServer() {
     }
   }));
 
-  // Enable CORS for all origins (important for APKs and proxies)
   app.use(cors({
-    origin: (origin, callback) => {
-      // Allow all origins to fix APK/Worker issues
-      callback(null, true);
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+    origin: true,
+    credentials: true
   }));
 
   app.use(express.json({ limit: '10mb' }));
 
-  // 1. Logging Middleware
+  // 2. Logging Middleware
   app.use((req, res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
     next();
   });
 
-  // 2. API Router
+  // 3. Mount API Router
   const apiRouter = express.Router();
-  apiRouter.use(express.json());
-
-  // Forçar que qualquer resposta da API seja JSON e NÃO tenha cache (essencial para Cloudflare/PWA)
+  
   apiRouter.use((req, res, next) => {
+    // Força JSON e desativa cache agressivamente (anti-PWA/anti-Cloudflare)
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
