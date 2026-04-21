@@ -1120,7 +1120,7 @@ export default function App() {
           <Section title="Equipamentos" icon={<Package size={18}/>} collapsible defaultCollapsed={true}>
              <div className="space-y-6">
                {/* Armas Section */}
-               <SubSection title="Armas" icon={<Sword size={14} />} defaultCollapsed={false}>
+               <SubSection title="Armas" icon={<Sword size={14} />} defaultCollapsed={true}>
                   <div className="flex justify-between items-center mb-2">
                     <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armas</h4>
                     <motion.button 
@@ -1188,7 +1188,7 @@ export default function App() {
                </SubSection>
 
                {/* Catalisadores Section */}
-               <SubSection title="Catalisadores" icon={<Zap size={14} />} defaultCollapsed={false}>
+               <SubSection title="Catalisadores" icon={<Zap size={14} />} defaultCollapsed={true}>
                   <div className="flex justify-between items-center mb-2">
                     <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Catalisadores</h4>
                     <motion.button 
@@ -1256,7 +1256,7 @@ export default function App() {
                </SubSection>
 
                {/* Armaduras Section */}
-               <SubSection title="Armaduras" icon={<Shield size={14} />} defaultCollapsed={false}>
+               <SubSection title="Armaduras" icon={<Shield size={14} />} defaultCollapsed={true}>
                    <div className="flex justify-between items-center mb-2">
                     <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Armaduras</h4>
                     <motion.button 
@@ -1324,7 +1324,7 @@ export default function App() {
                </SubSection>
 
                {/* Acessórios Section */}
-               <SubSection title="Acessórios" icon={<Gem size={14} />} defaultCollapsed={false}>
+               <SubSection title="Acessórios" icon={<Gem size={14} />} defaultCollapsed={true}>
                    <div className="flex justify-between items-center mb-2">
                     <h4 className="text-[10px] font-bold text-zinc-500 uppercase">Acessórios</h4>
                     <motion.button 
@@ -1453,7 +1453,7 @@ export default function App() {
                          </div>
                          
                          <div className="space-y-2">
-                           <SubSection title="Armas" icon={<Sword size={14} />} defaultCollapsed={false}>
+                           <SubSection title="Armas" icon={<Sword size={14} />} defaultCollapsed={true}>
                              {(comp.itens || []).map((item, iIdx) => item.tipo === 'Arma' ? (
                                <div key={item.id} className="bg-zinc-900 p-2 rounded border border-zinc-800 group relative space-y-2">
                                  <div className="flex justify-between items-center mb-1">
@@ -1507,7 +1507,7 @@ export default function App() {
                              ) : null)}
                            </SubSection>
 
-                           <SubSection title="Catalisadores" icon={<Zap size={14} />} defaultCollapsed={false}>
+                           <SubSection title="Catalisadores" icon={<Zap size={14} />} defaultCollapsed={true}>
                              {(comp.itens || []).map((item, iIdx) => item.tipo === 'Catalisador' ? (
                                <div key={item.id} className="bg-zinc-900 p-2 rounded border border-zinc-800 group relative space-y-2">
                                  <div className="flex justify-between items-center mb-1">
@@ -1561,7 +1561,7 @@ export default function App() {
                              ) : null)}
                            </SubSection>
 
-                           <SubSection title="Armaduras" icon={<Shield size={14} />} defaultCollapsed={false}>
+                           <SubSection title="Armaduras" icon={<Shield size={14} />} defaultCollapsed={true}>
                              {(comp.itens || []).map((item, iIdx) => item.tipo === 'Armadura' ? (
                                <div key={item.id} className="bg-zinc-900 p-2 rounded border border-zinc-800 group relative space-y-2">
                                  <div className="flex justify-between items-center mb-1">
@@ -1615,8 +1615,8 @@ export default function App() {
                              ) : null)}
                            </SubSection>
 
-                           <SubSection title="Itens" icon={<Package size={14} />} defaultCollapsed={false}>
-                             {(comp.itens || []).map((item, iIdx) => (item.tipo !== 'Arma' && item.tipo !== 'Armadura') ? (
+                           <SubSection title="Itens" icon={<Package size={14} />} defaultCollapsed={true}>
+                             {(comp.itens || []).map((item, iIdx) => (item.tipo !== 'Arma' && item.tipo !== 'Armadura' && item.tipo !== 'Catalisador') ? (
                                <div key={item.id} className="bg-zinc-900 p-2 rounded border border-zinc-800 group relative space-y-2">
                                  <div className="flex justify-between items-center mb-1">
                                    <input 
