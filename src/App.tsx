@@ -278,25 +278,21 @@ export default function App() {
 
     try {
       const currentOrigin = window.location.origin;
-      // Adicionando um timestamp (t=...) para quebrar qualquer cache do PWA/Cloudflare
       const url = `/api/auth/google/url?origin=${encodeURIComponent(currentOrigin)}&t=${Date.now()}`;
-      console.log("Chamando API:", url);
       
       const res = await fetch(url);
-      
-      // Se não for JSON, o erro vai cair aqui com o status
       const contentType = res.headers.get("content-type");
+      
       if (!contentType || !contentType.includes("application/json")) {
-        const text = await res.text();
-        console.error("Resposta não é JSON!", text.substring(0, 100));
-        throw new Error("O servidor enviou HTML em vez de dados. Tente atualizar a página com Shift+F5.");
+        const snippet = (await res.text()).substring(0, 50);
+        console.error("Resposta inválida (PWA/Cache):", snippet);
+        throw new Error("O servidor enviou HTML (Cache antigo). Por favor, use 'Corrigir Erro de Cache' no menu.");
       }
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Falha ao obter URL");
-      }
-      const { url: authUrl } = await res.json();
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Falha no servidor");
+
+      if (!data.url) throw new Error("URL do Google não recebida.");
 
       const width = 600;
       const height = 700;
@@ -304,15 +300,13 @@ export default function App() {
       const top = window.screenY + (window.outerHeight - height) / 2;
 
       const authWindow = window.open(
-        authUrl,
+        data.url,
         "google_oauth",
         `width=${width},height=${height},left=${left},top=${top}`,
       );
 
       if (!authWindow) {
-        setDriveError(
-          "O navegador bloqueou o pop-up. Por favor, permita pop-ups para este site e clique novamente.",
-        );
+        throw new Error("O navegador bloqueou o pop-up. Por favor, permita pop-ups.");
       }
     } catch (err: any) {
       console.error("Erro no handleGoogleConnect:", err);
