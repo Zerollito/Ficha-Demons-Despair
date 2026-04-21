@@ -49,6 +49,7 @@ const createEmptyCharacter = (): Character => ({
   clima: 0,
   stats: { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 },
   statsXP: { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 },
+  bonusProficiencias: {},
   joias: [],
   imagem: '',
   armas: [],
@@ -101,6 +102,7 @@ export default function App() {
             clima: typeof char.clima === 'object' ? 0 : (char.clima || 0),
             escalas: char.escalas || [],
             catalisadores: char.catalisadores || [],
+            bonusProficiencias: char.bonusProficiencias || {},
             magias: (char.magias || []).map((m: any) => ({
               ...m,
               tipo: m.tipo === 'ataque' ? 'Ataque' : m.tipo
@@ -155,7 +157,8 @@ export default function App() {
         activeChar.sede,
         activeChar.cansaco,
         activeChar.clima,
-        climateProficiency
+        climateProficiency,
+        activeChar.bonusProficiencias?.['Fome'] || 0
       );
       
       const hungerProf = activeChar.fome >= 50 ? hungerProfBase : 0;
@@ -230,7 +233,8 @@ export default function App() {
       activeChar.sede,
       activeChar.cansaco,
       activeChar.clima,
-      climateProficiency
+      climateProficiency,
+      activeChar.bonusProficiencias?.['Acurácia'] || 0
     );
     const totalHitBonus = (acuraciaBonus || 0) + (arma.acerto || 0) + (bonusManual || 0);
     
@@ -348,8 +352,8 @@ export default function App() {
 
   const climateProficiency = useMemo(() => {
     if (!activeChar) return 0;
-    return calculateProficiencyBonus(activeChar.stats, 'Clima', ['ADP'], activeChar.fome, activeChar.sede);
-  }, [activeChar?.stats, activeChar?.fome, activeChar?.sede]);
+    return calculateProficiencyBonus(activeChar.stats, 'Clima', ['ADP'], activeChar.fome, activeChar.sede, undefined, undefined, undefined, activeChar.bonusProficiencias?.['Clima'] || 0);
+  }, [activeChar?.stats, activeChar?.fome, activeChar?.sede, activeChar?.bonusProficiencias?.['Clima']]);
 
   const climateEffects = useMemo(() => {
     if (!activeChar) return [];
@@ -1094,19 +1098,37 @@ export default function App() {
                   activeChar.sede,
                   activeChar.cansaco,
                   activeChar.clima,
-                  climateProficiency
+                  climateProficiency,
+                  activeChar.bonusProficiencias?.[prof.name] || 0
                 );
+                const manualBonus = activeChar.bonusProficiencias?.[prof.name] || 0;
+                const totalBonus = bonus;
+
                 return (
-                  <div key={prof.name} className="flex justify-between items-center p-2 hover:bg-zinc-800/50 rounded transition-colors border-b border-zinc-800/50 last:border-0">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium">{prof.name}</span>
-                      <span className="text-[10px] text-zinc-500 uppercase">{prof.stats.join(' + ')}</span>
+                  <div key={prof.name} className="flex justify-between items-center p-2 hover:bg-zinc-800/50 rounded transition-colors border-b border-zinc-800/50 last:border-0 gap-4">
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <span className="text-sm font-medium truncate">{prof.name}</span>
+                      <span className="text-[10px] text-zinc-500 uppercase truncate">{prof.stats.join(' + ')}</span>
                     </div>
-                    <div className={cn(
-                      "w-8 h-8 flex items-center justify-center rounded-full border text-sm font-bold",
-                      bonus > 0 ? "border-amber-500 text-amber-500 bg-amber-500/10" : "border-zinc-700 text-zinc-500"
-                    )}>
-                      +{bonus}
+                    <div className="flex items-center gap-3">
+                      <div className="flex flex-col items-center">
+                        <span className="text-[8px] font-bold text-zinc-600 uppercase mb-0.5">Bônus</span>
+                        <NumericInput 
+                          value={manualBonus}
+                          onChange={(v) => {
+                            const newBonuses = { ...(activeChar.bonusProficiencias || {}), [prof.name]: v };
+                            updateChar({ bonusProficiencias: newBonuses });
+                          }}
+                          className="w-12 h-7"
+                          size="sm"
+                        />
+                      </div>
+                      <div className={cn(
+                        "w-8 h-8 flex items-center justify-center rounded-full border text-sm font-bold shrink-0",
+                        totalBonus > 0 ? "border-amber-500 text-amber-500 bg-amber-500/10" : "border-zinc-700 text-zinc-500"
+                      )}>
+                        +{totalBonus}
+                      </div>
                     </div>
                   </div>
                 );
@@ -1861,7 +1883,8 @@ export default function App() {
                                activeChar.sede,
                                activeChar.cansaco,
                                activeChar.clima,
-                               climateProficiency
+                               climateProficiency,
+                               activeChar.bonusProficiencias?.['Acurácia'] || 0
                              );
                              const totalHitBonus = (acuraciaBonus || 0);
                              
@@ -1945,7 +1968,8 @@ export default function App() {
                                activeChar.sede,
                                activeChar.cansaco, 
                                activeChar.clima,
-                               climateProficiency
+                               climateProficiency,
+                               activeChar.bonusProficiencias?.['Acurácia'] || 0
                              );
                              const totalHitBonus = (acuraciaBonus || 0);
 
@@ -2441,7 +2465,8 @@ export default function App() {
                         activeChar.sede,
                         activeChar.cansaco,
                         activeChar.clima,
-                        climateProficiency
+                        climateProficiency,
+                        activeChar.bonusProficiencias?.['Acurácia'] || 0
                       );
                       rollDice(8, 3, diceBonus + acuraciaBonus, '3d8');
                     }}

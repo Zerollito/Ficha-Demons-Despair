@@ -63,6 +63,8 @@ export interface Character {
   stats: Stats;
   statsXP: Stats; // XP for each stat
   
+  bonusProficiencias?: { [key: string]: number }; // Manual bonuses for each proficiency
+  
   joias: string[];
   imagem?: string;
   armas: Weapon[];

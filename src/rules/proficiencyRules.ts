@@ -21,7 +21,8 @@ export const calculateProficiencyBonus = (
   thirst?: number,
   fatigue?: number,
   climate?: number,
-  climateProficiency?: number
+  climateProficiency?: number,
+  manualBonus: number = 0
 ) => {
   let penalty = 0;
   
@@ -76,7 +77,7 @@ export const calculateProficiencyBonus = (
     );
   }
 
-  return Math.max(0, baseBonus + penalty);
+  return Math.max(0, baseBonus + penalty + manualBonus);
 };
 
 export const PROFICIENCIES = [
