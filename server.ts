@@ -117,10 +117,13 @@ async function startServer() {
     const { code } = req.query;
     try {
       // Reconstrói o URI baseado no host da requisição atual para bater com o registrado no Google
-      const protocol = req.protocol === 'http' && req.headers['x-forwarded-proto'] === 'https' ? 'https' : req.protocol;
-      const host = req.get('host');
+      // Usa X-Forwarded-Proto se disponível (Cloudflare/Run.app)
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+      const host = req.headers['x-forwarded-host'] || req.get('host');
       const currentOrigin = `${protocol}://${host}`;
       const redirectUri = `${currentOrigin}/api/auth/google/callback`;
+
+      console.log(`OAuth Callback detectado. Origin: ${currentOrigin} | RedirectUri: ${redirectUri}`);
 
       const oauth2Client = new google.auth.OAuth2(
         GOOGLE_CLIENT_ID,

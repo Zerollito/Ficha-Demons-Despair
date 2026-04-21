@@ -37,7 +37,8 @@ export function GoogleDriveSync({
             onClick={onConnect}
             className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
           >
-            <Cloud size={18} className="text-amber-500" /> Vincular Google Drive
+            <Cloud size={18} className={error ? "text-red-500" : "text-amber-500"} /> 
+            {error ? "Erro na Conexão" : "Vincular Google Drive"}
           </motion.button>
         ) : (
           <motion.button
@@ -47,6 +48,12 @@ export function GoogleDriveSync({
           >
             <CheckCircle2 size={18} /> Google Drive Conectado
           </motion.button>
+        )}
+
+        {error && (
+          <div className="px-3 py-1 text-[10px] text-red-500 font-bold flex items-center gap-1 bg-red-500/5 mt-1 rounded">
+             <AlertCircle size={10} /> {error}
+          </div>
         )}
 
         {/* Logout Confirmation Modal */}
