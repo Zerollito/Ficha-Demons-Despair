@@ -51,6 +51,7 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { jsPDF } from "jspdf";
 import { diceBase64 } from "./diceIcons";
+import { GoogleDriveSync } from "./components/GoogleDriveSync";
 
 import { Character, AppState, ArmorPiece } from "./types";
 import {
@@ -908,6 +909,12 @@ export default function App() {
             >
               <Download size={18} className="text-amber-500" /> Exportar JSON
             </motion.button>
+
+            <GoogleDriveSync
+              appState={state}
+              onStateUpdate={setState}
+              variant="menu"
+            />
 
             <label className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300 cursor-pointer">
               <Upload size={18} className="text-amber-500" /> Importar JSON
@@ -4077,6 +4084,7 @@ export default function App() {
           </div>
         ) : activePage === "notes" ? (
           <div className="space-y-6 max-w-4xl mx-auto">
+            <GoogleDriveSync appState={state} onStateUpdate={setState} />
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-amber-500 flex items-center gap-2">
                 <FileText size={24} /> Anotações
