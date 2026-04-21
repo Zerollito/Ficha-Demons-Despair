@@ -41,7 +41,7 @@ export function MiniInput({ label, value, type = "text", onChange }: MiniInputPr
           inputMode={type === 'number' ? 'numeric' : 'text'}
           value={innerValue} 
           onChange={e => {
-            const val = type === 'number' ? e.target.value.replace(/[^0-9.-]/g, '') : e.target.value;
+            const val = type === 'number' ? e.target.value.replace(/[^0-9.,-]/g, '').replace(',', '.') : e.target.value;
             setInnerValue(val);
             onChange(val);
           }}
