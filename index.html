@@ -8,6 +8,23 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // SCRIPT DE LIMPEZA DE EMERGÊNCIA (Anti-Cache/Anti-PWA)
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for(let registration of registrations) {
+            registration.unregister();
+            console.log("Service Worker antigo removido com sucesso.");
+          }
+        });
+      }
+      // Limpa caches antigos se existirem
+      if (typeof caches !== 'undefined') {
+        caches.keys().then(function(names) {
+          for (let name of names) caches.delete(name);
+        });
+      }
+    </script>
   </body>
 </html>
 

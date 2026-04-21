@@ -70,6 +70,22 @@ async function startServer() {
     res.json({ status: "ok", time: new Date().toISOString() });
   });
 
+  apiRouter.get("/debug", (req, res) => {
+    res.json({
+      timestamp: new Date().toISOString(),
+      method: req.method,
+      url: req.url,
+      headers: req.headers,
+      protocol: req.protocol,
+      forwardedProto: req.headers['x-forwarded-proto'],
+      forwardedHost: req.headers['x-forwarded-host'],
+      ip: req.ip,
+      ips: req.ips,
+      trustProxy: app.get('trust proxy'),
+      origin: req.get('origin') || 'none'
+    });
+  });
+
   apiRouter.get("/auth/google/url", (req, res) => {
     try {
       if (!GOOGLE_CLIENT_ID) throw new Error("Configuração ausente.");
