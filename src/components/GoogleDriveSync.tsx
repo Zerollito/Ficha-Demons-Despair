@@ -40,22 +40,39 @@ export function GoogleDriveSync({ appState, onStateUpdate, variant = 'full' }: G
   }, []);
 
   const handleConnect = async () => {
+    setError(null);
+    
+    // Abrir janela primeiro para evitar bloqueio de popup pelo navegador (importante após ação do usuário)
+    const width = 600;
+    const height = 700;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    
+    const authWindow = window.open(
+      'about:blank',
+      'google_oauth',
+      `width=${width},height=${height},left=${left},top=${top}`
+    );
+
+    if (authWindow) {
+      authWindow.document.write('<p style="font-family:sans-serif; text-align:center; margin-top:20px;">Carregando autenticação do Google...</p>');
+    } else {
+      setError("O navegador bloqueou o pop-up. Por favor, permita pop-ups para este site.");
+      return;
+    }
+
     try {
       const res = await fetch('/api/auth/google/url');
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Falha ao obter URL");
+      }
       const { url } = await res.json();
       
-      const width = 600;
-      const height = 700;
-      const left = window.screenX + (window.outerWidth - width) / 2;
-      const top = window.screenY + (window.outerHeight - height) / 2;
-      
-      window.open(
-        url,
-        'google_oauth',
-        `width=${width},height=${height},left=${left},top=${top}`
-      );
-    } catch (err) {
-      setError("Falha ao iniciar autenticação");
+      authWindow.location.href = url;
+    } catch (err: any) {
+      setError(err.message || "Falha ao iniciar autenticação");
+      authWindow.close();
     }
   };
 

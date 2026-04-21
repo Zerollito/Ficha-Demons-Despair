@@ -71,20 +71,30 @@ async function startServer() {
 
   // --- Google OAuth Routes ---
   apiRouter.get("/auth/google/url", (req, res) => {
-    const oauth2Client = getOAuth2Client();
-    const scopes = [
-      'https://www.googleapis.com/auth/drive.file',
-      'https://www.googleapis.com/auth/userinfo.profile',
-      'https://www.googleapis.com/auth/userinfo.email'
-    ];
+    try {
+      if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+        console.error("ERRO: GOOGLE_CLIENT_ID ou GOOGLE_CLIENT_SECRET não configurados nos Secrets.");
+        return res.status(500).json({ error: "Configuração do Google Drive ausente no servidor." });
+      }
 
-    const url = oauth2Client.generateAuthUrl({
-      access_type: 'offline',
-      scope: scopes,
-      prompt: 'consent'
-    });
+      const oauth2Client = getOAuth2Client();
+      const scopes = [
+        'https://www.googleapis.com/auth/drive.file',
+        'https://www.googleapis.com/auth/userinfo.profile',
+        'https://www.googleapis.com/auth/userinfo.email'
+      ];
 
-    res.json({ url });
+      const url = oauth2Client.generateAuthUrl({
+        access_type: 'offline',
+        scope: scopes,
+        prompt: 'consent'
+      });
+
+      res.json({ url });
+    } catch (error) {
+      console.error("Erro ao gerar URL de autenticação:", error);
+      res.status(500).json({ error: "Erro interno ao gerar URL de login." });
+    }
   });
 
   apiRouter.get("/auth/google/callback", async (req, res) => {
