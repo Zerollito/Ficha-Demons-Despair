@@ -52,6 +52,7 @@ import { twMerge } from "tailwind-merge";
 import { jsPDF } from "jspdf";
 import { diceBase64 } from "./diceIcons";
 import { GoogleDriveSync } from "./components/GoogleDriveSync";
+import { useGoogleDrive } from "./hooks/useGoogleDrive";
 
 import { Character, AppState, ArmorPiece } from "./types";
 import {
@@ -260,6 +261,51 @@ export default function App() {
     data: any;
   } | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const {
+    isConnected,
+    isSyncing,
+    lastSync,
+    error: driveError,
+    fetchFromDrive,
+    syncToDrive,
+    handleLogout,
+    setError: setDriveError,
+  } = useGoogleDrive(state, setState);
+
+  const handleGoogleConnect = async () => {
+    setDriveError(null);
+    console.log("Iniciando conexão com Google Drive...");
+
+    try {
+      const res = await fetch("/api/auth/google/url");
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Falha ao obter URL");
+      }
+      const { url } = await res.json();
+
+      const width = 600;
+      const height = 700;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+
+      const authWindow = window.open(
+        url,
+        "google_oauth",
+        `width=${width},height=${height},left=${left},top=${top}`,
+      );
+
+      if (!authWindow) {
+        setDriveError(
+          "O navegador bloqueou o pop-up. Por favor, permita pop-ups para este site e clique novamente.",
+        );
+      }
+    } catch (err: any) {
+      console.error("Erro no handleGoogleConnect:", err);
+      setDriveError(err.message || "Falha ao iniciar autenticação");
+    }
+  };
+
   const [vitaisTab, setVitaisTab] = useState<"status" | "efeitos">("status");
   const [toast, setToast] = useState<{
     message: string;
@@ -911,8 +957,14 @@ export default function App() {
             </motion.button>
 
             <GoogleDriveSync
-              appState={state}
-              onStateUpdate={setState}
+              isConnected={isConnected}
+              isSyncing={isSyncing}
+              lastSync={lastSync}
+              error={driveError}
+              onSync={syncToDrive}
+              onFetch={fetchFromDrive}
+              onLogout={handleLogout}
+              onConnect={handleGoogleConnect}
               variant="menu"
             />
 
@@ -4084,7 +4136,17 @@ export default function App() {
           </div>
         ) : activePage === "notes" ? (
           <div className="space-y-6 max-w-4xl mx-auto">
-            <GoogleDriveSync appState={state} onStateUpdate={setState} />
+            <GoogleDriveSync
+              isConnected={isConnected}
+              isSyncing={isSyncing}
+              lastSync={lastSync}
+              error={driveError}
+              onSync={syncToDrive}
+              onFetch={fetchFromDrive}
+              onLogout={handleLogout}
+              onConnect={handleGoogleConnect}
+              variant="full"
+            />
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-amber-500 flex items-center gap-2">
                 <FileText size={24} /> Anotações

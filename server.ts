@@ -31,15 +31,19 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Requisito para cookies seguros em proxies (Cloudflare/Run.app)
+  app.set("trust proxy", 1);
+
   app.use(cookieParser());
   app.use(session({
     secret: process.env.SESSION_SECRET || 'rpg-secret-key',
-    resave: false,
-    saveUninitialized: false,
+    resave: true,
+    saveUninitialized: true,
+    proxy: true,
     cookie: {
-      secure: true, // Required for SameSite=None
-      sameSite: 'none', // Required for cross-origin iframe
-      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+      secure: true, 
+      sameSite: 'none', 
+      maxAge: 30 * 24 * 60 * 60 * 1000 
     }
   }));
 

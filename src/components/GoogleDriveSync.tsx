@@ -1,126 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Cloud, CloudOff, RefreshCw, LogIn, LogOut, CheckCircle2, AlertCircle, Trash2, X } from 'lucide-react';
-import { AppState } from '../types';
+import { Cloud, CloudOff, RefreshCw, LogIn, LogOut, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface GoogleDriveSyncProps {
-  appState: AppState;
-  onStateUpdate: (newState: AppState) => void;
+  isConnected: boolean;
+  isSyncing: boolean;
+  lastSync: string | null;
+  error: string | null;
+  onSync: () => void;
+  onFetch: () => void;
+  onLogout: () => void;
+  onConnect: () => void;
   variant?: 'full' | 'menu';
 }
 
-export function GoogleDriveSync({ appState, onStateUpdate, variant = 'full' }: GoogleDriveSyncProps) {
-  const [isConnected, setIsConnected] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [lastSync, setLastSync] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export function GoogleDriveSync({ 
+  isConnected, 
+  isSyncing, 
+  lastSync, 
+  error, 
+  onSync, 
+  onFetch, 
+  onLogout, 
+  onConnect,
+  variant = 'full' 
+}: GoogleDriveSyncProps) {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-
-  const checkStatus = async () => {
-    try {
-      const res = await fetch('/api/drive/status');
-      const data = await res.json();
-      setIsConnected(data.connected);
-    } catch (err) {
-      console.error("Status check failed", err);
-    }
-  };
-
-  useEffect(() => {
-    checkStatus();
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        setIsConnected(true);
-        fetchFromDrive(); // Auto fetch after login
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, []);
-
-  const handleConnect = async () => {
-    setError(null);
-    
-    // Abrir janela primeiro para evitar bloqueio de popup pelo navegador (importante após ação do usuário)
-    const width = 600;
-    const height = 700;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
-    
-    const authWindow = window.open(
-      'about:blank',
-      'google_oauth',
-      `width=${width},height=${height},left=${left},top=${top}`
-    );
-
-    if (authWindow) {
-      authWindow.document.write('<p style="font-family:sans-serif; text-align:center; margin-top:20px;">Carregando autenticação do Google...</p>');
-    } else {
-      setError("O navegador bloqueou o pop-up. Por favor, permita pop-ups para este site.");
-      return;
-    }
-
-    try {
-      const res = await fetch('/api/auth/google/url');
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Falha ao obter URL");
-      }
-      const { url } = await res.json();
-      
-      authWindow.location.href = url;
-    } catch (err: any) {
-      setError(err.message || "Falha ao iniciar autenticação");
-      authWindow.close();
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      setIsConnected(false);
-      setLastSync(null);
-      setShowLogoutConfirm(false);
-    } catch (err) {
-      setError("Falha ao deslogar");
-    }
-  };
-
-  const syncToDrive = async () => {
-    setIsSyncing(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/drive/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: appState })
-      });
-      if (!res.ok) throw new Error("Sync failed");
-      setLastSync(new Date().toLocaleTimeString());
-    } catch (err) {
-      setError("Erro ao sincronizar");
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const fetchFromDrive = async () => {
-    setIsSyncing(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/drive/fetch');
-      const { data } = await res.json();
-      if (data) {
-        onStateUpdate(data);
-        setLastSync(new Date().toLocaleTimeString());
-      }
-    } catch (err) {
-      setError("Erro ao buscar dados");
-    } finally {
-      setIsSyncing(false);
-    }
-  };
 
   // Menu variant renders as a button for the dropdown
   if (variant === 'menu') {
@@ -129,7 +34,7 @@ export function GoogleDriveSync({ appState, onStateUpdate, variant = 'full' }: G
         {!isConnected ? (
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={handleConnect}
+            onClick={onConnect}
             className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
           >
             <Cloud size={18} className="text-amber-500" /> Vincular Google Drive
@@ -174,7 +79,10 @@ export function GoogleDriveSync({ appState, onStateUpdate, variant = 'full' }: G
                   </motion.button>
                   <motion.button
                     whileTap={{ scale: 0.95 }}
-                    onClick={handleLogout}
+                    onClick={() => {
+                        onLogout();
+                        setShowLogoutConfirm(false);
+                    }}
                     className="flex-1 py-2 bg-red-600 hover:bg-red-500 rounded-lg transition-colors text-sm font-medium text-white"
                   >
                     Desconectar
@@ -217,7 +125,7 @@ export function GoogleDriveSync({ appState, onStateUpdate, variant = 'full' }: G
         <div className="grid grid-cols-2 gap-2">
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={syncToDrive}
+            onClick={onSync}
             disabled={isSyncing}
             className="flex items-center justify-center gap-2 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-300 rounded text-xs font-bold transition-colors border border-zinc-700"
           >
@@ -226,7 +134,7 @@ export function GoogleDriveSync({ appState, onStateUpdate, variant = 'full' }: G
           </motion.button>
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={fetchFromDrive}
+            onClick={onFetch}
             disabled={isSyncing}
             className="flex items-center justify-center gap-2 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-300 rounded text-xs font-bold transition-colors border border-zinc-700"
           >
@@ -237,7 +145,7 @@ export function GoogleDriveSync({ appState, onStateUpdate, variant = 'full' }: G
       ) : (
         <motion.button
           whileTap={{ scale: 0.95 }}
-          onClick={handleConnect}
+          onClick={onConnect}
           className="w-full flex items-center justify-center gap-2 py-2.5 bg-amber-500 hover:bg-amber-600 text-black rounded text-xs font-bold transition-colors"
         >
           <LogIn size={14} /> Vincular Conta Google
