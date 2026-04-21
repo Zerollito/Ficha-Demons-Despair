@@ -13,6 +13,16 @@ export default defineConfig(({mode}) => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
+        workbox: {
+          // Garante que o Service Worker NÃO intercepte rotas de API
+          navigateFallbackDenylist: [/^\/api/],
+          runtimeCaching: [
+            {
+              urlPattern: /^\/api\/.*/i,
+              handler: 'NetworkOnly', // Força as chamadas de API a irem sempre para o servidor real
+            }
+          ]
+        },
         manifest: {
           name: 'Ficha RPG Demons Despair',
           short_name: 'Demons Despair',

@@ -295,11 +295,11 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     
-    // Serve static files first
+    // Serve static files (but don't fallback to index.html for API paths)
     app.use(express.static(distPath));
     
-    // SPA fallback for all other routes
-    app.get("*", (req, res) => {
+    // SPA fallback: EXCLUDE /api routes from being handled as SPA routes
+    app.get(/^(?!\/api).*/, (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
