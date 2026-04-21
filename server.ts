@@ -81,7 +81,19 @@ async function startServer() {
         return res.status(500).json({ error: "Configuração do Google Drive ausente no servidor." });
       }
 
-      const oauth2Client = getOAuth2Client();
+      // IMPORTANTE: Tenta usar a origem enviada pelo cliente (Cloudflare, APK, etc)
+      // Se não houver, usa o GOOGLE_REDIRECT_URI fixado nos Secrets.
+      const clientOrigin = req.query.origin as string;
+      const redirectUri = clientOrigin 
+        ? `${clientOrigin}/api/auth/google/callback` 
+        : GOOGLE_REDIRECT_URI;
+
+      const oauth2Client = new google.auth.OAuth2(
+        GOOGLE_CLIENT_ID,
+        GOOGLE_CLIENT_SECRET,
+        redirectUri
+      );
+
       const scopes = [
         'https://www.googleapis.com/auth/drive.file',
         'https://www.googleapis.com/auth/userinfo.profile',
@@ -104,28 +116,64 @@ async function startServer() {
   apiRouter.get("/auth/google/callback", async (req, res) => {
     const { code } = req.query;
     try {
-      const oauth2Client = getOAuth2Client();
+      // Reconstrói o URI baseado no host da requisição atual para bater com o registrado no Google
+      const protocol = req.protocol === 'http' && req.headers['x-forwarded-proto'] === 'https' ? 'https' : req.protocol;
+      const host = req.get('host');
+      const currentOrigin = `${protocol}://${host}`;
+      const redirectUri = `${currentOrigin}/api/auth/google/callback`;
+
+      const oauth2Client = new google.auth.OAuth2(
+        GOOGLE_CLIENT_ID,
+        GOOGLE_CLIENT_SECRET,
+        redirectUri
+      );
+
       const { tokens } = await oauth2Client.getToken(code as string);
       (req.session as any).tokens = tokens;
       
-      res.send(`
-        <html>
-          <body>
-            <script>
-              if (window.opener) {
-                window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-                window.close();
-              } else {
-                window.location.href = '/';
-              }
-            </script>
-            <p>Autenticação bem-sucedida! Esta janela fechará automaticamente.</p>
-          </body>
-        </html>
-      `);
+      // Salva a sessão explicitamente antes de responder
+      req.session.save((err) => {
+        if (err) {
+          console.error("Erro ao salvar sessão:", err);
+          return res.status(500).send("Erro interno ao salvar login");
+        }
+
+        res.send(`
+          <html>
+            <body>
+              <script>
+                // Tenta avisar via postMessage
+                if (window.opener) {
+                  window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
+                }
+                
+                // Tenta avisar via localStorage (fallback robusto para WebViews)
+                try {
+                  localStorage.setItem('google_drive_login_success', Date.now().toString());
+                } catch(e) {
+                  console.error("Erro ao salvar no localStorage", e);
+                }
+
+                // Pequeno delay para garantir que as mensagens/storage sejam processados
+                setTimeout(() => {
+                  if (window.opener) {
+                    window.close();
+                  } else {
+                    window.location.href = '/';
+                  }
+                }, 500);
+              </script>
+              <div style="font-family: sans-serif; text-align: center; margin-top: 50px;">
+                <h2 style="color: #10b981;">Autenticação Concluída!</h2>
+                <p>Você já pode fechar esta janela caso ela não feche sozinha.</p>
+              </div>
+            </body>
+          </html>
+        `);
+      });
     } catch (error) {
       console.error("Error exchanging code for tokens:", error);
-      res.status(500).send("Authentication failed");
+      res.status(500).send("Falha na autenticação com o Google. Verifique os logs do servidor.");
     }
   });
 

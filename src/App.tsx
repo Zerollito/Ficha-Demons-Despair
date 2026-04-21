@@ -277,7 +277,8 @@ export default function App() {
     console.log("Iniciando conexão com Google Drive...");
 
     try {
-      const res = await fetch("/api/auth/google/url");
+      const currentOrigin = window.location.origin;
+      const res = await fetch(`/api/auth/google/url?origin=${encodeURIComponent(currentOrigin)}`);
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || "Falha ao obter URL");

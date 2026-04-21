@@ -70,6 +70,18 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
   useEffect(() => {
     checkStatus();
 
+    // Polling de fallback caso o postMessage falhe (comum em iframes/webviews)
+    const pollInterval = setInterval(() => {
+        const loginSignal = localStorage.getItem('google_drive_login_success');
+        if (loginSignal) {
+            console.log("Detectado sinal de login no localStorage!");
+            localStorage.removeItem('google_drive_login_success');
+            checkStatus().then(connected => {
+                if (connected) fetchFromDrive();
+            });
+        }
+    }, 1000);
+
     const handleMessage = (event: MessageEvent) => {
       // Aceitar mensagens de qualquer origem por conta do proxy/iframe
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
@@ -80,7 +92,10 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     };
 
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    return () => {
+        window.removeEventListener('message', handleMessage);
+        clearInterval(pollInterval);
+    };
   }, [checkStatus, fetchFromDrive]);
 
   return {
