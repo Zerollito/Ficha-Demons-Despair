@@ -11,6 +11,7 @@ interface GoogleDriveSyncProps {
   onFetch: () => void;
   onLogout: () => void;
   onConnect: () => void;
+  onCheckStatus?: () => void;
   variant?: 'full' | 'menu';
 }
 
@@ -23,6 +24,7 @@ export function GoogleDriveSync({
   onFetch, 
   onLogout, 
   onConnect,
+  onCheckStatus,
   variant = 'full' 
 }: GoogleDriveSyncProps) {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -70,13 +72,24 @@ export function GoogleDriveSync({
         )}
 
         {error && !isConnected && (
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={handleHardReset}
-            className="w-full flex items-center gap-3 px-3 py-2 hover:bg-red-500/10 rounded-lg transition-colors text-[10px] font-bold text-red-400 mt-1"
-          >
-            <RefreshCw size={14} /> Corrigir Erro de Cache
-          </motion.button>
+          <div className="flex flex-col gap-1 mt-1">
+            {onCheckStatus && (
+                <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={onCheckStatus}
+                className="w-full flex items-center gap-3 px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-lg transition-colors text-[10px] font-bold text-emerald-400"
+                >
+                <CheckCircle2 size={14} /> Já fiz o Login (Verificar)
+                </motion.button>
+            )}
+            <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={handleHardReset}
+                className="w-full flex items-center gap-3 px-3 py-2 hover:bg-red-500/10 rounded-lg transition-colors text-[10px] font-bold text-red-400"
+            >
+                <RefreshCw size={14} /> Corrigir Erro de Cache
+            </motion.button>
+          </div>
         )}
 
         {/* Logout Confirmation Modal */}
@@ -173,13 +186,25 @@ export function GoogleDriveSync({
           </motion.button>
         </div>
       ) : (
-        <motion.button
-          whileTap={{ scale: 0.95 }}
-          onClick={onConnect}
-          className="w-full flex items-center justify-center gap-2 py-2.5 bg-amber-500 hover:bg-amber-600 text-black rounded text-xs font-bold transition-colors"
-        >
-          <LogIn size={14} /> Vincular Conta Google
-        </motion.button>
+        <div className="flex flex-col gap-2">
+            <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={onConnect}
+            className="w-full flex items-center justify-center gap-2 py-2.5 bg-amber-500 hover:bg-amber-600 text-black rounded text-xs font-bold transition-colors"
+            >
+            <LogIn size={14} /> Vincular Conta Google
+            </motion.button>
+            
+            {!isConnected && onCheckStatus && (
+                <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={onCheckStatus}
+                className="w-full flex items-center justify-center gap-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-emerald-400 rounded text-[10px] font-bold transition-colors border border-emerald-500/20"
+                >
+                <CheckCircle2 size={12} /> Já fiz o Login (Entrar)
+                </motion.button>
+            )}
+        </div>
       )}
 
       {(lastSync || error) && (

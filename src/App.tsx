@@ -269,6 +269,7 @@ export default function App() {
     fetchFromDrive,
     syncToDrive,
     handleLogout,
+    checkStatus,
     setError: setDriveError,
   } = useGoogleDrive(state, setState);
 
@@ -1002,6 +1003,7 @@ export default function App() {
               onFetch={fetchFromDrive}
               onLogout={handleLogout}
               onConnect={handleGoogleConnect}
+              onCheckStatus={checkStatus}
               variant="menu"
             />
 
@@ -4182,6 +4184,7 @@ export default function App() {
               onFetch={fetchFromDrive}
               onLogout={handleLogout}
               onConnect={handleGoogleConnect}
+              onCheckStatus={checkStatus}
               variant="full"
             />
             <div className="flex justify-between items-center mb-4">

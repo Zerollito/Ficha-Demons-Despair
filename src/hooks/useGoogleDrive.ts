@@ -152,6 +152,19 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
   }, []);
 
   useEffect(() => {
+    // 0. CAPTURA DE FALLBACK (Caso o login venha via URL Query String)
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlToken = urlParams.get('google_auth_token');
+    if (urlToken) {
+        console.log("Token detectado na URL! Aplicando fallback...");
+        localStorage.setItem('google_drive_access_token', urlToken);
+        // Remove o parâmetro da URL de forma "limpa" para não sujar o histórico
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+        setIsConnected(true);
+        setTimeout(() => checkStatus().then(conn => { if(conn) fetchFromDrive(); }), 500);
+    }
+
     checkStatus();
 
     // Polling de fallback caso o postMessage falhe (comum em iframes/webviews)
@@ -174,12 +187,23 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
       // Aceitar mensagens de qualquer origem por conta do proxy/iframe
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
         console.log("OAuth Sucesso recebido via postMessage!");
+        const { token, tokens } = event.data;
+        
+        // SALVAMENTO IMEDIATO LOCAL PARA EVITAR RELOGIN
+        if (token) localStorage.setItem('google_drive_access_token', token);
+        if (tokens) localStorage.setItem('google_drive_tokens', JSON.stringify(tokens));
+        localStorage.setItem('google_drive_connected_at', Date.now().toString());
+        
+        // CONFIRMAÇÃO (Handshake): Avisa o Popup que recebemos tudo
+        if (event.source && 'postMessage' in event.source) {
+            (event.source as Window).postMessage('AUTH_ACKNOWLEDGED', { targetOrigin: '*' });
+        }
+
         setError(null);
-        // Também aplicamos o delay aqui
-        setTimeout(() => {
-          setIsConnected(true);
-          fetchFromDrive();
-        }, 3000);
+        setIsConnected(true);
+        
+        // Sincroniza imediatamente
+        fetchFromDrive();
       }
     };
 

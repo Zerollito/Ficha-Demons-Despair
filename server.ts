@@ -217,28 +217,53 @@ async function startServer() {
                 <h2>✓ Conectado!</h2>
                 <p>O Google Drive foi vinculado com sucesso.</p>
                 <a href="/" class="btn" id="backBtn">Voltar ao RPG</a>
+                
+                <div id="manualLink" style="display: none; margin-top: 20px; border-top: 1px solid #27272a; pt: 20px;">
+                    <p style="font-size: 11px; color: #a1a1aa;">Não sincronizou sozinho? Clique abaixo:</p>
+                    <a href="/?google_auth_token=${accessToken}" class="btn" style="background: #3b82f6;">Sincronizar Manualmente</a>
+                </div>
               </div>
               <script>
-                // ENCODING SEGURO (Impede que aspas ou caracteres estranhos quebrem o script)
+                // ENCODING SEGURO
                 const b64Tokens = '${Buffer.from(JSON.stringify(tokens)).toString('base64')}';
                 const tokens = JSON.parse(atob(b64Tokens));
-                const appOrigin = '${appOrigin}';
+                const accessToken = '${accessToken}';
                 
-                // GRAVA O TOKEN DE ACESSO E OS TOKENS DO GOOGLE (Persistência Total)
-                localStorage.setItem('google_drive_access_token', '${accessToken}');
+                // 1. Grava no local (para garantir se for mesmo domínio)
+                localStorage.setItem('google_drive_access_token', accessToken);
                 localStorage.setItem('google_drive_tokens', JSON.stringify(tokens));
                 localStorage.setItem('google_drive_connected_at', Date.now().toString());
                 localStorage.setItem('google_drive_login_success', Date.now().toString());
                 
-                if (window.opener) {
-                    console.log("Notificando janela pai na origem:", appOrigin);
-                    window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS', token: '${accessToken}' }, appOrigin);
-                    window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS', token: '${accessToken}' }, '*'); // Fallback
-                }
-                
-                setTimeout(() => {
-                  if (window.opener) { window.close(); } else { window.location.href = '/'; }
-                }, 2000);
+                // 2. Loop de Mensagens (Garante entrega mesmo se o receptor demorar para carregar)
+                let attempts = 0;
+                const messageInterval = setInterval(() => {
+                    if (window.opener) {
+                        window.opener.postMessage({ 
+                            type: 'OAUTH_AUTH_SUCCESS', 
+                            token: accessToken,
+                            tokens: tokens 
+                        }, '*');
+                        console.log("Tentativa de envio de mensagem:", attempts);
+                    }
+                    attempts++;
+                    // Se passar de 5 tentativas (2.5s), mostra o link de resgate manual
+                    if (attempts === 5) {
+                        document.getElementById('manualLink').style.display = 'block';
+                    }
+                    if (attempts > 30) { // Para após 15 segundos
+                        clearInterval(messageInterval);
+                    }
+                }, 500);
+
+                // 3. Ouve confirmação do App pai para fechar antes
+                window.addEventListener('message', (event) => {
+                    if (event.data === 'AUTH_ACKNOWLEDGED') {
+                        clearInterval(messageInterval);
+                        document.body.innerHTML = '<h2>✓ Sincronizado!</h2><p>Voltando ao RPG...</p>';
+                        setTimeout(() => window.close(), 800);
+                    }
+                });
               </script>
             </body>
           </html>
