@@ -162,12 +162,17 @@ async function startServer() {
   apiRouter.get("/auth/google/callback", async (req, res) => {
     const { code, state } = req.query;
     try {
-      // 1. Tenta recuperar o URI real do parâmetro STATE (mais confiável)
+      // 1. Tenta recuperar o URI real do parâmetro STATE (mais confiável em ambientes com proxy/Cloudflare)
+      let appOrigin = null;
       let stateRedirectUri = null;
       if (state) {
         try {
             const decoded = JSON.parse(Buffer.from(state as string, 'base64').toString());
             stateRedirectUri = decoded.r;
+            if (stateRedirectUri) {
+                const url = new URL(stateRedirectUri);
+                appOrigin = url.origin;
+            }
         } catch(e) { /* ignore */ }
       }
 
@@ -176,13 +181,13 @@ async function startServer() {
       const protocol = req.headers['x-forwarded-proto'] || 'https';
       const host = req.headers['x-forwarded-host'] || req.get('host');
       const fallbackOrigin = `${protocol}://${host}`;
-      const fallbackRedirectUri = `${fallbackOrigin.replace(/\/$/, '')}/api/auth/google/callback`;
+      appOrigin = appOrigin || fallbackOrigin;
+      const fallbackRedirectUri = `${appOrigin.replace(/\/$/, '')}/api/auth/google/callback`;
 
       const redirectUri = stateRedirectUri || savedRedirectUri || fallbackRedirectUri;
 
       console.log(`OAuth Callback - Usando RedirectUri FINAL: ${redirectUri}`);
       const client = createOAuthClient(redirectUri);
-      console.log(`OAuth Callback - Verificando redirecionamento: ${redirectUri}`);
       const { tokens } = await client.getToken(code as string);
       
       // GERA UM TOKEN DE ACESSO PARA O FRONT-END (Bypass de Cookie)
@@ -217,6 +222,7 @@ async function startServer() {
                 // ENCODING SEGURO (Impede que aspas ou caracteres estranhos quebrem o script)
                 const b64Tokens = '${Buffer.from(JSON.stringify(tokens)).toString('base64')}';
                 const tokens = JSON.parse(atob(b64Tokens));
+                const appOrigin = '${appOrigin}';
                 
                 // GRAVA O TOKEN DE ACESSO E OS TOKENS DO GOOGLE (Persistência Total)
                 localStorage.setItem('google_drive_access_token', '${accessToken}');
@@ -224,7 +230,11 @@ async function startServer() {
                 localStorage.setItem('google_drive_connected_at', Date.now().toString());
                 localStorage.setItem('google_drive_login_success', Date.now().toString());
                 
-                if (window.opener) window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS', token: '${accessToken}' }, '*');
+                if (window.opener) {
+                    console.log("Notificando janela pai na origem:", appOrigin);
+                    window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS', token: '${accessToken}' }, appOrigin);
+                    window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS', token: '${accessToken}' }, '*'); // Fallback
+                }
                 
                 setTimeout(() => {
                   if (window.opener) { window.close(); } else { window.location.href = '/'; }
