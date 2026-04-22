@@ -140,17 +140,23 @@ export function GoogleDriveSync({
   }
 
   return (
-    <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 mb-6">
+    <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 mb-6 relative overflow-hidden">
+      {isSyncing && (
+        <div className="absolute inset-0 bg-black/20 backdrop-blur-[1px] z-10 flex items-center justify-center">
+            <RefreshCw size={24} className="text-emerald-500 animate-spin" />
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <div className={cn(
-            "p-2 rounded-lg",
+            "p-2 rounded-lg transition-colors",
             isConnected ? "bg-emerald-500/10 text-emerald-500" : "bg-zinc-800 text-zinc-500"
           )}>
             {isConnected ? <Cloud size={20} /> : <CloudOff size={20} />}
           </div>
           <div>
-            <h3 className="text-sm font-bold text-zinc-100">Sincronização Nuvem</h3>
+            <h3 className="text-sm font-bold text-zinc-100">Backup na Nuvem</h3>
             <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">
               Google Drive
             </p>
@@ -158,64 +164,86 @@ export function GoogleDriveSync({
         </div>
 
         {isConnected && (
-           <div className="flex items-center gap-1.5 text-emerald-500 text-[10px] font-bold uppercase tracking-wider">
-              <CheckCircle2 size={12} /> Ativa
+           <div className="flex items-center gap-1.5 text-emerald-500 text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 px-2 py-1 rounded-full border border-emerald-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Sincronizado
            </div>
         )}
       </div>
 
       {isConnected ? (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-2">
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={onSync}
+              disabled={isSyncing}
+              className="flex flex-col items-center justify-center gap-1 py-3 bg-zinc-800 hover:bg-emerald-600/10 hover:border-emerald-500/30 disabled:opacity-50 text-zinc-300 hover:text-emerald-400 rounded-lg text-xs font-bold transition-all border border-zinc-700"
+            >
+              <Cloud size={16} />
+              Enviar para Nuvem
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={onFetch}
+              disabled={isSyncing}
+              className="flex flex-col items-center justify-center gap-1 py-3 bg-zinc-800 hover:bg-blue-600/10 hover:border-blue-500/30 disabled:opacity-50 text-zinc-300 hover:text-blue-400 rounded-lg text-xs font-bold transition-all border border-zinc-700"
+            >
+              <RefreshCw size={16} />
+              Baixar da Nuvem
+            </motion.button>
+          </div>
+          
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={onSync}
-            disabled={isSyncing}
-            className="flex items-center justify-center gap-2 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-300 rounded text-xs font-bold transition-colors border border-zinc-700"
+            onClick={() => setShowLogoutConfirm(true)}
+            className="w-full py-1.5 text-red-400/50 hover:text-red-400 text-[10px] font-bold uppercase tracking-tighter"
           >
-            <RefreshCw size={14} className={isSyncing ? "animate-spin" : ""} />
-            Salvar
-          </motion.button>
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={onFetch}
-            disabled={isSyncing}
-            className="flex items-center justify-center gap-2 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-300 rounded text-xs font-bold transition-colors border border-zinc-700"
-          >
-            <RefreshCw size={14} className={isSyncing ? "animate-spin" : ""} />
-            Carregar
+            Desconectar Conta
           </motion.button>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
             <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={onConnect}
-            className="w-full flex items-center justify-center gap-2 py-2.5 bg-amber-500 hover:bg-amber-600 text-black rounded text-xs font-bold transition-colors"
+              whileTap={{ scale: 0.95 }}
+              onClick={onConnect}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-500 hover:bg-emerald-600 text-black rounded-lg text-xs font-bold shadow-lg shadow-emerald-500/10 transition-colors"
             >
-            <LogIn size={14} /> Vincular Conta Google
+              <LogIn size={14} /> Vincular Google Drive
             </motion.button>
             
+            <p className="text-[10px] text-zinc-500 text-center px-2">
+                Suas fichas serão salvas automaticamente no seu próprio Google Drive.
+            </p>
+
             {!isConnected && onCheckStatus && (
                 <motion.button
                 whileTap={{ scale: 0.95 }}
                 onClick={onCheckStatus}
-                className="w-full flex items-center justify-center gap-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-emerald-400 rounded text-[10px] font-bold transition-colors border border-emerald-500/20"
+                className="w-full flex items-center justify-center gap-2 py-2 bg-zinc-800/50 hover:bg-zinc-800 text-zinc-400 rounded-lg text-[10px] font-medium transition-colors border border-zinc-700"
                 >
-                <CheckCircle2 size={12} /> Já fiz o Login (Entrar)
+                <CheckCircle2 size={12} /> Já autorizei o acesso (Entrar)
                 </motion.button>
             )}
         </div>
       )}
 
       {(lastSync || error) && (
-        <div className="mt-3 flex items-center justify-between px-1 border-t border-zinc-800 pt-3">
+        <div className="mt-4 pt-3 border-t border-zinc-800/50">
           {error ? (
-            <div className="flex items-center gap-1.5 text-red-500 text-[10px] font-bold">
-              <AlertCircle size={12} /> {error}
+            <div className="flex items-center gap-2 text-red-400 text-[10px] font-bold bg-red-400/5 p-2 rounded border border-red-400/10">
+              <AlertCircle size={14} /> 
+              <span>{error}</span>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 text-zinc-500 text-[10px] font-bold">
-              Última sincronização: {lastSync}
+            <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between text-[10px] text-zinc-500 font-medium">
+                  <span>Último Backup</span>
+                  <span className="text-zinc-400">{lastSync}</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[9px] text-zinc-600 italic">
+                  <CheckCircle2 size={10} /> Arquivo: rpg_demons_despair.json
+                </div>
             </div>
           )}
         </div>

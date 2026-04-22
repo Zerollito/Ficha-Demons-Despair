@@ -98,9 +98,17 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
 
       const { data } = await res.json();
       if (data) {
+        console.log("Ficha recuperada do Drive com sucesso!");
         onStateUpdate(data);
         setLastSync(new Date().toLocaleTimeString());
         setError(null);
+        return true; 
+      } else {
+        // ARQUIVO NÃO ENCONTRADO: Se acabamos de logar, vamos subir a ficha atual como backup inicial
+        console.log("Arquivo não encontrado no Drive. Fazendo upload inicial...");
+        await syncToDrive();
+        setLastSync(new Date().toLocaleTimeString());
+        return false;
       }
     } catch (err: any) {
       console.error("Drive Fetch Error:", err);
@@ -173,13 +181,11 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
         if (loginSignal) {
             console.log("Detectado sinal de login no localStorage!");
             localStorage.removeItem('google_drive_login_success');
-            setError(null); // Limpa erro pendente imediatamente ao logar
-            // Delay mais generoso para Cloudflare e sessões lentas (3 seg)
-            setTimeout(() => {
-              checkStatus().then(connected => {
-                  if (connected) fetchFromDrive();
-              });
-            }, 3000);
+            setError(null); 
+            // Trigger imediato
+            checkStatus().then(connected => {
+                if (connected) fetchFromDrive();
+            });
         }
     }, 1000);
 

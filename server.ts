@@ -126,9 +126,13 @@ async function startServer() {
     });
   });
 
-  // ROTA DE REDIRECIONAMENTO DIRETO (Evita bloqueios de popup)
+  // ROTA DE REDIRECIONAMENTO DIRETO (Evita bloqueios de popup e página em branco)
   apiRouter.get("/auth/google/url/direct", (req, res) => {
     try {
+      if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+          throw new Error("As credenciais do Google Drive (GOOGLE_CLIENT_ID/SECRET) não foram configuradas no servidor.");
+      }
+
       const origin = req.query.origin as string || `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers['x-forwarded-host'] || req.get('host')}`;
       const redirectUri = `${origin.replace(/\/$/, '')}/api/auth/google/callback`;
       
@@ -145,9 +149,54 @@ async function startServer() {
         state: state
       });
       
-      res.redirect(url);
+      // Enviamos uma página HTML de transição em vez de um redirecionamento 302 puro.
+      // Isso é muito mais confiável em popups e ambientes com proxy/Cloudflare.
+      res.setHeader('Content-Type', 'text/html');
+      res.send(`
+        <html>
+          <head>
+            <title>Iniciando Google Drive...</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+              body { background: #09090b; color: #f4f4f5; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+              .loader-container { text-align: center; }
+              .loader { border: 4px solid #27272a; border-top: 4px solid #10b981; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+              @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+              h3 { margin-bottom: 8px; color: #f4f4f5; }
+              p { color: #a1a1aa; font-size: 14px; }
+              .btn { display: none; margin-top: 20px; background: #10b981; color: #000; border: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; text-decoration: none; }
+            </style>
+          </head>
+          <body>
+            <div class="loader-container">
+              <div class="loader"></div>
+              <h3>Vinculando conta...</h3>
+              <p>Você será redirecionado para o Google em um instante.</p>
+              <a href="${url}" id="manualLink" class="btn">Clique aqui se não for redirecionado</a>
+            </div>
+            <script>
+              // Redireciona via JS
+              window.location.href = "${url}";
+              // Mostra o botão manual se demorar mais que 3 segundos
+              setTimeout(() => {
+                document.getElementById('manualLink').style.display = 'inline-block';
+              }, 3000);
+            </script>
+          </body>
+        </html>
+      `);
     } catch (e: any) {
-      res.status(500).send(`Erro ao gerar link de login: ${e.message}`);
+      console.error("Direct URL Generation Error:", e);
+      res.setHeader('Content-Type', 'text/html');
+      res.status(500).send(`
+        <body style="background: #09090b; color: #f43f5e; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; margin: 0; padding: 20px; text-align: center;">
+          <div>
+            <h2 style="margin-bottom: 15px;">Falha ao Iniciar Login</h2>
+            <p style="color: #a1a1aa; margin-bottom: 25px;">${e.message}</p>
+            <button onclick="window.close()" style="background: #27272a; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">Fechar Janela</button>
+          </div>
+        </body>
+      `);
     }
   });
 
@@ -328,35 +377,42 @@ async function startServer() {
       client.setCredentials(tokens);
       const drive = google.drive({ version: 'v3', auth: client });
       
-      const fileId = req.body.fileId;
       const data = req.body.data;
+      if (!data) return res.status(400).json({ error: "No data provided" });
 
-      if (fileId) {
+      console.log("Iniciando Sincronização no Google Drive...");
+      
+      // Busca específica pelo nome do arquivo
+      const list = await drive.files.list({ 
+        q: "name = 'rpg_demons_despair.json' and trashed = false",
+        fields: 'files(id, name)',
+        spaces: 'drive'
+      });
+      
+      const existing = list.data.files?.[0];
+      
+      if (existing) {
+        console.log(`Atualizando arquivo existente: ${existing.id}`);
         await drive.files.update({
-          fileId,
+          fileId: existing.id!,
           media: { mimeType: 'application/json', body: JSON.stringify(data) }
         });
-        res.json({ status: 'success' });
+        res.json({ status: 'success', fileId: existing.id });
       } else {
-        const list = await drive.files.list({ q: "name = 'rpg_demons_despair.json' and trashed = false" });
-        const existing = list.data.files?.[0];
-        
-        if (existing) {
-          await drive.files.update({
-            fileId: existing.id!,
-            media: { mimeType: 'application/json', body: JSON.stringify(data) }
-          });
-          res.json({ status: 'success', fileId: existing.id });
-        } else {
-          const created = await drive.files.create({
-            requestBody: { name: 'rpg_demons_despair.json', mimeType: 'application/json' },
-            media: { mimeType: 'application/json', body: JSON.stringify(data) }
-          });
-          res.json({ status: 'success', fileId: created.data.id });
-        }
+        console.log("Criando novo arquivo no Google Drive...");
+        const created = await drive.files.create({
+          requestBody: { 
+            name: 'rpg_demons_despair.json', 
+            mimeType: 'application/json',
+            description: 'Backup da ficha de RPG Demons Despair'
+          },
+          media: { mimeType: 'application/json', body: JSON.stringify(data) }
+        });
+        res.json({ status: 'success', fileId: created.data.id });
       }
-    } catch (e) {
-      res.status(500).json({ error: "Sync failed" });
+    } catch (e: any) {
+      console.error("ERRO CRÍTICO NA SINCRONIZAÇÃO:", e);
+      res.status(500).json({ error: e.message || "Sync failed" });
     }
   });
 
@@ -367,13 +423,31 @@ async function startServer() {
       const client = createOAuthClient();
       client.setCredentials(tokens);
       const drive = google.drive({ version: 'v3', auth: client });
-      const list = await drive.files.list({ q: "name = 'rpg_demons_despair.json' and trashed = false" });
+      
+      console.log("Buscando arquivo no Google Drive...");
+      const list = await drive.files.list({ 
+        q: "name = 'rpg_demons_despair.json' and trashed = false",
+        fields: 'files(id, name)',
+        spaces: 'drive'
+      });
+      
       const file = list.data.files?.[0];
-      if (!file) return res.json({ data: null });
-      const content = await drive.files.get({ fileId: file.id!, alt: 'media' });
+      if (!file) {
+        console.log("Arquivo não encontrado.");
+        return res.json({ data: null });
+      }
+      
+      console.log(`Baixando conteúdo do arquivo: ${file.id}`);
+      const content = await drive.files.get({ 
+        fileId: file.id!, 
+        alt: 'media' 
+      });
+      
+      // O SDK às vezes retorna o JSON direto em content.data se for JSON
       res.json({ data: content.data });
-    } catch (e) {
-      res.status(500).json({ error: "Fetch failed" });
+    } catch (e: any) {
+      console.error("ERRO CRÍTICO NA BUSCA:", e);
+      res.status(500).json({ error: e.message || "Fetch failed" });
     }
   });
 

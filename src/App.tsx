@@ -294,7 +294,8 @@ export default function App() {
     const top = window.screenY + (window.outerHeight - height) / 2;
     
     const currentOrigin = window.location.origin;
-    const authUrl = `/api/auth/google/url/direct?origin=${encodeURIComponent(currentOrigin)}&t=${Date.now()}`;
+    // Usamos o origin completo para garantir que o redirecionamento funcione em qualquer nível de subdomínio
+    const authUrl = `${currentOrigin}/api/auth/google/url/direct?origin=${encodeURIComponent(currentOrigin)}&t=${Date.now()}`;
     
     // 2. TENTATIVA 1: Janela Popup (Melhor experiência se funcionar)
     const authWindow = window.open(
