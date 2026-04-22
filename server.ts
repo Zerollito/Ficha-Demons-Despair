@@ -43,13 +43,15 @@ async function startServer() {
   app.use(cookieParser());
   app.use(session({
     secret: process.env.SESSION_SECRET || 'rpg-secret-key',
-    resave: true,
-    saveUninitialized: true,
+    resave: false, // Alterado para false para evitar race conditions
+    saveUninitialized: false, // Alterado para false para não criar sessões vazias
     proxy: true,
+    name: 'rpg_session', // Nome personalizado para evitar colisões
     cookie: {
       secure: true,
-      sameSite: 'none',
-      maxAge: 30 * 24 * 60 * 60 * 1000
+      sameSite: 'lax', // Lax é melhor para redirecionamentos de login
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      path: '/'
     }
   }));
 
