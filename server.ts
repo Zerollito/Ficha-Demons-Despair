@@ -81,10 +81,11 @@ async function startServer() {
       }
     }
     
-    // Garante que o Cloudflare considere o Cookie para o Cache
-    res.setHeader('Vary', 'Cookie');
+    // Garante que o Cloudflare considere o Cookie e o Token para o Cache
+    res.setHeader('Vary', 'Cookie, Authorization');
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('CDN-Cache-Control', 'no-store'); // Instrução direta para Cloudflare
     next();
   });
 

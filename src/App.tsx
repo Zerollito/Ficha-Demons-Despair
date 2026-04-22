@@ -276,6 +276,35 @@ export default function App() {
     setDriveError(null);
     console.log("Iniciando conexão com Google Drive...");
 
+    // ESTRATÉGIA ANTI-BLOQUEIO DE POPUP (Especialmente para Mobile/Cloudflare)
+    // Abrimos a janela IMEDIATAMENTE no clique, antes do fetch.
+    const width = 600;
+    const height = 700;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    
+    const authWindow = window.open(
+        "about:blank",
+        "google_oauth",
+        `width=${width},height=${height},left=${left},top=${top}`
+    );
+
+    if (!authWindow) {
+        setDriveError("O navegador bloqueou o pop-up. Por favor, permita pop-ups nas configurações.");
+        return;
+    }
+
+    // Coloca um loading visual na janela que acabou de abrir
+    authWindow.document.write(`
+        <body style="background: #09090b; color: #f4f4f5; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; margin: 0;">
+            <div style="text-align: center;">
+                <div style="border: 4px solid #27272a; border-top: 4px solid #10b981; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 20px;"></div>
+                <p>Conectando ao Google...</p>
+            </div>
+            <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+        </body>
+    `);
+
     try {
       const currentOrigin = window.location.origin;
       const url = `/api/auth/google/url?origin=${encodeURIComponent(currentOrigin)}&t=${Date.now()}`;
@@ -284,32 +313,21 @@ export default function App() {
       const contentType = res.headers.get("content-type");
       
       if (!contentType || !contentType.includes("application/json")) {
-        const snippet = (await res.text()).substring(0, 50);
-        console.error("Resposta inválida (PWA/Cache):", snippet);
-        throw new Error("O servidor enviou HTML (Cache antigo). Por favor, use 'Corrigir Erro de Cache' no menu.");
+        authWindow.close();
+        throw new Error("O servidor enviou HTML (Interferência do Cloudflare/Proxy).");
       }
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Falha no servidor");
+      if (!res.ok) throw new Error(data.error || "Erro no servidor");
 
-      if (!data.url) throw new Error("URL do Google não recebida.");
+      if (!data.url) throw new Error("URL não recebida.");
 
-      const width = 600;
-      const height = 700;
-      const left = window.screenX + (window.outerWidth - width) / 2;
-      const top = window.screenY + (window.outerHeight - height) / 2;
+      // Agora redirecionamos a janela já aberta para o Google
+      authWindow.location.href = data.url;
 
-      const authWindow = window.open(
-        data.url,
-        "google_oauth",
-        `width=${width},height=${height},left=${left},top=${top}`,
-      );
-
-      if (!authWindow) {
-        throw new Error("O navegador bloqueou o pop-up. Por favor, permita pop-ups.");
-      }
     } catch (err: any) {
       console.error("Erro no handleGoogleConnect:", err);
+      if (authWindow) authWindow.close();
       setDriveError(err.message || "Falha ao iniciar autenticação");
     }
   };
