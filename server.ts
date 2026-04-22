@@ -126,6 +126,31 @@ async function startServer() {
     });
   });
 
+  // ROTA DE REDIRECIONAMENTO DIRETO (Evita bloqueios de popup)
+  apiRouter.get("/auth/google/url/direct", (req, res) => {
+    try {
+      const origin = req.query.origin as string || `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers['x-forwarded-host'] || req.get('host')}`;
+      const redirectUri = `${origin.replace(/\/$/, '')}/api/auth/google/callback`;
+      
+      const client = createOAuthClient(redirectUri);
+      const state = Buffer.from(JSON.stringify({ r: redirectUri })).toString('base64');
+      
+      const url = client.generateAuthUrl({
+        access_type: 'offline',
+        scope: [
+          'https://www.googleapis.com/auth/drive.file',
+          'https://www.googleapis.com/auth/drive.appdata'
+        ],
+        prompt: 'consent',
+        state: state
+      });
+      
+      res.redirect(url);
+    } catch (e: any) {
+      res.status(500).send(`Erro ao gerar link de login: ${e.message}`);
+    }
+  });
+
   apiRouter.get("/auth/google/url", (req, res) => {
     try {
       if (!GOOGLE_CLIENT_ID) throw new Error("Configuração ausente.");

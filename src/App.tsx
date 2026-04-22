@@ -273,77 +273,50 @@ export default function App() {
     setError: setDriveError,
   } = useGoogleDrive(state, setState);
 
-  const handleGoogleConnect = async () => {
-    setDriveError(null);
-    console.log("Iniciando conexão com Google Drive...");
+  const menuRef = useRef<HTMLDivElement>(null);
 
-    // ESTRATÉGIA ANTI-BLOQUEIO DE POPUP (Especialmente para Mobile/Cloudflare)
-    // Abrimos a janela IMEDIATAMENTE no clique, antes do fetch.
+  const activeChar = useMemo(() => {
+    if (state.characters.length === 0) return createEmptyCharacter();
+    return (
+      state.characters.find((c) => c.id === state.activeCharacterId) ||
+      state.characters[0]
+    );
+  }, [state]);
+
+  const handleGoogleConnect = () => {
+    // 1. LIMPEZA E FEEDBACK IMEDIATO
+    setDriveError(null);
+    console.log("Tentando conexão direta com Google Drive...");
+
     const width = 600;
     const height = 700;
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
     
+    const currentOrigin = window.location.origin;
+    const authUrl = `/api/auth/google/url/direct?origin=${encodeURIComponent(currentOrigin)}&t=${Date.now()}`;
+    
+    // 2. TENTATIVA 1: Janela Popup (Melhor experiência se funcionar)
     const authWindow = window.open(
-        "about:blank",
+        authUrl,
         "google_oauth",
         `width=${width},height=${height},left=${left},top=${top}`
     );
 
-    if (!authWindow) {
-        setDriveError("O navegador bloqueou o pop-up. Por favor, permita pop-ups nas configurações.");
-        return;
-    }
-
-    // Coloca um loading visual na janela que acabou de abrir
-    authWindow.document.write(`
-        <body style="background: #09090b; color: #f4f4f5; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; margin: 0;">
-            <div style="text-align: center;">
-                <div style="border: 4px solid #27272a; border-top: 4px solid #10b981; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 20px;"></div>
-                <p>Conectando ao Google...</p>
-            </div>
-            <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
-        </body>
-    `);
-
-    try {
-      const currentOrigin = window.location.origin;
-      const url = `/api/auth/google/url?origin=${encodeURIComponent(currentOrigin)}&t=${Date.now()}`;
-      
-      const res = await fetch(url);
-      const contentType = res.headers.get("content-type");
-      
-      if (!contentType || !contentType.includes("application/json")) {
-        authWindow.close();
-        throw new Error("O servidor enviou HTML (Interferência do Cloudflare/Proxy).");
-      }
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erro no servidor");
-
-      if (!data.url) throw new Error("URL não recebida.");
-
-      // Agora redirecionamos a janela já aberta para o Google
-      authWindow.location.href = data.url;
-
-    } catch (err: any) {
-      console.error("Erro no handleGoogleConnect:", err);
-      // EM CASO DE ERRO, NÃO FECHAMOS A JANELA. Mostramos o erro nela para o usuário ver.
-      if (authWindow) {
-        authWindow.document.body.innerHTML = `
-            <body style="background: #09090b; color: #f43f5e; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; margin: 0; padding: 20px; text-align: center;">
-                <div>
-                    <h2 style="margin-bottom: 10px;">Falha na Conexão</h2>
-                    <p style="color: #a1a1aa; font-size: 14px; margin-bottom: 20px;">${err.message || "Erro desconhecido"}</p>
-                    <button onclick="window.close()" style="background: #27272a; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">Fechar e Tentar de Novo</button>
-                </div>
-            </body>
-        `;
-      }
-      setDriveError(err.message || "Falha ao iniciar autenticação");
+    // 3. TENTATIVA 2: Se o Popup falhar, usamos a mesma aba (Garante que funcione em APK/Mobile)
+    if (!authWindow || authWindow.closed || typeof authWindow.closed === 'undefined') {
+        console.warn("Popup bloqueado. Usando redirecionamento na mesma aba.");
+        
+        // Pequeno delay para o usuário perceber o clique e não achar que foi um erro
+        setTimeout(() => {
+            if (confirm("Seu navegador bloqueou a janela de login. Deseja realizar o login nesta mesma aba? (Seu progresso atual será salvo automaticamente)")) {
+                // Antes de sair, salvamos localmente os dados
+                localStorage.setItem('rpg_draft_before_login', JSON.stringify(activeChar));
+                window.location.href = authUrl;
+            }
+        }, 100);
     }
   };
-
   const [vitaisTab, setVitaisTab] = useState<"status" | "efeitos">("status");
   const [toast, setToast] = useState<{
     message: string;
@@ -378,7 +351,6 @@ export default function App() {
     hitFormula?: string;
     hitLocation?: string;
   } | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   const rollDice = (
     sides: number,
@@ -618,14 +590,6 @@ export default function App() {
     if (type === "Armadura") dataWithTipo.tipo = "Armadura";
     setClipboard({ type, data: dataWithTipo });
   };
-
-  const activeChar = useMemo(() => {
-    if (state.characters.length === 0) return createEmptyCharacter();
-    return (
-      state.characters.find((c) => c.id === state.activeCharacterId) ||
-      state.characters[0]
-    );
-  }, [state]);
 
   const climateProficiency = useMemo(() => {
     if (!activeChar) return 0;
