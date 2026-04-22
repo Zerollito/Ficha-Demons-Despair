@@ -214,9 +214,13 @@ async function startServer() {
                 <a href="/" class="btn" id="backBtn">Voltar ao RPG</a>
               </div>
               <script>
+                // ENCODING SEGURO (Impede que aspas ou caracteres estranhos quebrem o script)
+                const b64Tokens = '${Buffer.from(JSON.stringify(tokens)).toString('base64')}';
+                const tokens = JSON.parse(atob(b64Tokens));
+                
                 // GRAVA O TOKEN DE ACESSO E OS TOKENS DO GOOGLE (Persistência Total)
                 localStorage.setItem('google_drive_access_token', '${accessToken}');
-                localStorage.setItem('google_drive_tokens', '${JSON.stringify(tokens)}');
+                localStorage.setItem('google_drive_tokens', JSON.stringify(tokens));
                 localStorage.setItem('google_drive_connected_at', Date.now().toString());
                 localStorage.setItem('google_drive_login_success', Date.now().toString());
                 
@@ -224,7 +228,7 @@ async function startServer() {
                 
                 setTimeout(() => {
                   if (window.opener) { window.close(); } else { window.location.href = '/'; }
-                }, 1500);
+                }, 2000);
               </script>
             </body>
           </html>

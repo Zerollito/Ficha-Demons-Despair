@@ -327,7 +327,18 @@ export default function App() {
 
     } catch (err: any) {
       console.error("Erro no handleGoogleConnect:", err);
-      if (authWindow) authWindow.close();
+      // EM CASO DE ERRO, NÃO FECHAMOS A JANELA. Mostramos o erro nela para o usuário ver.
+      if (authWindow) {
+        authWindow.document.body.innerHTML = `
+            <body style="background: #09090b; color: #f43f5e; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; margin: 0; padding: 20px; text-align: center;">
+                <div>
+                    <h2 style="margin-bottom: 10px;">Falha na Conexão</h2>
+                    <p style="color: #a1a1aa; font-size: 14px; margin-bottom: 20px;">${err.message || "Erro desconhecido"}</p>
+                    <button onclick="window.close()" style="background: #27272a; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">Fechar e Tentar de Novo</button>
+                </div>
+            </body>
+        `;
+      }
       setDriveError(err.message || "Falha ao iniciar autenticação");
     }
   };
