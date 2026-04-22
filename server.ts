@@ -91,12 +91,16 @@ async function startServer() {
       if (!GOOGLE_CLIENT_ID) throw new Error("Configuração ausente.");
       
       const origin = req.query.origin as string;
-      const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-      const host = req.get('host');
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const host = req.headers['x-forwarded-host'] || req.get('host');
       const currentOrigin = origin || `${protocol}://${host}`;
       const redirectUri = `${currentOrigin.replace(/\/$/, '')}/api/auth/google/callback`;
 
       const client = createOAuthClient(redirectUri);
+      
+      // CODIFICA O REDIRECT_URI NO STATE (À prova de falhas de sessão/cookies)
+      const state = Buffer.from(JSON.stringify({ r: redirectUri })).toString('base64');
+
       const url = client.generateAuthUrl({
         access_type: 'offline',
         scope: [
@@ -104,8 +108,11 @@ async function startServer() {
           'https://www.googleapis.com/auth/userinfo.profile',
           'https://www.googleapis.com/auth/userinfo.email'
         ],
-        prompt: 'consent'
+        prompt: 'consent',
+        state: state
       });
+      
+      console.log(`OAuth URL Gerada com State: ${url}`);
       res.json({ url });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -113,14 +120,29 @@ async function startServer() {
   });
 
   apiRouter.get("/auth/google/callback", async (req, res) => {
-    const { code } = req.query;
+    const { code, state } = req.query;
     try {
-      const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-      const host = req.get('host');
-      const currentOrigin = `${protocol}://${host}`;
-      const redirectUri = `${currentOrigin}/api/auth/google/callback`;
+      // 1. Tenta recuperar o URI real do parâmetro STATE (mais confiável)
+      let stateRedirectUri = null;
+      if (state) {
+        try {
+            const decoded = JSON.parse(Buffer.from(state as string, 'base64').toString());
+            stateRedirectUri = decoded.r;
+        } catch(e) { /* ignore */ }
+      }
 
+      // 2. Fallbacks
+      const savedRedirectUri = (req.session as any).lastRedirectUri;
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const host = req.headers['x-forwarded-host'] || req.get('host');
+      const fallbackOrigin = `${protocol}://${host}`;
+      const fallbackRedirectUri = `${fallbackOrigin.replace(/\/$/, '')}/api/auth/google/callback`;
+
+      const redirectUri = stateRedirectUri || savedRedirectUri || fallbackRedirectUri;
+
+      console.log(`OAuth Callback - Usando RedirectUri FINAL: ${redirectUri}`);
       const client = createOAuthClient(redirectUri);
+      console.log(`OAuth Callback - Verificando redirecionamento: ${redirectUri}`);
       const { tokens } = await client.getToken(code as string);
       (req.session as any).tokens = tokens;
       
@@ -138,8 +160,24 @@ async function startServer() {
           </html>
         `);
       });
-    } catch (e) {
-      res.status(500).send("Erro na autenticação.");
+    } catch (e: any) {
+      console.error("Erro no callback OAuth:", e);
+      res.status(500).send(`
+        <html>
+          <body style="background: #09090b; color: #f43f5e; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; padding: 20px; text-align: center;">
+            <h2 style="margin-bottom: 10px;">Falha na Autenticação</h2>
+            <p style="color: #a1a1aa; max-width: 500px; margin-bottom: 20px;">
+              O Google não conseguiu completar o login. Isso geralmente acontece se o link de retorno não estiver cadastrado no Console do Google Cloud.
+            </p>
+            <div style="background: #18181b; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 12px; text-align: left; border: 1px solid #27272a; width: 100%; max-width: 600px; overflow-x: auto;">
+              <strong>Erro:</strong> ${e.message || "Erro desconhecido"}<br><br>
+              <strong>Redirect URI tentado:</strong> <span style="color: #fbbf24;">${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}/api/auth/google/callback</span><br><br>
+              <strong>Dica:</strong> Copie o link amarelo acima e cole no seu Google Console em "URIs de redirecionamento autorizados".
+            </div>
+            <button onclick="window.close()" style="margin-top: 25px; background: #27272a; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">Fechar Janela</button>
+          </body>
+        </html>
+      `);
     }
   });
 
