@@ -43,17 +43,20 @@ async function startServer() {
   app.use(cookieParser());
   app.use(session({
     secret: process.env.SESSION_SECRET || 'rpg-secret-key',
-    resave: false, // Alterado para false para evitar race conditions
-    saveUninitialized: false, // Alterado para false para não criar sessões vazias
+    resave: true, // Necessário para salvar o accessToken na sessão
+    saveUninitialized: false,
     proxy: true,
-    name: 'rpg_session', // Nome personalizado para evitar colisões
+    name: 'rpg_session',
     cookie: {
       secure: true,
-      sameSite: 'lax', // Lax é melhor para redirecionamentos de login
+      sameSite: 'none', // OBRIGATÓRIO PARA O PREVIEW DO AI STUDIO (IFRAME)
       maxAge: 30 * 24 * 60 * 60 * 1000,
       path: '/'
     }
   }));
+
+  // Memória para recuperação de sessão via Token (Drible de Cookies)
+  const tokenSessionMap = new Map<string, any>();
 
   app.use(cors({ origin: true, credentials: true }));
   app.use(express.json({ limit: '10mb' }));
@@ -61,8 +64,25 @@ async function startServer() {
   // 3. API Router
   const apiRouter = express.Router();
 
-  // Enforce JSON and No-Cache for ALL API routes
+  // Middleware de Autenticação Robusta
   apiRouter.use((req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    
+    // SUPORTE A TOKEN EM LOCALSTORAGE (Caso os cookies falhem no iframe/celular)
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const clientToken = authHeader.split(' ')[1];
+      
+      // Se a sessão está vazia no servidor, mas o cliente mandou um Token que conhecemos:
+      if (!(req.session as any).tokens && tokenSessionMap.has(clientToken)) {
+          console.log("Sessão RESGATADA via Bearer Token!");
+          const data = tokenSessionMap.get(clientToken);
+          (req.session as any).tokens = data.tokens;
+          (req.session as any).accessToken = clientToken;
+      }
+    }
+    
+    // Garante que o Cloudflare considere o Cookie para o Cache
+    res.setHeader('Vary', 'Cookie');
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     next();
@@ -85,6 +105,23 @@ async function startServer() {
       ips: req.ips,
       trustProxy: app.get('trust proxy'),
       origin: req.get('origin') || 'none'
+    });
+  });
+
+  apiRouter.post("/auth/reconnect", async (req, res) => {
+    const { tokens, accessToken } = req.body;
+    if (!tokens) return res.status(400).json({ error: "Missing tokens" });
+    
+    (req.session as any).tokens = tokens;
+    (req.session as any).accessToken = accessToken;
+    
+    // Atualiza o mapa global para garantir que o middleware recognize
+    if (accessToken) {
+        tokenSessionMap.set(accessToken, { tokens });
+    }
+
+    req.session.save(() => {
+        res.json({ status: "Session restored" });
     });
   });
 
@@ -146,8 +183,15 @@ async function startServer() {
       const client = createOAuthClient(redirectUri);
       console.log(`OAuth Callback - Verificando redirecionamento: ${redirectUri}`);
       const { tokens } = await client.getToken(code as string);
-      (req.session as any).tokens = tokens;
       
+      // GERA UM TOKEN DE ACESSO PARA O FRONT-END (Bypass de Cookie)
+      const accessToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+      (req.session as any).accessToken = accessToken;
+      (req.session as any).tokens = tokens;
+
+      // REGISTRA NO MAPA GLOBAL PARA RESGATE (Caso o cookie de sessão suma no iframe)
+      tokenSessionMap.set(accessToken, { tokens });
+
       req.session.save(() => {
         res.setHeader('Content-Type', 'text/html');
         res.send(`
@@ -156,72 +200,30 @@ async function startServer() {
               <title>Conectado!</title>
               <meta name="viewport" content="width=device-width, initial-scale=1">
               <style>
-                body {
-                  background: #09090b;
-                  color: #f4f4f5;
-                  font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                  display: flex;
-                  flex-direction: column;
-                  align-items: center;
-                  justify-content: center;
-                  height: 100vh;
-                  margin: 0;
-                  padding: 20px;
-                  text-align: center;
-                }
-                .card {
-                  background: #18181b;
-                  padding: 32px;
-                  border-radius: 16px;
-                  border: 1px solid #27272a;
-                  max-width: 400px;
-                  width: 100%;
-                  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
-                }
+                body { background: #09090b; color: #f4f4f5; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; padding: 20px; text-align: center; }
+                .card { background: #18181b; padding: 32px; border-radius: 16px; border: 1px solid #27272a; max-width: 400px; width: 100%; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4); }
                 h2 { color: #10b981; margin: 0 0 16px 0; }
-                p { color: #a1a1aa; line-height: 1.5; margin-bottom: 24px; }
-                .btn {
-                  background: #10b981;
-                  color: #000;
-                  border: none;
-                  padding: 12px 24px;
-                  border-radius: 8px;
-                  font-weight: 600;
-                  cursor: pointer;
-                  text-decoration: none;
-                  display: inline-block;
-                }
-                .btn:hover { background: #34d399; }
+                .btn { background: #10b981; color: #000; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; margin-top: 20px; }
               </style>
             </head>
             <body>
               <div class="card">
-                <h2>✓ Sucesso!</h2>
-                <p>O Google Drive foi conectado com sucesso à sua ficha.</p>
-                <a href="/" class="btn" id="backBtn">Voltar ao App</a>
+                <h2>✓ Conectado!</h2>
+                <p>O Google Drive foi vinculado com sucesso.</p>
+                <a href="/" class="btn" id="backBtn">Voltar ao RPG</a>
               </div>
               <script>
-                // 1. Notifica via postMessage (para Popups em PC/Mac)
-                if (window.opener) {
-                  window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-                }
-                
-                // 2. Notifica via localStorage (para Mobile/WebViews onde postMessage falha)
+                // GRAVA O TOKEN DE ACESSO E OS TOKENS DO GOOGLE (Persistência Total)
+                localStorage.setItem('google_drive_access_token', '${accessToken}');
+                localStorage.setItem('google_drive_tokens', '${JSON.stringify(tokens)}');
+                localStorage.setItem('google_drive_connected_at', Date.now().toString());
                 localStorage.setItem('google_drive_login_success', Date.now().toString());
                 
-                // 3. Tenta fechar automaticamente após um pequeno delay
+                if (window.opener) window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS', token: '${accessToken}' }, '*');
+                
                 setTimeout(() => {
-                  try {
-                    if (window.opener) {
-                      window.close();
-                    } else {
-                      // Se não for um popup, redireciona em vez de fechar
-                      window.location.href = '/';
-                    }
-                  } catch (e) {
-                    console.log("Não foi possível fechar a janela, permanecendo no botão.");
-                  }
-                }, 2000);
+                  if (window.opener) { window.close(); } else { window.location.href = '/'; }
+                }, 1500);
               </script>
             </body>
           </html>

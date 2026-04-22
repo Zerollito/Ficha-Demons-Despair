@@ -69,7 +69,7 @@ export function GoogleDriveSync({
           </motion.button>
         )}
 
-        {error && (
+        {error && !isConnected && (
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={handleHardReset}
