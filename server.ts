@@ -147,21 +147,87 @@ async function startServer() {
       (req.session as any).tokens = tokens;
       
       req.session.save(() => {
+        res.setHeader('Content-Type', 'text/html');
         res.send(`
           <html>
+            <head>
+              <title>Conectado!</title>
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <style>
+                body {
+                  background: #09090b;
+                  color: #f4f4f5;
+                  font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                  display: flex;
+                  flex-direction: column;
+                  align-items: center;
+                  justify-content: center;
+                  height: 100vh;
+                  margin: 0;
+                  padding: 20px;
+                  text-align: center;
+                }
+                .card {
+                  background: #18181b;
+                  padding: 32px;
+                  border-radius: 16px;
+                  border: 1px solid #27272a;
+                  max-width: 400px;
+                  width: 100%;
+                  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+                }
+                h2 { color: #10b981; margin: 0 0 16px 0; }
+                p { color: #a1a1aa; line-height: 1.5; margin-bottom: 24px; }
+                .btn {
+                  background: #10b981;
+                  color: #000;
+                  border: none;
+                  padding: 12px 24px;
+                  border-radius: 8px;
+                  font-weight: 600;
+                  cursor: pointer;
+                  text-decoration: none;
+                  display: inline-block;
+                }
+                .btn:hover { background: #34d399; }
+              </style>
+            </head>
             <body>
+              <div class="card">
+                <h2>✓ Sucesso!</h2>
+                <p>O Google Drive foi conectado com sucesso à sua ficha.</p>
+                <a href="/" class="btn" id="backBtn">Voltar ao App</a>
+              </div>
               <script>
-                if (window.opener) window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-                localStorage.setItem('google_drive_login_success', Date.now());
-                setTimeout(() => window.close(), 500);
+                // 1. Notifica via postMessage (para Popups em PC/Mac)
+                if (window.opener) {
+                  window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
+                }
+                
+                // 2. Notifica via localStorage (para Mobile/WebViews onde postMessage falha)
+                localStorage.setItem('google_drive_login_success', Date.now().toString());
+                
+                // 3. Tenta fechar automaticamente após um pequeno delay
+                setTimeout(() => {
+                  try {
+                    if (window.opener) {
+                      window.close();
+                    } else {
+                      // Se não for um popup, redireciona em vez de fechar
+                      window.location.href = '/';
+                    }
+                  } catch (e) {
+                    console.log("Não foi possível fechar a janela, permanecendo no botão.");
+                  }
+                }, 2000);
               </script>
-              <h2 style="text-align:center; color: #10b981; margin-top:50px;">Conectado com sucesso!</h2>
             </body>
           </html>
         `);
       });
     } catch (e: any) {
       console.error("Erro no callback OAuth:", e);
+      res.setHeader('Content-Type', 'text/html');
       res.status(500).send(`
         <html>
           <body style="background: #09090b; color: #f43f5e; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; padding: 20px; text-align: center;">
