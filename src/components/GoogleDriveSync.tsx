@@ -8,6 +8,7 @@ interface GoogleDriveSyncProps {
   lastSync: string | null;
   error: string | null;
   userAccount?: string | null;
+  origin?: string;
   onSync: () => void;
   onFetch: () => void;
   onLogout: () => void;
@@ -22,6 +23,7 @@ export function GoogleDriveSync({
   lastSync, 
   error, 
   userAccount,
+  origin,
   onSync, 
   onFetch, 
   onLogout, 
@@ -160,7 +162,7 @@ export function GoogleDriveSync({
           <div>
             <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
                 Backup na Nuvem
-                <span className="text-[8px] bg-zinc-800 text-zinc-600 px-1 py-0.5 rounded leading-none">V4.6</span>
+                <span className="text-[8px] bg-zinc-800 text-zinc-600 px-1 py-0.5 rounded leading-none">V4.7</span>
             </h3>
             <div className="flex flex-col">
                 <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider leading-none">
@@ -227,6 +229,18 @@ export function GoogleDriveSync({
             <p className="text-[10px] text-zinc-500 text-center px-2">
                 Suas fichas serão salvas automaticamente no seu próprio Google Drive.
             </p>
+
+            {origin && !isConnected && (
+                <div className="mt-2 p-2 bg-zinc-800/50 border border-zinc-700/50 rounded-lg">
+                    <p className="text-[9px] text-zinc-500 uppercase font-bold tracking-widest mb-1 text-center">Diagnóstico de Origem</p>
+                    <p className="text-[10px] text-amber-500/80 break-all text-center font-mono">
+                        {origin}
+                    </p>
+                    <p className="text-[8px] text-zinc-600 mt-1 text-center italic">
+                        Autorize esta URL no Google Cloud Console se aparecer Erro 400.
+                    </p>
+                </div>
+            )}
 
             {!isConnected && onCheckStatus && (
                 <motion.button

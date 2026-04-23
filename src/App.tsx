@@ -276,6 +276,7 @@ export default function App() {
     handleGoogleConnect,
     checkStatus,
     setError: setDriveError,
+    currentOrigin
   } = useGoogleDrive(state, setState);
 
   const menuRef = useRef<HTMLDivElement>(null);
@@ -974,6 +975,7 @@ export default function App() {
               lastSync={lastSync}
               error={driveError}
               userAccount={userAccount}
+              origin={currentOrigin}
               onSync={syncToDrive}
               onFetch={fetchFromDrive}
               onLogout={handleLogout}
@@ -3725,6 +3727,7 @@ export default function App() {
                   lastSync={lastSync}
                   error={driveError}
                   userAccount={userAccount}
+                  origin={currentOrigin}
                   onSync={syncToDrive}
                   onFetch={fetchFromDrive}
                   onLogout={handleLogout}
@@ -4372,6 +4375,7 @@ export default function App() {
                         lastSync={lastSync}
                         error={driveError}
                         userAccount={userAccount}
+                        origin={currentOrigin}
                         onSync={syncToDrive}
                         onFetch={fetchFromDrive}
                         onLogout={handleLogout}

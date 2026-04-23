@@ -17,10 +17,12 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
   const [error, setError] = useState<string | null>(null);
   const [userAccount, setUserAccount] = useState<string | null>(localStorage.getItem('google_drive_user_email'));
   const [tokenClient, setTokenClient] = useState<any>(null);
+  const [currentOrigin] = useState(() => window.location.origin);
 
   // Inicializa o cliente do Google GIS
   useEffect(() => {
-    console.log("Inicializando Google Drive Sync (V4.6)...");
+    console.log("Inicializando Google Drive Sync (V4.7)...");
+    console.log("Origem detectada:", currentOrigin);
     const initClient = () => {
       if (window.google && window.google.accounts) {
         try {
@@ -175,6 +177,7 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     syncToDrive,
     handleLogout,
     handleGoogleConnect,
-    setError
+    setError,
+    currentOrigin
   };
 }
