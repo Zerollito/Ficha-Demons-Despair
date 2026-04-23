@@ -1,259 +1,184 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppState } from '../types';
 
+// O Client ID deve ser o que você criou no Google Cloud Console
+// Idealmente isso seria uma variável de ambiente, mas para Client-side puro 
+// o usuário pode configurar no primeiro acesso ou deixamos fixo se soubermos.
+const GOOGLE_CLIENT_ID = "611526860684-p4m8mqlv4mklq3m7p4mklq3m7p4mklq3.apps.googleusercontent.com"; // Placeholder - você precisará usar o seu real
+
+declare global {
+  interface Window {
+    google: any;
+  }
+}
+
 export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: AppState) => void) {
-  // Inicializa o estado baseado no que já sabemos localmente para evitar flashes de erro
-  const [isConnected, setIsConnected] = useState(() => !!localStorage.getItem('google_drive_connected_at'));
+  const [isConnected, setIsConnected] = useState(() => !!localStorage.getItem('google_drive_access_token'));
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [userAccount, setUserAccount] = useState<string | null>(localStorage.getItem('google_drive_user_email'));
+  const [tokenClient, setTokenClient] = useState<any>(null);
 
-  // Função auxiliar para injetar o Token em todas as chamadas
-  const authFetch = useCallback(async (url: string, options: any = {}) => {
-    const token = localStorage.getItem('google_drive_access_token');
-    const savedTokens = localStorage.getItem('google_drive_tokens');
-    
-    // Codifica os tokens em base64 para passar pelo header de forma segura (Stateless for Cloudflare)
-    const encodedTokens = savedTokens ? btoa(savedTokens) : '';
-
-    const headers = {
-      ...options.headers,
-      'Authorization': token ? `Bearer ${token}` : '',
-      'x-google-tokens': encodedTokens,
-      'Content-Type': 'application/json'
+  // Inicializa o cliente do Google GIS
+  useEffect(() => {
+    const initClient = () => {
+      if (window.google) {
+        const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
+          callback: (response: any) => {
+            if (response.error) {
+              setError("Erro na autenticação: " + response.error);
+              return;
+            }
+            if (response.access_token) {
+              localStorage.setItem('google_drive_access_token', response.access_token);
+              localStorage.setItem('google_drive_connected_at', Date.now().toString());
+              setIsConnected(true);
+              setError(null);
+              fetchProfile(response.access_token);
+              // Após logar, tenta buscar
+              fetchFromDrive(response.access_token);
+            }
+          },
+        });
+        setTokenClient(client);
+      } else {
+        // Se não carregou, tenta de novo em 1s
+        setTimeout(initClient, 1000);
+      }
     };
-    return fetch(url, { ...options, headers });
+    initClient();
   }, []);
 
-  const fetchProfile = useCallback(async () => {
+  const fetchProfile = async (token: string) => {
     try {
-      const res = await authFetch('/api/auth/google/profile');
+      const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
       if (res.ok) {
         const data = await res.json();
-        if (data.email) {
-          setUserAccount(data.email);
-          localStorage.setItem('google_drive_user_email', data.email);
-        }
+        setUserAccount(data.email);
+        localStorage.setItem('google_drive_user_email', data.email);
       }
-    } catch (e) { console.error("Profile fetch fail", e); }
-  }, [authFetch]);
+    } catch (e) { console.error("Erro ao carregar perfil", e); }
+  };
 
-  const checkStatus = useCallback(async (retryCount = 0): Promise<boolean> => {
-    try {
-      const res = await authFetch(`/api/drive/status?cb=${Date.now()}`);
-      
-      const contentType = res.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-          throw new Error("O servidor retornou HTML em vez de JSON (Erro de Rota/Cache).");
-      }
-
-      const data = await res.json();
-      if (data.connected) {
-        setIsConnected(true);
-        setError(null);
-        localStorage.setItem('google_drive_connected_at', Date.now().toString());
-        fetchProfile();
-      } else {
-        // TENTA RECONEXÃO SILENCIOSA SE TIVERMOS TOKENS NO LOCALSTORAGE
-        const savedTokens = localStorage.getItem('google_drive_tokens');
-        const savedAccessToken = localStorage.getItem('google_drive_access_token');
-        
-        if (savedTokens && retryCount === 0) {
-            console.log("Tentando reconexão silenciosa com tokens salvos...");
-            try {
-                const reconRes = await fetch('/api/auth/reconnect', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        tokens: JSON.parse(savedTokens),
-                        accessToken: savedAccessToken
-                    })
-                });
-                if (reconRes.ok) {
-                    return checkStatus(retryCount + 1);
-                }
-            } catch (e) { /* silent fail */ }
-        }
-
-        setIsConnected(false);
-        setUserAccount(null);
-        localStorage.removeItem('google_drive_connected_at');
-        localStorage.removeItem('google_drive_user_email');
-      }
-      return data.connected;
-    } catch (err: any) {
-      console.error("Status check failed", err);
-      if (retryCount < 2) {
-        await new Promise(r => setTimeout(r, 1500));
-        return checkStatus(retryCount + 1);
-      }
-      return false;
+  const handleGoogleConnect = () => {
+    if (tokenClient) {
+      tokenClient.requestAccessToken({ prompt: 'consent' });
+    } else {
+      setError("O sistema do Google ainda está carregando. Aguarde 2 segundos.");
     }
-  }, [authFetch, fetchProfile]);
+  };
 
-  const fetchFromDrive = useCallback(async (retryCount = 0) => {
+  const fetchFromDrive = useCallback(async (manualToken?: string) => {
+    const token = manualToken || localStorage.getItem('google_drive_access_token');
+    if (!token) return;
+
     setIsSyncing(true);
-    // Não limpamos o erro aqui para não causar "flashing" se já tivermos um erro crítico
     try {
-      const res = await authFetch(`/api/drive/fetch?cb=${Date.now()}`);
-      
-      if (res.status === 401) {
-        setIsConnected(false);
-        if (retryCount < 2) {
-            await new Promise(r => setTimeout(r, 2000));
-            return fetchFromDrive(retryCount + 1);
+      // 1. Busca o arquivo pelo nome
+      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='rpg_demons_despair.json'%20and%20trashed=false&fields=files(id,name)`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (listRes.status === 401) {
+          setIsConnected(false);
+          throw new Error("Sessão expirada. Reconecte o Google Drive.");
+      }
+
+      const listData = await listRes.json();
+      const file = listData.files?.[0];
+
+      if (file) {
+        // 2. Baixa o conteúdo
+        const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await contentRes.json();
+        if (data) {
+          onStateUpdate(data);
+          setLastSync(new Date().toLocaleTimeString());
+          setError(null);
         }
-        throw new Error("Sessão não autorizada. Reconecte o Drive.");
-      }
-
-      if (!res.ok) {
-        throw new Error(`Servidor respondeu com erro ${res.status}.`);
-      }
-      
-      const contentType = res.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-          throw new Error("Resposta inválida (Interferência de Rede/Proxy).");
-      }
-
-      const { data } = await res.json();
-      if (data) {
-        console.log("Ficha recuperada do Drive com sucesso!");
-        onStateUpdate(data);
-        setLastSync(new Date().toLocaleTimeString());
-        setError(null);
-        return true; 
       } else {
-        // ARQUIVO NÃO ENCONTRADO: Se acabamos de logar, vamos subir a ficha atual como backup inicial
-        console.log("Arquivo não encontrado no Drive. Fazendo upload inicial...");
-        await syncToDrive();
-        setLastSync(new Date().toLocaleTimeString());
-        return false;
+          console.log("Arquivo de backup não encontrado no Drive.");
       }
     } catch (err: any) {
-      console.error("Drive Fetch Error:", err);
-      // Só mostra o erro se não estivermos em retentativa
-      if (retryCount >= 2 || !isConnected) {
-        setError(err.message || "Erro de conexão desconhecido.");
-      }
+      setError(err.message || "Erro ao buscar do Drive.");
+      console.error(err);
     } finally {
       setIsSyncing(false);
     }
-  }, [onStateUpdate, isConnected, authFetch]);
+  }, [onStateUpdate]);
 
-  const syncToDrive = useCallback(async (retryCount = 0) => {
+  const syncToDrive = useCallback(async () => {
+    const token = localStorage.getItem('google_drive_access_token');
+    if (!token) {
+        setError("Não conectado ao Google Drive.");
+        return;
+    }
+
     setIsSyncing(true);
-    // Não limpamos o erro aqui imediatamente para evitar flashing se for erro persistente
     try {
-      const res = await authFetch(`/api/drive/sync?cb=${Date.now()}`, {
-        method: 'POST',
-        body: JSON.stringify({ data: appState })
+      // 1. Verifica se arquivo existe
+      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='rpg_demons_despair.json'%20and%20trashed=false&fields=files(id,name)`, {
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       
-      if (res.status === 401) {
-          console.warn("Sessão expirada detectada no sync. Tentando reconectar...");
-          // Tenta reconectar e repetir uma vez
-          if (retryCount === 0) {
-              const connected = await checkStatus();
-              if (connected) {
-                  return syncToDrive(retryCount + 1);
-              }
-          }
+      if (listRes.status === 401) {
           setIsConnected(false);
-          throw new Error("Sessão expirada. Reconecte o Drive.");
+          throw new Error("Sessão expirada. Reconecte o Google Drive.");
       }
 
-      if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || "Falha ao salvar na nuvem.");
+      const listData = await listRes.json();
+      const file = listData.files?.[0];
+
+      const metadata = {
+        name: 'rpg_demons_despair.json',
+        mimeType: 'application/json',
+        description: 'Backup da ficha de RPG'
+      };
+
+      const formData = new FormData();
+      formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      formData.append('file', new Blob([JSON.stringify(appState)], { type: 'application/json' }));
+
+      if (file) {
+        // ATUALIZA existênte
+        await fetch(`https://www.googleapis.com/upload/drive/v3/files/${file.id}?uploadType=multipart`, {
+          method: 'PATCH',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData
+        });
+      } else {
+        // CRIA novo
+        await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData
+        });
       }
-      
+
       setLastSync(new Date().toLocaleTimeString());
       setError(null);
-      return true;
     } catch (err: any) {
-      console.error("Sync Error:", err);
-      setError(err.message || "Erro ao sincronizar com a nuvem.");
-      return false;
+      setError(err.message || "Erro ao salvar no Drive.");
     } finally {
       setIsSyncing(false);
     }
-  }, [appState, authFetch, checkStatus]);
+  }, [appState]);
 
-  const handleLogout = useCallback(async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      setIsConnected(false);
-      localStorage.removeItem('google_drive_connected_at');
-      localStorage.removeItem('google_drive_login_success');
-      localStorage.removeItem('google_drive_access_token');
-      localStorage.removeItem('google_drive_tokens');
-      setLastSync(null);
-    } catch (err) {
-      setError("Falha ao deslogar.");
-    }
-  }, []);
-
-  useEffect(() => {
-    // 0. CAPTURA DE FALLBACK (Caso o login venha via URL Query String)
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlToken = urlParams.get('google_auth_token');
-    if (urlToken) {
-        console.log("Token detectado na URL! Aplicando fallback...");
-        localStorage.setItem('google_drive_access_token', urlToken);
-        // Remove o parâmetro da URL de forma "limpa" para não sujar o histórico
-        const newUrl = window.location.pathname;
-        window.history.replaceState({}, document.title, newUrl);
-        setIsConnected(true);
-        setTimeout(() => checkStatus().then(conn => { if(conn) fetchFromDrive(); }), 500);
-    }
-
-    checkStatus();
-
-    // Polling de fallback caso o postMessage falhe (comum em iframes/webviews)
-    const pollInterval = setInterval(() => {
-        const loginSignal = localStorage.getItem('google_drive_login_success');
-        if (loginSignal) {
-            console.log("Detectado sinal de login no localStorage!");
-            localStorage.removeItem('google_drive_login_success');
-            setError(null); 
-            // Trigger imediato
-            checkStatus().then(connected => {
-                if (connected) fetchFromDrive();
-            });
-        }
-    }, 1000);
-
-    const handleMessage = (event: MessageEvent) => {
-      // Aceitar mensagens de qualquer origem por conta do proxy/iframe
-      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        console.log("OAuth Sucesso recebido via postMessage!");
-        const { token, tokens } = event.data;
-        
-        // SALVAMENTO IMEDIATO LOCAL PARA EVITAR RELOGIN
-        if (token) localStorage.setItem('google_drive_access_token', token);
-        if (tokens) localStorage.setItem('google_drive_tokens', JSON.stringify(tokens));
-        localStorage.setItem('google_drive_connected_at', Date.now().toString());
-        
-        // CONFIRMAÇÃO (Handshake): Avisa o Popup que recebemos tudo
-        if (event.source && 'postMessage' in event.source) {
-            (event.source as Window).postMessage('AUTH_ACKNOWLEDGED', { targetOrigin: '*' });
-        }
-
-        setError(null);
-        setIsConnected(true);
-        
-        // Sincroniza imediatamente
-        fetchFromDrive();
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => {
-        window.removeEventListener('message', handleMessage);
-        clearInterval(pollInterval);
-    };
-  }, [checkStatus, fetchFromDrive]);
+  const handleLogout = () => {
+    localStorage.removeItem('google_drive_access_token');
+    localStorage.removeItem('google_drive_connected_at');
+    localStorage.removeItem('google_drive_user_email');
+    setIsConnected(false);
+    setUserAccount(null);
+    setLastSync(null);
+  };
 
   return {
     isConnected,
@@ -261,10 +186,11 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     lastSync,
     error,
     userAccount,
-    checkStatus,
+    checkStatus: async () => isConnected,
     fetchFromDrive,
     syncToDrive,
     handleLogout,
+    handleGoogleConnect,
     setError
   };
 }
