@@ -3,8 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RPG: Demon's Despair - V4.3</title>
+    <title>RPG: Demon's Despair - V4.4</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script>
+      // SCRIPT DE EMERGÊNCIA - FORCE UPDATE V4.4
+      (function() {
+        const VERSION = '4.4';
+        const lastInjected = localStorage.getItem('app_version_injected');
+        if (lastInjected !== VERSION) {
+          console.log("Versão antiga detectada. Limpando caches...");
+          localStorage.setItem('app_version_injected', VERSION);
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(regs => {
+              regs.forEach(r => r.unregister());
+            });
+          }
+          if (typeof caches !== 'undefined') {
+            caches.keys().then(keys => {
+              keys.forEach(k => caches.delete(k));
+            });
+          }
+          // Não recarregamos aqui para não entrar em loop
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

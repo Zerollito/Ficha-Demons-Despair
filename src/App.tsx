@@ -273,6 +273,7 @@ export default function App() {
     fetchFromDrive,
     syncToDrive,
     handleLogout,
+    handleGoogleConnect,
     checkStatus,
     setError: setDriveError,
   } = useGoogleDrive(state, setState);
@@ -287,41 +288,6 @@ export default function App() {
     );
   }, [state]);
 
-  const handleGoogleConnect = () => {
-    // 1. LIMPEZA E FEEDBACK IMEDIATO
-    setDriveError(null);
-    console.log("Tentando conexão direta com Google Drive...");
-
-    const width = 600;
-    const height = 700;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
-    
-    const currentOrigin = window.location.origin;
-    // Usamos o origin completo para garantir que o redirecionamento funcione em qualquer nível de subdomínio
-    const authUrl = `${currentOrigin}/api/auth/google/url/direct?origin=${encodeURIComponent(currentOrigin)}&t=${Date.now()}`;
-    
-    // 2. TENTATIVA 1: Janela Popup (Melhor experiência se funcionar)
-    const authWindow = window.open(
-        authUrl,
-        "google_oauth",
-        `width=${width},height=${height},left=${left},top=${top}`
-    );
-
-    // 3. TENTATIVA 2: Se o Popup falhar, usamos a mesma aba (Garante que funcione em APK/Mobile)
-    if (!authWindow || authWindow.closed || typeof authWindow.closed === 'undefined') {
-        console.warn("Popup bloqueado. Usando redirecionamento na mesma aba.");
-        
-        // Pequeno delay para o usuário perceber o clique e não achar que foi um erro
-        setTimeout(() => {
-            if (confirm("Seu navegador bloqueou a janela de login. Deseja realizar o login nesta mesma aba? (Seu progresso atual será salvo automaticamente)")) {
-                // Antes de sair, salvamos localmente os dados
-                localStorage.setItem('rpg_draft_before_login', JSON.stringify(activeChar));
-                window.location.href = authUrl;
-            }
-        }, 100);
-    }
-  };
   const [vitaisTab, setVitaisTab] = useState<"status" | "efeitos">("status");
   const [toast, setToast] = useState<{
     message: string;
@@ -923,7 +889,7 @@ export default function App() {
             <span className="hidden sm:inline">
                 {isConnected ? "Nuvem ON" : "Nuvem OFF"}
             </span>
-            <span className="text-[8px] opacity-50 ml-0.5">V4.2</span>
+            <span className="text-[8px] opacity-50 ml-0.5">V4.4</span>
           </motion.button>
 
           <motion.button

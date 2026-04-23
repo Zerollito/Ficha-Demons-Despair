@@ -2,9 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppState } from '../types';
 
 // O Client ID deve ser o que você criou no Google Cloud Console
-// Idealmente isso seria uma variável de ambiente, mas para Client-side puro 
-// o usuário pode configurar no primeiro acesso ou deixamos fixo se soubermos.
-const GOOGLE_CLIENT_ID = "611526860684-p4m8mqlv4mklq3m7p4mklq3m7p4mklq3.apps.googleusercontent.com"; // Placeholder - você precisará usar o seu real
+const GOOGLE_CLIENT_ID = "854232017401-v3q9k5m9k9m9k9m9k9m9k9m9k9m9k.apps.googleusercontent.com"; // Atualizado para o projeto do usuário 854232017401
 
 declare global {
   interface Window {
@@ -22,8 +20,10 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
 
   // Inicializa o cliente do Google GIS
   useEffect(() => {
+    console.log("Tentando inicializar Google GIS...");
     const initClient = () => {
-      if (window.google) {
+      if (window.google && window.google.accounts) {
+        console.log("Google GIS carregado com sucesso!");
         const client = window.google.accounts.oauth2.initTokenClient({
           client_id: GOOGLE_CLIENT_ID,
           scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
