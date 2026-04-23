@@ -7,6 +7,7 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [userAccount, setUserAccount] = useState<string | null>(localStorage.getItem('google_drive_user_email'));
 
   // Função auxiliar para injetar o Token em todas as chamadas
   const authFetch = useCallback(async (url: string, options: any = {}) => {
@@ -19,9 +20,21 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     return fetch(url, { ...options, headers });
   }, []);
 
+  const fetchProfile = useCallback(async () => {
+    try {
+      const res = await authFetch('/api/auth/google/profile');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.email) {
+          setUserAccount(data.email);
+          localStorage.setItem('google_drive_user_email', data.email);
+        }
+      }
+    } catch (e) { console.error("Profile fetch fail", e); }
+  }, [authFetch]);
+
   const checkStatus = useCallback(async (retryCount = 0): Promise<boolean> => {
     try {
-      // Adicionando cache-busting para evitar que o Cloudflare entregue JSON antigo
       const res = await authFetch(`/api/drive/status?cb=${Date.now()}`);
       
       const contentType = res.headers.get("content-type");
@@ -32,8 +45,9 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
       const data = await res.json();
       if (data.connected) {
         setIsConnected(true);
-        setError(null); // LIMPEZA CRÍTICA: Se conectou, o erro some
+        setError(null);
         localStorage.setItem('google_drive_connected_at', Date.now().toString());
+        fetchProfile();
       } else {
         // TENTA RECONEXÃO SILENCIOSA SE TIVERMOS TOKENS NO LOCALSTORAGE
         const savedTokens = localStorage.getItem('google_drive_tokens');
@@ -57,9 +71,9 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
         }
 
         setIsConnected(false);
+        setUserAccount(null);
         localStorage.removeItem('google_drive_connected_at');
-        // Não removemos o access_token nem os tokens para permitir reconexão futura 
-        // a menos que o logout seja manual
+        localStorage.removeItem('google_drive_user_email');
       }
       return data.connected;
     } catch (err: any) {
@@ -70,7 +84,7 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
       }
       return false;
     }
-  }, [authFetch]);
+  }, [authFetch, fetchProfile]);
 
   const fetchFromDrive = useCallback(async (retryCount = 0) => {
     setIsSyncing(true);
@@ -121,9 +135,9 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     }
   }, [onStateUpdate, isConnected, authFetch]);
 
-  const syncToDrive = useCallback(async () => {
+  const syncToDrive = useCallback(async (retryCount = 0) => {
     setIsSyncing(true);
-    setError(null);
+    // Não limpamos o erro aqui imediatamente para evitar flashing se for erro persistente
     try {
       const res = await authFetch(`/api/drive/sync?cb=${Date.now()}`, {
         method: 'POST',
@@ -131,19 +145,34 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
       });
       
       if (res.status === 401) {
+          console.warn("Sessão expirada detectada no sync. Tentando reconectar...");
+          // Tenta reconectar e repetir uma vez
+          if (retryCount === 0) {
+              const connected = await checkStatus();
+              if (connected) {
+                  return syncToDrive(retryCount + 1);
+              }
+          }
           setIsConnected(false);
-          throw new Error("Sessão expirada ao salvar.");
+          throw new Error("Sessão expirada. Reconecte o Drive.");
       }
 
-      if (!res.ok) throw new Error("Falha ao salvar na nuvem.");
+      if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || "Falha ao salvar na nuvem.");
+      }
+      
       setLastSync(new Date().toLocaleTimeString());
+      setError(null);
+      return true;
     } catch (err: any) {
-      setError(err.message || "Erro ao salvar na nuvem.");
-      console.error(err);
+      console.error("Sync Error:", err);
+      setError(err.message || "Erro ao sincronizar com a nuvem.");
+      return false;
     } finally {
       setIsSyncing(false);
     }
-  }, [appState, authFetch]);
+  }, [appState, authFetch, checkStatus]);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -225,6 +254,7 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     isSyncing,
     lastSync,
     error,
+    userAccount,
     checkStatus,
     fetchFromDrive,
     syncToDrive,

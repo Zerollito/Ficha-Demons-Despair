@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Cloud, CloudOff, RefreshCw, LogIn, LogOut, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Cloud as CloudIcon, CloudOff as CloudOffIcon, RefreshCw as RefreshCwIcon, LogIn, LogOut, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface GoogleDriveSyncProps {
   isConnected: boolean;
   isSyncing: boolean;
   lastSync: string | null;
   error: string | null;
+  userAccount?: string | null;
   onSync: () => void;
   onFetch: () => void;
   onLogout: () => void;
@@ -20,6 +21,7 @@ export function GoogleDriveSync({
   isSyncing, 
   lastSync, 
   error, 
+  userAccount,
   onSync, 
   onFetch, 
   onLogout, 
@@ -58,7 +60,7 @@ export function GoogleDriveSync({
             onClick={onConnect}
             className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
           >
-            <Cloud size={18} className={error ? "text-red-500" : "text-amber-500"} /> 
+            <CloudIcon size={18} className={error ? "text-red-500" : "text-amber-500"} /> 
             {error ? "Erro na Conexão" : "Vincular Google Drive"}
           </motion.button>
         ) : (
@@ -87,7 +89,7 @@ export function GoogleDriveSync({
                 onClick={handleHardReset}
                 className="w-full flex items-center gap-3 px-3 py-2 hover:bg-red-500/10 rounded-lg transition-colors text-[10px] font-bold text-red-400"
             >
-                <RefreshCw size={14} /> Corrigir Erro de Cache
+                <RefreshCwIcon size={14} /> Corrigir Erro de Cache
             </motion.button>
           </div>
         )}
@@ -103,7 +105,7 @@ export function GoogleDriveSync({
                 className="bg-zinc-900 border border-zinc-800 p-6 rounded-xl max-w-sm w-full shadow-2xl"
               >
                 <div className="flex items-center gap-3 mb-4 text-amber-500">
-                  <Cloud size={24} />
+                  <CloudIcon size={24} />
                   <h3 className="text-lg font-bold">Google Drive</h3>
                 </div>
                 
@@ -143,7 +145,7 @@ export function GoogleDriveSync({
     <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 mb-6 relative overflow-hidden">
       {isSyncing && (
         <div className="absolute inset-0 bg-black/20 backdrop-blur-[1px] z-10 flex items-center justify-center">
-            <RefreshCw size={24} className="text-emerald-500 animate-spin" />
+            <RefreshCwIcon size={24} className="text-emerald-500 animate-spin" />
         </div>
       )}
 
@@ -153,13 +155,23 @@ export function GoogleDriveSync({
             "p-2 rounded-lg transition-colors",
             isConnected ? "bg-emerald-500/10 text-emerald-500" : "bg-zinc-800 text-zinc-500"
           )}>
-            {isConnected ? <Cloud size={20} /> : <CloudOff size={20} />}
+            {isConnected ? <CloudIcon size={20} /> : <CloudOffIcon size={20} />}
           </div>
           <div>
-            <h3 className="text-sm font-bold text-zinc-100">Backup na Nuvem</h3>
-            <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">
-              Google Drive
-            </p>
+            <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                Backup na Nuvem
+                <span className="text-[8px] bg-zinc-800 text-zinc-600 px-1 py-0.5 rounded leading-none">V4.2</span>
+            </h3>
+            <div className="flex flex-col">
+                <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider leading-none">
+                Google Drive
+                </p>
+                {isConnected && userAccount && (
+                    <span className="text-[9px] text-emerald-400/70 font-medium truncate max-w-[150px]">
+                        {userAccount}
+                    </span>
+                )}
+            </div>
           </div>
         </div>
 
@@ -180,7 +192,7 @@ export function GoogleDriveSync({
               disabled={isSyncing}
               className="flex flex-col items-center justify-center gap-1 py-3 bg-zinc-800 hover:bg-emerald-600/10 hover:border-emerald-500/30 disabled:opacity-50 text-zinc-300 hover:text-emerald-400 rounded-lg text-xs font-bold transition-all border border-zinc-700"
             >
-              <Cloud size={16} />
+              <CloudIcon size={16} />
               Enviar para Nuvem
             </motion.button>
             <motion.button
@@ -189,7 +201,7 @@ export function GoogleDriveSync({
               disabled={isSyncing}
               className="flex flex-col items-center justify-center gap-1 py-3 bg-zinc-800 hover:bg-blue-600/10 hover:border-blue-500/30 disabled:opacity-50 text-zinc-300 hover:text-blue-400 rounded-lg text-xs font-bold transition-all border border-zinc-700"
             >
-              <RefreshCw size={16} />
+              <RefreshCwIcon size={16} />
               Baixar da Nuvem
             </motion.button>
           </div>

@@ -45,6 +45,9 @@ import {
   Image,
   TrendingUp,
   Target,
+  Cloud as CloudIcon,
+  CloudOff as CloudOffIcon,
+  RefreshCw as RefreshCwIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
@@ -266,6 +269,7 @@ export default function App() {
     isSyncing,
     lastSync,
     error: driveError,
+    userAccount,
     fetchFromDrive,
     syncToDrive,
     handleLogout,
@@ -324,7 +328,7 @@ export default function App() {
     type: "error" | "success" | "info";
   } | null>(null);
   const [activePage, setActivePage] = useState<
-    "sheet" | "notes" | "dice" | "gallery"
+    "sheet" | "notes" | "dice" | "gallery" | "cloud"
   >("sheet");
   const [openLevelSelectorId, setOpenLevelSelectorId] = useState<string | null>(
     null,
@@ -879,10 +883,49 @@ export default function App() {
             >
               <Image size={28} />
             </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setActivePage("cloud")}
+              className={cn(
+                "p-2 sm:p-4 rounded-xl transition-all",
+                activePage === "cloud"
+                  ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20"
+                  : "text-zinc-500 hover:text-zinc-300",
+              )}
+              title="Backup na Nuvem"
+            >
+              <CloudIcon size={28} />
+            </motion.button>
           </div>
         </div>
 
         <div className="flex items-center gap-2 relative" ref={menuRef}>
+          {/* Cloud Status Indicator in Header */}
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setActivePage("notes")}
+            className={cn(
+              "flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-[10px] font-bold uppercase tracking-tight",
+              isConnected 
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" 
+                : driveError 
+                  ? "bg-red-500/10 border-red-500/30 text-red-400"
+                  : "bg-zinc-800 border-zinc-700 text-zinc-500"
+            )}
+          >
+            {isSyncing ? (
+                <RefreshCwIcon size={14} className="animate-spin" />
+            ) : isConnected ? (
+                <CloudIcon size={14} />
+            ) : (
+                <CloudOffIcon size={14} />
+            )}
+            <span className="hidden sm:inline">
+                {isConnected ? "Nuvem ON" : "Nuvem OFF"}
+            </span>
+            <span className="text-[8px] opacity-50 ml-0.5">V4.2</span>
+          </motion.button>
+
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -964,6 +1007,7 @@ export default function App() {
               isSyncing={isSyncing}
               lastSync={lastSync}
               error={driveError}
+              userAccount={userAccount}
               onSync={syncToDrive}
               onFetch={fetchFromDrive}
               onLogout={handleLogout}
@@ -3706,6 +3750,23 @@ export default function App() {
                   </div>
                 </div>
               </Section>
+
+              {/* Cloud Sync section at the bottom of the sheet for maximum visibility */}
+              <div className="mt-8 pt-8 border-t border-zinc-800/30">
+                <GoogleDriveSync
+                  isConnected={isConnected}
+                  isSyncing={isSyncing}
+                  lastSync={lastSync}
+                  error={driveError}
+                  userAccount={userAccount}
+                  onSync={syncToDrive}
+                  onFetch={fetchFromDrive}
+                  onLogout={handleLogout}
+                  onConnect={handleGoogleConnect}
+                  onCheckStatus={checkStatus}
+                  variant="full"
+                />
+              </div>
             </div>
           </div>
         ) : activePage === "dice" ? (
@@ -4140,18 +4201,6 @@ export default function App() {
           </div>
         ) : activePage === "notes" ? (
           <div className="space-y-6 max-w-4xl mx-auto">
-            <GoogleDriveSync
-              isConnected={isConnected}
-              isSyncing={isSyncing}
-              lastSync={lastSync}
-              error={driveError}
-              onSync={syncToDrive}
-              onFetch={fetchFromDrive}
-              onLogout={handleLogout}
-              onConnect={handleGoogleConnect}
-              onCheckStatus={checkStatus}
-              variant="full"
-            />
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-amber-500 flex items-center gap-2">
                 <FileText size={24} /> Anotações
@@ -4334,6 +4383,53 @@ export default function App() {
                 </div>
               )}
             </div>
+          </div>
+        ) : activePage === "cloud" ? (
+          <div className="max-w-4xl mx-auto py-8 px-4">
+               <div className="bg-zinc-900/50 p-6 sm:p-10 rounded-3xl border border-zinc-800 shadow-2xl backdrop-blur-xl">
+                    <div className="flex flex-col sm:flex-row items-center gap-6 mb-12 border-b border-zinc-800 pb-8">
+                        <div className="p-5 bg-gradient-to-br from-amber-400 to-amber-600 text-zinc-950 rounded-[2rem] shadow-xl shadow-amber-500/20 rotate-3 transition-transform hover:rotate-0">
+                            <CloudIcon size={48} />
+                        </div>
+                        <div className="text-center sm:text-left">
+                            <h2 className="text-3xl font-black text-white tracking-tighter sm:text-4xl">Backups na Nuvem</h2>
+                            <div className="flex items-center justify-center sm:justify-start gap-2 mt-1">
+                                <span className="text-zinc-500 text-xs font-bold uppercase tracking-[0.2em]">Google Drive API</span>
+                                <span className="bg-zinc-800 text-zinc-400 text-[10px] px-2 py-0.5 rounded-full font-mono font-bold">V4.2</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <GoogleDriveSync
+                        isConnected={isConnected}
+                        isSyncing={isSyncing}
+                        lastSync={lastSync}
+                        error={driveError}
+                        userAccount={userAccount}
+                        onSync={syncToDrive}
+                        onFetch={fetchFromDrive}
+                        onLogout={handleLogout}
+                        onConnect={handleGoogleConnect}
+                        onCheckStatus={checkStatus}
+                        variant="full"
+                    />
+
+                    <div className="mt-12 p-6 bg-zinc-950/80 rounded-2xl border border-zinc-800/50 space-y-6">
+                        <h4 className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-2">
+                             <Activity size={16} className="text-amber-500" /> Guia de Sobrevivência (Nuvem)
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="p-4 bg-zinc-900/30 rounded-xl border border-zinc-800/50 hover:bg-zinc-900/50 transition-colors">
+                                <span className="text-amber-400 font-bold text-sm block mb-2 underline decoration-amber-500/30">Onde fica salvo?</span>
+                                <p className="text-xs text-zinc-400 leading-relaxed italic">No seu Google Drive, em uma pasta segura chamada "Dados de Aplicativos". O arquivo é `rpg_demons_despair.json`.</p>
+                            </div>
+                            <div className="p-4 bg-zinc-900/30 rounded-xl border border-zinc-800/50 hover:bg-zinc-900/50 transition-colors">
+                                <span className="text-emerald-400 font-bold text-sm block mb-2 underline decoration-emerald-500/30">Como recuperar?</span>
+                                <p className="text-xs text-zinc-400 leading-relaxed italic">Logue com sua conta Google neste painel e selecione "Baixar da Nuvem". Suas fichas serão restauradas na hora.</p>
+                            </div>
+                        </div>
+                    </div>
+               </div>
           </div>
         ) : null}
       </main>

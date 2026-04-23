@@ -8,6 +8,15 @@ import { google } from "googleapis";
 import session from "express-session";
 import cookieParser from "cookie-parser";
 
+// Suporte a tipos de Sessão customizados
+declare module 'express-session' {
+  interface SessionData {
+    tokens: any;
+    accessToken: string;
+    lastRedirectUri: string;
+  }
+}
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -126,6 +135,13 @@ async function startServer() {
     });
   });
 
+  // Unificação dos escopos para garantir permissões consistentes
+  const GOOGLE_SCOPES = [
+    'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'https://www.googleapis.com/auth/userinfo.email'
+  ];
+
   // ROTA DE REDIRECIONAMENTO DIRETO (Evita bloqueios de popup e página em branco)
   apiRouter.get("/auth/google/url/direct", (req, res) => {
     try {
@@ -141,10 +157,7 @@ async function startServer() {
       
       const url = client.generateAuthUrl({
         access_type: 'offline',
-        scope: [
-          'https://www.googleapis.com/auth/drive.file',
-          'https://www.googleapis.com/auth/drive.appdata'
-        ],
+        scope: GOOGLE_SCOPES,
         prompt: 'consent',
         state: state
       });
@@ -217,11 +230,7 @@ async function startServer() {
 
       const url = client.generateAuthUrl({
         access_type: 'offline',
-        scope: [
-          'https://www.googleapis.com/auth/drive.file',
-          'https://www.googleapis.com/auth/userinfo.profile',
-          'https://www.googleapis.com/auth/userinfo.email'
-        ],
+        scope: GOOGLE_SCOPES,
         prompt: 'consent',
         state: state
       });
@@ -229,6 +238,21 @@ async function startServer() {
       console.log(`OAuth URL Gerada com State: ${url}`);
       res.json({ url });
     } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  apiRouter.get("/auth/google/profile", async (req, res) => {
+    const tokens = (req.session as any).tokens;
+    if (!tokens) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const client = createOAuthClient();
+      client.setCredentials(tokens);
+      const oauth2 = google.oauth2({ version: 'v2', auth: client });
+      const info = await oauth2.userinfo.get();
+      res.json(info.data);
+    } catch (e: any) {
+      console.error("Erro ao buscar perfil:", e);
       res.status(500).json({ error: e.message });
     }
   });
