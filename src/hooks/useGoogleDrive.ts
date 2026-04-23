@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppState } from '../types';
 
-// O Client ID deve ser o que você criou no Google Cloud Console
-const GOOGLE_CLIENT_ID = "854232017401-v3q9k5m9k9m9k9m9k9m9k9m9k9m9k.apps.googleusercontent.com"; // Atualizado para o projeto do usuário 854232017401
+// Client ID definitivo do projeto 854232017401
+const GOOGLE_CLIENT_ID = "854232017401-djl9cldteppap81evo5gc8o8rg11kg5d.apps.googleusercontent.com";
 
 declare global {
   interface Window {
@@ -20,32 +20,33 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
 
   // Inicializa o cliente do Google GIS
   useEffect(() => {
-    console.log("Tentando inicializar Google GIS...");
+    console.log("Inicializando Google Drive Sync (V4.6)...");
     const initClient = () => {
       if (window.google && window.google.accounts) {
-        console.log("Google GIS carregado com sucesso!");
-        const client = window.google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
-          callback: (response: any) => {
-            if (response.error) {
-              setError("Erro na autenticação: " + response.error);
-              return;
-            }
-            if (response.access_token) {
-              localStorage.setItem('google_drive_access_token', response.access_token);
-              localStorage.setItem('google_drive_connected_at', Date.now().toString());
-              setIsConnected(true);
-              setError(null);
-              fetchProfile(response.access_token);
-              // Após logar, tenta buscar
-              fetchFromDrive(response.access_token);
-            }
-          },
-        });
-        setTokenClient(client);
+        try {
+            const client = window.google.accounts.oauth2.initTokenClient({
+              client_id: GOOGLE_CLIENT_ID,
+              scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
+              callback: (response: any) => {
+                if (response.error) {
+                  setError("Erro na autenticação: " + response.error);
+                  return;
+                }
+                if (response.access_token) {
+                  localStorage.setItem('google_drive_access_token', response.access_token);
+                  localStorage.setItem('google_drive_connected_at', Date.now().toString());
+                  setIsConnected(true);
+                  setError(null);
+                  fetchProfile(response.access_token);
+                  fetchFromDrive(response.access_token);
+                }
+              },
+            });
+            setTokenClient(client);
+        } catch (e: any) {
+            setError("Falha crítica no sistema Google: " + e.message);
+        }
       } else {
-        // Se não carregou, tenta de novo em 1s
         setTimeout(initClient, 1000);
       }
     };
@@ -69,7 +70,7 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     if (tokenClient) {
       tokenClient.requestAccessToken({ prompt: 'consent' });
     } else {
-      setError("O sistema do Google ainda está carregando. Aguarde 2 segundos.");
+      setError("O Google Drive está carregando. Tente novamente em 2 segundos.");
     }
   };
 
@@ -79,21 +80,19 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
 
     setIsSyncing(true);
     try {
-      // 1. Busca o arquivo pelo nome
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='rpg_demons_despair.json'%20and%20trashed=false&fields=files(id,name)`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (listRes.status === 401) {
           setIsConnected(false);
-          throw new Error("Sessão expirada. Reconecte o Google Drive.");
+          throw new Error("Sessão expirada. Reconecte o Drive.");
       }
 
       const listData = await listRes.json();
       const file = listData.files?.[0];
 
       if (file) {
-        // 2. Baixa o conteúdo
         const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -103,12 +102,9 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
           setLastSync(new Date().toLocaleTimeString());
           setError(null);
         }
-      } else {
-          console.log("Arquivo de backup não encontrado no Drive.");
       }
     } catch (err: any) {
       setError(err.message || "Erro ao buscar do Drive.");
-      console.error(err);
     } finally {
       setIsSyncing(false);
     }
@@ -116,45 +112,34 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
 
   const syncToDrive = useCallback(async () => {
     const token = localStorage.getItem('google_drive_access_token');
-    if (!token) {
-        setError("Não conectado ao Google Drive.");
-        return;
-    }
+    if (!token) return;
 
     setIsSyncing(true);
     try {
-      // 1. Verifica se arquivo existe
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='rpg_demons_despair.json'%20and%20trashed=false&fields=files(id,name)`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
       if (listRes.status === 401) {
           setIsConnected(false);
-          throw new Error("Sessão expirada. Reconecte o Google Drive.");
+          throw new Error("Sessão expirada. Reconecte o Drive.");
       }
 
       const listData = await listRes.json();
       const file = listData.files?.[0];
-
-      const metadata = {
-        name: 'rpg_demons_despair.json',
-        mimeType: 'application/json',
-        description: 'Backup da ficha de RPG'
-      };
+      const metadata = { name: 'rpg_demons_despair.json', mimeType: 'application/json' };
 
       const formData = new FormData();
       formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
       formData.append('file', new Blob([JSON.stringify(appState)], { type: 'application/json' }));
 
       if (file) {
-        // ATUALIZA existênte
         await fetch(`https://www.googleapis.com/upload/drive/v3/files/${file.id}?uploadType=multipart`, {
           method: 'PATCH',
           headers: { 'Authorization': `Bearer ${token}` },
           body: formData
         });
       } else {
-        // CRIA novo
         await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}` },
@@ -186,7 +171,6 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     lastSync,
     error,
     userAccount,
-    checkStatus: async () => isConnected,
     fetchFromDrive,
     syncToDrive,
     handleLogout,

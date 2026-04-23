@@ -889,7 +889,7 @@ export default function App() {
             <span className="hidden sm:inline">
                 {isConnected ? "Nuvem ON" : "Nuvem OFF"}
             </span>
-            <span className="text-[8px] opacity-50 ml-0.5">V4.4</span>
+            <span className="text-[8px] opacity-50 ml-0.5">V4.6</span>
           </motion.button>
 
           <motion.button
@@ -4361,7 +4361,7 @@ export default function App() {
                             <h2 className="text-3xl font-black text-white tracking-tighter sm:text-4xl">Backups na Nuvem</h2>
                             <div className="flex items-center justify-center sm:justify-start gap-2 mt-1">
                                 <span className="text-zinc-500 text-xs font-bold uppercase tracking-[0.2em]">Google Drive API</span>
-                                <span className="bg-zinc-800 text-zinc-400 text-[10px] px-2 py-0.5 rounded-full font-mono font-bold">V4.2</span>
+                                <span className="bg-zinc-800 text-zinc-400 text-[10px] px-2 py-0.5 rounded-full font-mono font-bold">V4.5</span>
                             </div>
                         </div>
                     </div>

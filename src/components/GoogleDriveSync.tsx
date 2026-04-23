@@ -160,7 +160,7 @@ export function GoogleDriveSync({
           <div>
             <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
                 Backup na Nuvem
-                <span className="text-[8px] bg-zinc-800 text-zinc-600 px-1 py-0.5 rounded leading-none">V4.4</span>
+                <span className="text-[8px] bg-zinc-800 text-zinc-600 px-1 py-0.5 rounded leading-none">V4.6</span>
             </h3>
             <div className="flex flex-col">
                 <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider leading-none">
