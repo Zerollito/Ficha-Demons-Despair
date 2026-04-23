@@ -890,7 +890,6 @@ export default function App() {
             <span className="hidden sm:inline">
                 {isConnected ? "Nuvem ON" : "Nuvem OFF"}
             </span>
-            <span className="text-[8px] opacity-50 ml-0.5">V4.9</span>
           </motion.button>
 
           <motion.button
@@ -4362,10 +4361,6 @@ export default function App() {
                         </div>
                         <div className="text-center sm:text-left">
                             <h2 className="text-3xl font-black text-white tracking-tighter sm:text-4xl">Backups na Nuvem</h2>
-                            <div className="flex items-center justify-center sm:justify-start gap-2 mt-1">
-                                <span className="text-zinc-500 text-xs font-bold uppercase tracking-[0.2em]">Google Drive API</span>
-                                <span className="bg-zinc-800 text-zinc-400 text-[10px] px-2 py-0.5 rounded-full font-mono font-bold">V4.5</span>
-                            </div>
                         </div>
                     </div>
 
@@ -4383,22 +4378,6 @@ export default function App() {
                         onCheckStatus={checkStatus}
                         variant="full"
                     />
-
-                    <div className="mt-12 p-6 bg-zinc-950/80 rounded-2xl border border-zinc-800/50 space-y-6">
-                        <h4 className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-2">
-                             <Activity size={16} className="text-amber-500" /> Guia de Sobrevivência (Nuvem)
-                        </h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="p-4 bg-zinc-900/30 rounded-xl border border-zinc-800/50 hover:bg-zinc-900/50 transition-colors">
-                                <span className="text-amber-400 font-bold text-sm block mb-2 underline decoration-amber-500/30">Onde fica salvo?</span>
-                                <p className="text-xs text-zinc-400 leading-relaxed italic">No seu Google Drive, em uma pasta segura chamada "Dados de Aplicativos". O arquivo é `rpg_demons_despair.json`.</p>
-                            </div>
-                            <div className="p-4 bg-zinc-900/30 rounded-xl border border-zinc-800/50 hover:bg-zinc-900/50 transition-colors">
-                                <span className="text-emerald-400 font-bold text-sm block mb-2 underline decoration-emerald-500/30">Como recuperar?</span>
-                                <p className="text-xs text-zinc-400 leading-relaxed italic">Logue com sua conta Google neste painel e selecione "Baixar da Nuvem". Suas fichas serão restauradas na hora.</p>
-                            </div>
-                        </div>
-                    </div>
                </div>
           </div>
         ) : null}

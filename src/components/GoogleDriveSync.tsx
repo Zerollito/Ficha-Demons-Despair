@@ -151,7 +151,7 @@ export function GoogleDriveSync({
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
         <div className="flex items-center gap-3">
           <div className={cn(
             "p-2 rounded-lg transition-colors",
@@ -162,7 +162,6 @@ export function GoogleDriveSync({
           <div>
             <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
                 Backup na Nuvem
-                <span className="text-[8px] bg-zinc-800 text-zinc-600 px-1 py-0.5 rounded leading-none">V4.9</span>
             </h3>
             <div className="flex flex-col">
                 <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider leading-none">
@@ -178,7 +177,7 @@ export function GoogleDriveSync({
         </div>
 
         {isConnected && (
-           <div className="flex items-center gap-1.5 text-emerald-500 text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 px-2 py-1 rounded-full border border-emerald-500/20">
+           <div className="inline-flex items-center self-start sm:self-auto gap-1.5 text-emerald-500 text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20 whitespace-nowrap">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               Sincronizado
            </div>
