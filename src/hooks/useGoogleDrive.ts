@@ -12,9 +12,15 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
   // Função auxiliar para injetar o Token em todas as chamadas
   const authFetch = useCallback(async (url: string, options: any = {}) => {
     const token = localStorage.getItem('google_drive_access_token');
+    const savedTokens = localStorage.getItem('google_drive_tokens');
+    
+    // Codifica os tokens em base64 para passar pelo header de forma segura (Stateless for Cloudflare)
+    const encodedTokens = savedTokens ? btoa(savedTokens) : '';
+
     const headers = {
       ...options.headers,
       'Authorization': token ? `Bearer ${token}` : '',
+      'x-google-tokens': encodedTokens,
       'Content-Type': 'application/json'
     };
     return fetch(url, { ...options, headers });

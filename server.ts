@@ -76,22 +76,33 @@ async function startServer() {
   // Middleware de Autenticação Robusta
   apiRouter.use((req, res, next) => {
     const authHeader = req.headers['authorization'];
+    const clientTokens = req.headers['x-google-tokens'];
     
     // SUPORTE A TOKEN EM LOCALSTORAGE (Caso os cookies falhem no iframe/celular)
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const clientToken = authHeader.split(' ')[1];
       
-      // Se a sessão está vazia no servidor, mas o cliente mandou um Token que conhecemos:
-      if (!(req.session as any).tokens && tokenSessionMap.has(clientToken)) {
-          console.log("Sessão RESGATADA via Bearer Token!");
-          const data = tokenSessionMap.get(clientToken);
-          (req.session as any).tokens = data.tokens;
-          (req.session as any).accessToken = clientToken;
+      // Se a sessão está vazia no servidor, mas o cliente mandou um Token (Bypass de Cookie)
+      if (!(req.session as any).tokens) {
+          // Se o cliente enviou os tokens completos via Header Customizado (Compatível com Cloudflare Workers)
+          if (clientTokens) {
+              try {
+                  const tokens = JSON.parse(Buffer.from(clientTokens as string, 'base64').toString());
+                  (req.session as any).tokens = tokens;
+                  (req.session as any).accessToken = clientToken;
+              } catch(e) { console.error("Falha ao decodificar tokens do header"); }
+          }
+          // Caso contrário, tenta o mapa de memória (Fallback para dev local)
+          else if (tokenSessionMap.has(clientToken)) {
+              const data = tokenSessionMap.get(clientToken);
+              (req.session as any).tokens = data.tokens;
+              (req.session as any).accessToken = clientToken;
+          }
       }
     }
     
     // Garante que o Cloudflare considere o Cookie e o Token para o Cache
-    res.setHeader('Vary', 'Cookie, Authorization');
+    res.setHeader('Vary', 'Cookie, Authorization, x-google-tokens');
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('CDN-Cache-Control', 'no-store'); // Instrução direta para Cloudflare
