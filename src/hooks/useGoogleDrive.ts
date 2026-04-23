@@ -73,6 +73,40 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     initClient();
   }, []);
 
+  const fileName = appState.syncFileName || 'rpg_demons_despair.json';
+  const folderName = appState.syncFolderName;
+
+  const getFolderId = async (token: string, name: string) => {
+    try {
+      const q = encodeURIComponent(`mimeType = 'application/vnd.google-apps.folder' and name = '${name}' and trashed = false`);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.files && data.files.length > 0) {
+        return data.files[0].id;
+      }
+      
+      // Criar pasta se não existe
+      const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: name,
+          mimeType: 'application/vnd.google-apps.folder'
+        })
+      });
+      const newData = await createRes.json();
+      return newData.id;
+    } catch (e) {
+      console.error("Erro ao gerenciar pasta", e);
+      return null;
+    }
+  };
+
   const fetchProfile = async (token: string) => {
     try {
       const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
@@ -108,7 +142,16 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
 
     setIsSyncing(true);
     try {
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='rpg_demons_despair.json'%20and%20trashed=false&fields=files(id,name)`, {
+      let query = `name='${fileName}' and trashed=false`;
+      
+      if (folderName) {
+        const fId = await getFolderId(token, folderName);
+        if (fId) {
+          query = `name='${fileName}' and '${fId}' in parents and trashed=false`;
+        }
+      }
+
+      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name)`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -130,13 +173,15 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
           setLastSync(new Date().toLocaleTimeString());
           setError(null);
         }
+      } else {
+        setError(`Arquivo "${fileName}" não encontrado${folderName ? ` na pasta "${folderName}"` : ""} no Drive.`);
       }
     } catch (err: any) {
       setError(err.message || "Erro ao buscar do Drive.");
     } finally {
       setIsSyncing(false);
     }
-  }, [onStateUpdate]);
+  }, [onStateUpdate, fileName, folderName]);
 
   const syncToDrive = useCallback(async () => {
     const token = localStorage.getItem('google_drive_access_token');
@@ -144,7 +189,17 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
 
     setIsSyncing(true);
     try {
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='rpg_demons_despair.json'%20and%20trashed=false&fields=files(id,name)`, {
+      let query = `name='${fileName}' and trashed=false`;
+      let folderId: string | null = null;
+      
+      if (folderName) {
+        folderId = await getFolderId(token, folderName);
+        if (folderId) {
+          query = `name='${fileName}' and '${folderId}' in parents and trashed=false`;
+        }
+      }
+
+      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name)`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
@@ -155,7 +210,15 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
 
       const listData = await listRes.json();
       const file = listData.files?.[0];
-      const metadata = { name: 'rpg_demons_despair.json', mimeType: 'application/json' };
+      
+      const metadata: any = { 
+        name: fileName, 
+        mimeType: 'application/json'
+      };
+
+      if (folderId) {
+        metadata.parents = [folderId];
+      }
 
       const formData = new FormData();
       formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
@@ -182,7 +245,7 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     } finally {
       setIsSyncing(false);
     }
-  }, [appState]);
+  }, [appState, fileName, folderName]);
 
   const handleLogout = () => {
     localStorage.removeItem('google_drive_access_token');

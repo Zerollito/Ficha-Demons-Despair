@@ -991,6 +991,10 @@ export default function App() {
               onLogout={handleLogout}
               onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
               onCheckStatus={checkStatus}
+              fileName={state.syncFileName}
+              onFileNameChange={(name) => setState(prev => ({ ...prev, syncFileName: name }))}
+              folderName={state.syncFolderName}
+              onFolderNameChange={(name) => setState(prev => ({ ...prev, syncFolderName: name }))}
               variant="menu"
             />
 
@@ -3743,6 +3747,10 @@ export default function App() {
                   onLogout={handleLogout}
                   onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
                   onCheckStatus={checkStatus}
+                  fileName={state.syncFileName}
+                  onFileNameChange={(name) => setState(prev => ({ ...prev, syncFileName: name }))}
+                  folderName={state.syncFolderName}
+                  onFolderNameChange={(name) => setState(prev => ({ ...prev, syncFolderName: name }))}
                   variant="full"
                 />
               </div>
@@ -4387,6 +4395,10 @@ export default function App() {
                         onLogout={handleLogout}
                         onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
                         onCheckStatus={checkStatus}
+                        fileName={state.syncFileName}
+                        onFileNameChange={(name) => setState(prev => ({ ...prev, syncFileName: name }))}
+                        folderName={state.syncFolderName}
+                        onFolderNameChange={(name) => setState(prev => ({ ...prev, syncFolderName: name }))}
                         variant="full"
                     />
                </div>

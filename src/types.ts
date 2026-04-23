@@ -93,4 +93,6 @@ export interface Escala {
 export interface AppState {
   characters: Character[];
   activeCharacterId: string | null;
+  syncFileName?: string;
+  syncFolderName?: string;
 }

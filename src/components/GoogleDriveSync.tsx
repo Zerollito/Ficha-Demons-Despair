@@ -9,10 +9,14 @@ interface GoogleDriveSyncProps {
   error: string | null;
   userAccount?: string | null;
   origin?: string;
+  fileName?: string;
+  folderName?: string;
   onSync: () => void;
   onFetch: () => void;
   onLogout: () => void;
   onConnect: (useRedirect?: boolean) => void;
+  onFileNameChange?: (name: string) => void;
+  onFolderNameChange?: (name: string) => void;
   onCheckStatus?: () => void;
   variant?: 'full' | 'menu';
 }
@@ -24,14 +28,21 @@ export function GoogleDriveSync({
   error, 
   userAccount,
   origin,
+  fileName = 'rpg_demons_despair.json',
+  folderName,
   onSync, 
   onFetch, 
   onLogout, 
   onConnect,
+  onFileNameChange,
+  onFolderNameChange,
   onCheckStatus,
   variant = 'full' 
 }: GoogleDriveSyncProps) {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [tempName, setTempName] = useState(fileName);
+  const [tempFolder, setTempFolder] = useState(folderName || '');
 
   const handleHardReset = async () => {
     if (confirm("Isso irá limpar o cache do app e recarregar. Deseja continuar?")) {
@@ -162,7 +173,7 @@ export function GoogleDriveSync({
           <div>
             <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
                 Backup na Nuvem
-                <span className="text-[8px] bg-zinc-800 text-zinc-600 px-1 py-0.5 rounded leading-none">V5.2</span>
+                <span className="text-[8px] bg-zinc-800 text-zinc-600 px-1 py-0.5 rounded leading-none">V5.4</span>
             </h3>
             <div className="flex flex-col">
                 <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider leading-none">
@@ -250,7 +261,7 @@ export function GoogleDriveSync({
       )}
 
       {(lastSync || error) && (
-        <div className="mt-4 pt-3 border-t border-zinc-800/50">
+        <div className="mt-4 pt-3 border-t border-zinc-800/50 space-y-3">
           {error ? (
             <div className="flex items-center gap-2 text-red-400 text-[10px] font-bold bg-red-400/5 p-2 rounded border border-red-400/10">
               <AlertCircle size={14} /> 
@@ -262,11 +273,87 @@ export function GoogleDriveSync({
                   <span>Último Backup</span>
                   <span className="text-zinc-400">{lastSync}</span>
                 </div>
-                <div className="flex items-center gap-1.5 text-[9px] text-zinc-600 italic">
-                  <CheckCircle2 size={10} /> Arquivo: rpg_demons_despair.json
-                </div>
             </div>
           )}
+
+          {/* Seletor de Nome de Arquivo (V5.4) */}
+          <div className="p-3 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
+             <div className="flex items-center justify-between mb-3">
+                <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Identidade do Backup</span>
+                {!isEditingName ? (
+                    <button 
+                        onClick={() => {
+                            setTempName(fileName);
+                            setTempFolder(folderName || '');
+                            setIsEditingName(true);
+                        }}
+                        className="text-[9px] text-amber-500 hover:text-amber-400 font-bold uppercase"
+                    >
+                        Configurar Local
+                    </button>
+                ) : (
+                    <div className="flex gap-2">
+                        <button 
+                            onClick={() => setIsEditingName(false)}
+                            className="text-[9px] text-zinc-500 hover:text-zinc-400 font-bold uppercase"
+                        >
+                            Cancelar
+                        </button>
+                        <button 
+                            onClick={() => {
+                                if (tempName.trim()) {
+                                    onFileNameChange?.(tempName.trim().endsWith('.json') ? tempName.trim() : tempName.trim() + '.json');
+                                    onFolderNameChange?.(tempFolder.trim() || '');
+                                    setIsEditingName(false);
+                                }
+                            }}
+                            className="text-[9px] text-emerald-500 hover:text-emerald-400 font-bold uppercase"
+                        >
+                            Salvar
+                        </button>
+                    </div>
+                )}
+             </div>
+
+             {isEditingName ? (
+                 <div className="space-y-3">
+                    <div>
+                        <label className="text-[8px] text-zinc-600 uppercase font-bold mb-1 block">Pasta (Opcional)</label>
+                        <input 
+                            type="text"
+                            value={tempFolder}
+                            onChange={(e) => setTempFolder(e.target.value)}
+                            className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-100 font-bold focus:outline-none focus:border-amber-500/50"
+                            placeholder="Ex: Campanhas_RPG"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[8px] text-zinc-600 uppercase font-bold mb-1 block">Nome do Arquivo</label>
+                        <input 
+                            type="text"
+                            value={tempName}
+                            onChange={(e) => setTempName(e.target.value)}
+                            className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-100 font-bold focus:outline-none focus:border-amber-500/50"
+                            placeholder="nome_do_arquivo.json"
+                        />
+                    </div>
+                 </div>
+             ) : (
+                <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2 text-[10px] text-zinc-400">
+                        <span className="text-[8px] uppercase font-bold text-zinc-600 w-10">Pasta:</span>
+                        <span className="font-bold truncate">{folderName || 'Raiz do Drive'}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] text-zinc-300 font-bold">
+                        <span className="text-[8px] uppercase font-bold text-zinc-600 w-10">Arquivo:</span>
+                        <span className="truncate">{fileName}</span>
+                    </div>
+                </div>
+             )}
+             <p className="text-[8px] text-zinc-600 mt-2.5 italic leading-tight">
+                {isEditingName ? "O app criará a pasta automaticamente se ela não existir." : "Dica: Organize seus personagens em pastas diferentes."}
+             </p>
+          </div>
         </div>
       )}
     </div>
