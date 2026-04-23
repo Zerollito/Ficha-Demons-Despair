@@ -162,6 +162,7 @@ export function GoogleDriveSync({
           <div>
             <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
                 Backup na Nuvem
+                <span className="text-[8px] bg-zinc-800 text-zinc-600 px-1 py-0.5 rounded leading-none">V5.2</span>
             </h3>
             <div className="flex flex-col">
                 <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider leading-none">
@@ -177,9 +178,16 @@ export function GoogleDriveSync({
         </div>
 
         {isConnected && (
-           <div className="inline-flex items-center self-start sm:self-auto gap-1.5 text-emerald-500 text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20 whitespace-nowrap">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Sincronizado
+           <div className="flex flex-col items-end gap-1">
+             <div className="inline-flex items-center self-start sm:self-auto gap-1.5 text-emerald-500 text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20 whitespace-nowrap">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Sincronizado
+             </div>
+             {lastSync && (
+                <span className="text-[9px] text-zinc-500 font-medium">
+                    Última vez: {lastSync}
+                </span>
+             )}
            </div>
         )}
       </div>
@@ -226,28 +234,8 @@ export function GoogleDriveSync({
             </motion.button>
             
             <p className="text-[10px] text-zinc-500 text-center px-2 mt-1 italic">
-                Recomendado para Celular/App.
+                Sincronização automática via Google Drive.
             </p>
-
-            <div className="h-px bg-zinc-800 my-1" />
-
-            <button
-               onClick={() => onConnect(false)}
-               className="text-[9px] text-zinc-600 hover:text-zinc-400 transition-colors uppercase font-bold tracking-tighter"
-            >
-                Usar Modo Popup (Apenas Desktop)
-            </button>
-
-            {origin && !isConnected && (
-                <div className="mt-2 p-2 bg-zinc-800/50 border border-zinc-700/50 rounded-lg">
-                    <p className="text-[9px] text-zinc-500 uppercase font-bold tracking-widest mb-1 text-center font-mono">
-                        {origin}
-                    </p>
-                    <p className="text-[8px] text-zinc-600 text-center italic leading-none">
-                        Origem Detectada (Whitelist no Google)
-                    </p>
-                </div>
-            )}
 
             {!isConnected && onCheckStatus && (
                 <motion.button

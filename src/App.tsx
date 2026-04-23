@@ -279,6 +279,17 @@ export default function App() {
     currentOrigin
   } = useGoogleDrive(state, setState);
 
+  // Sistema de Auto-Sync (V5.0): Salva automaticamente no Drive após alterações
+  useEffect(() => {
+    if (!isConnected || isSyncing) return;
+
+    const timer = setTimeout(() => {
+      syncToDrive();
+    }, 5000); // Debounce de 5 segundos para evitar excesso de requisições durante a edição
+
+    return () => clearTimeout(timer);
+  }, [state, isConnected, syncToDrive]);
+
   const menuRef = useRef<HTMLDivElement>(null);
 
   const activeChar = useMemo(() => {
@@ -870,7 +881,7 @@ export default function App() {
           {/* Cloud Status Indicator in Header */}
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={() => setActivePage("notes")}
+            onClick={() => setActivePage("cloud")}
             className={cn(
               "flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-[10px] font-bold uppercase tracking-tight",
               isConnected 
