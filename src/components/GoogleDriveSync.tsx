@@ -12,7 +12,7 @@ interface GoogleDriveSyncProps {
   onSync: () => void;
   onFetch: () => void;
   onLogout: () => void;
-  onConnect: () => void;
+  onConnect: (useRedirect?: boolean) => void;
   onCheckStatus?: () => void;
   variant?: 'full' | 'menu';
 }
@@ -162,7 +162,7 @@ export function GoogleDriveSync({
           <div>
             <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
                 Backup na Nuvem
-                <span className="text-[8px] bg-zinc-800 text-zinc-600 px-1 py-0.5 rounded leading-none">V4.7</span>
+                <span className="text-[8px] bg-zinc-800 text-zinc-600 px-1 py-0.5 rounded leading-none">V4.9</span>
             </h3>
             <div className="flex flex-col">
                 <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider leading-none">
@@ -220,24 +220,32 @@ export function GoogleDriveSync({
         <div className="flex flex-col gap-2">
             <motion.button
               whileTap={{ scale: 0.95 }}
-              onClick={onConnect}
+              onClick={() => onConnect(true)}
               className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-500 hover:bg-emerald-600 text-black rounded-lg text-xs font-bold shadow-lg shadow-emerald-500/10 transition-colors"
             >
               <LogIn size={14} /> Vincular Google Drive
             </motion.button>
             
-            <p className="text-[10px] text-zinc-500 text-center px-2">
-                Suas fichas serão salvas automaticamente no seu próprio Google Drive.
+            <p className="text-[10px] text-zinc-500 text-center px-2 mt-1 italic">
+                Recomendado para Celular/App.
             </p>
+
+            <div className="h-px bg-zinc-800 my-1" />
+
+            <button
+               onClick={() => onConnect(false)}
+               className="text-[9px] text-zinc-600 hover:text-zinc-400 transition-colors uppercase font-bold tracking-tighter"
+            >
+                Usar Modo Popup (Apenas Desktop)
+            </button>
 
             {origin && !isConnected && (
                 <div className="mt-2 p-2 bg-zinc-800/50 border border-zinc-700/50 rounded-lg">
-                    <p className="text-[9px] text-zinc-500 uppercase font-bold tracking-widest mb-1 text-center">Diagnóstico de Origem</p>
-                    <p className="text-[10px] text-amber-500/80 break-all text-center font-mono">
+                    <p className="text-[9px] text-zinc-500 uppercase font-bold tracking-widest mb-1 text-center font-mono">
                         {origin}
                     </p>
-                    <p className="text-[8px] text-zinc-600 mt-1 text-center italic">
-                        Autorize esta URL no Google Cloud Console se aparecer Erro 400.
+                    <p className="text-[8px] text-zinc-600 text-center italic leading-none">
+                        Origem Detectada (Whitelist no Google)
                     </p>
                 </div>
             )}

@@ -19,10 +19,28 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
   const [tokenClient, setTokenClient] = useState<any>(null);
   const [currentOrigin] = useState(() => window.location.origin);
 
-  // Inicializa o cliente do Google GIS
+  // Inicializa o cliente do Google GIS e captura retorno de redirecionamento
   useEffect(() => {
-    console.log("Inicializando Google Drive Sync (V4.7)...");
-    console.log("Origem detectada:", currentOrigin);
+    console.log("Inicializando Google Drive Sync (V4.8)...");
+    
+    // Captura token do URL hash (Modo redirecionamento)
+    const hash = window.location.hash;
+    if (hash.includes('access_token=')) {
+        const params = new URLSearchParams(hash.substring(1));
+        const token = params.get('access_token');
+        if (token) {
+            console.log("Token capturado via Redirecionamento!");
+            localStorage.setItem('google_drive_access_token', token);
+            localStorage.setItem('google_drive_connected_at', Date.now().toString());
+            setIsConnected(true);
+            setError(null);
+            fetchProfile(token);
+            fetchFromDrive(token);
+            // Limpa o hash da URL para ficar limpo
+            window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        }
+    }
+
     const initClient = () => {
       if (window.google && window.google.accounts) {
         try {
@@ -68,7 +86,15 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     } catch (e) { console.error("Erro ao carregar perfil", e); }
   };
 
-  const handleGoogleConnect = () => {
+  const handleGoogleConnect = (useRedirect: boolean = false) => {
+    if (useRedirect) {
+        const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email');
+        const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${redirectUri}&response_type=token&scope=${scope}&prompt=consent`;
+        window.location.href = authUrl;
+        return;
+    }
+
     if (tokenClient) {
       tokenClient.requestAccessToken({ prompt: 'consent' });
     } else {

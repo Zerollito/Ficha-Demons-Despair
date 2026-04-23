@@ -890,7 +890,7 @@ export default function App() {
             <span className="hidden sm:inline">
                 {isConnected ? "Nuvem ON" : "Nuvem OFF"}
             </span>
-            <span className="text-[8px] opacity-50 ml-0.5">V4.6</span>
+            <span className="text-[8px] opacity-50 ml-0.5">V4.9</span>
           </motion.button>
 
           <motion.button
@@ -979,7 +979,7 @@ export default function App() {
               onSync={syncToDrive}
               onFetch={fetchFromDrive}
               onLogout={handleLogout}
-              onConnect={handleGoogleConnect}
+              onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
               onCheckStatus={checkStatus}
               variant="menu"
             />
@@ -3731,7 +3731,7 @@ export default function App() {
                   onSync={syncToDrive}
                   onFetch={fetchFromDrive}
                   onLogout={handleLogout}
-                  onConnect={handleGoogleConnect}
+                  onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
                   onCheckStatus={checkStatus}
                   variant="full"
                 />
@@ -4379,7 +4379,7 @@ export default function App() {
                         onSync={syncToDrive}
                         onFetch={fetchFromDrive}
                         onLogout={handleLogout}
-                        onConnect={handleGoogleConnect}
+                        onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
                         onCheckStatus={checkStatus}
                         variant="full"
                     />
