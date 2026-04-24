@@ -261,8 +261,15 @@ export function GoogleDriveSync({
               <LogIn size={14} /> Vincular Google Drive
             </motion.button>
             
+            <button 
+              onClick={() => onConnect(true)}
+              className="text-[9px] text-zinc-500 hover:text-emerald-400 font-bold uppercase tracking-widest mt-1 text-center py-1 transition-colors"
+            >
+                Problemas com o Pop-up? (Usar Modo Seguro)
+            </button>
+            
             <p className="text-[10px] text-zinc-500 text-center px-2 mt-1 italic">
-                Sincronização via Pop-up (Requer Janela Isolada).
+                A sincronização requer autorização do Google Drive.
             </p>
 
             {!isConnected && onCheckStatus && (
