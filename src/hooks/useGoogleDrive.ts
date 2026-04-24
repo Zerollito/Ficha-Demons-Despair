@@ -21,19 +21,12 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
 
   // Inicializa o cliente do Google GIS e captura retorno de redirecionamento
   useEffect(() => {
-    console.log("Inicializando Google Drive Sync (V5.9)...");
-    console.log("Current Origin:", window.location.origin);
-    console.log("Current URL:", window.location.href);
-    console.log("Current Pathname (for Redirect URI):", window.location.pathname);
-    
     // Captura token do URL hash (Modo redirecionamento)
     const hash = window.location.hash;
     if (hash.includes('access_token=')) {
-        console.log("Detectado access_token no hash da URL!");
         const params = new URLSearchParams(hash.substring(1));
         const token = params.get('access_token');
         if (token) {
-            console.log("Token extraído com sucesso!");
             localStorage.setItem('google_drive_access_token', token);
             localStorage.setItem('google_drive_connected_at', Date.now().toString());
             setIsConnected(true);
@@ -53,7 +46,6 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
               scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
               callback: (response: any) => {
                 if (response.error) {
-                  console.error("GIS Error Response:", response);
                   if (response.error === 'access_denied' || response.error === 'idpiframe_initialization_failed') {
                     setError("ERRO 403: Esta URL de Preview não está autorizada no seu Google Cloud Console.");
                   } else {

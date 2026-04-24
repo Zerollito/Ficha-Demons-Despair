@@ -8,7 +8,6 @@ interface GoogleDriveSyncProps {
   lastSync: string | null;
   error: string | null;
   userAccount?: string | null;
-  origin?: string;
   fileName?: string;
   folderName?: string;
   onSync: () => void;
@@ -27,7 +26,6 @@ export function GoogleDriveSync({
   lastSync, 
   error, 
   userAccount,
-  origin,
   fileName = 'rpg_demons_despair.json',
   folderName,
   onSync, 
@@ -173,7 +171,6 @@ export function GoogleDriveSync({
           <div>
             <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
                 Backup na Nuvem
-                <span className="text-[8px] bg-zinc-800 text-zinc-600 px-1 py-0.5 rounded leading-none">V5.9</span>
             </h3>
             <div className="flex flex-col">
                 <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider leading-none">
@@ -260,150 +257,12 @@ export function GoogleDriveSync({
         </div>
       )}
 
-      <div className="mt-4 pt-3 border-t border-zinc-800/20">
-        <details className="group">
-            <summary className="flex items-center justify-between cursor-pointer list-none">
-                <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest group-open:text-amber-500 transition-colors">
-                    Configurações do Google Cloud
-                </span>
-                <div className="text-zinc-700 group-open:rotate-180 transition-transform">
-                    <ChevronDown size={12} />
-                </div>
-            </summary>
-            
-            <div className="mt-3 space-y-3 p-3 bg-zinc-950/30 rounded-xl border border-zinc-800/30">
-                <p className="text-[9px] text-zinc-500 leading-tight">
-                    Se você encontrar erros <span className="text-amber-500 font-bold">403</span> ou <span className="text-red-500 font-bold">400</span>, certifique-se de que as URLs abaixo estão cadastradas no seu <span className="text-zinc-300">Console do Google Cloud &gt; APIs &gt; Credenciais &gt; ID do Cliente OAuth 2.0</span>.
-                </p>
-
-                <div className="space-y-2">
-                    <div>
-                        <div className="flex items-center justify-between mb-1">
-                            <span className="text-[8px] font-black text-zinc-600 uppercase tracking-tighter">Origens JavaScript</span>
-                            <button 
-                                onClick={() => {
-                                    navigator.clipboard.writeText(window.location.origin);
-                                    alert("Origem copiada!");
-                                }}
-                                className="text-[8px] text-amber-500 font-bold hover:underline"
-                            >
-                                COPIAR
-                            </button>
-                        </div>
-                        <div className="p-2 bg-zinc-950/50 rounded border border-zinc-800 font-mono text-[9px] break-all text-zinc-400">
-                            {window.location.origin}
-                        </div>
-                    </div>
-
-                    <div>
-                        <div className="flex items-center justify-between mb-1">
-                            <span className="text-[8px] font-black text-zinc-600 uppercase tracking-tighter">URIs de Redirecionamento</span>
-                            <button 
-                                onClick={() => {
-                                    navigator.clipboard.writeText(window.location.origin + window.location.pathname);
-                                    alert("URI de Redirecionamento copiada!");
-                                }}
-                                className="text-[8px] text-amber-500 font-bold hover:underline"
-                            >
-                                COPIAR
-                            </button>
-                        </div>
-                        <div className="p-2 bg-zinc-950/50 rounded border border-zinc-800 font-mono text-[9px] break-all text-zinc-400">
-                            {window.location.origin + window.location.pathname}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="pt-2 border-t border-zinc-800/30 space-y-2">
-                    <button 
-                        onClick={() => onConnect(true)}
-                        className="w-full py-2 bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[9px] font-black uppercase rounded hover:bg-blue-500/20 transition-all"
-                    >
-                        Forçar Modo Redirecionamento (Expert)
-                    </button>
-                    <button 
-                        onClick={() => window.open(window.location.origin + window.location.pathname, '_blank')}
-                        className="w-full py-2 bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[9px] font-black uppercase rounded hover:bg-amber-500/20 transition-all"
-                    >
-                        Abrir em Janela Isolada
-                    </button>
-                    <p className="text-[7px] text-zinc-600 mt-1 italic text-center uppercase">Use a janela isolada para permitir o pop-up do Google</p>
-                </div>
-            </div>
-        </details>
-      </div>
-
       {(lastSync || error) && (
         <div className="mt-4 pt-3 border-t border-zinc-800/50 space-y-3">
           {error ? (
-            <div className="flex flex-col gap-2 bg-red-400/5 p-3 rounded-xl border border-red-400/20">
-              <div className="flex items-center gap-2 text-red-400 text-[10px] font-bold">
-                <AlertCircle size={14} /> 
-                <span>{error}</span>
-              </div>
-              
-              {error.includes('403') && (
-                <div className="mt-2 space-y-2">
-                    <div className="p-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                        <p className="text-[9px] text-amber-400 leading-tight font-medium">
-                            <span className="font-black">ERRO 403 (ORIGEM):</span> O Google bloqueia login em URLs de "Preview" que não foram cadastradas no seu Console do GCP.
-                        </p>
-                    </div>
-                    
-                    <div className="space-y-1">
-                        <p className="text-[8px] text-zinc-500 uppercase font-bold px-1">Copie para 'Origens JavaScript':</p>
-                        <div className="flex gap-1">
-                            <div className="flex-1 p-2 bg-zinc-950 rounded border border-zinc-800 font-mono text-[9px] break-all text-amber-500 select-all overflow-hidden whitespace-nowrap text-ellipsis">
-                                {window.location.origin}
-                            </div>
-                            <button 
-                                onClick={() => {
-                                    navigator.clipboard.writeText(window.location.origin);
-                                    alert("URL de Origem Copiada!");
-                                }}
-                                className="px-2 bg-zinc-800 rounded border border-zinc-700 text-zinc-400 hover:text-white"
-                            >
-                                <span className="text-[8px] font-bold uppercase">Copiar</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <button 
-                        onClick={() => window.open(window.location.href, '_blank')}
-                        className="w-full py-2.5 bg-amber-500 text-zinc-950 text-[10px] font-black uppercase rounded-lg hover:bg-amber-400 transition-all shadow-lg shadow-amber-500/10 active:scale-95"
-                    >
-                        Tentar em Janela Isolada
-                    </button>
-                </div>
-              )}
-
-              {error.includes('400') && (
-                <div className="mt-2 space-y-2">
-                    <div className="p-2 bg-red-500/10 border border-red-500/20 rounded-lg">
-                        <p className="text-[9px] text-red-400 leading-tight font-medium">
-                            <span className="font-black">ERRO 400 (REDIRECT_URI_MISMATCH):</span> O Google exige que o Redirecionamento seja IDÊNTICO ao cadastrado (incluindo barras finais).
-                        </p>
-                    </div>
-
-                    <div className="space-y-1">
-                        <p className="text-[8px] text-zinc-500 uppercase font-bold px-1">URI EXATA PARA O CONSOLE:</p>
-                        <div className="flex gap-1">
-                            <div className="flex-1 p-2 bg-zinc-950 rounded border border-zinc-800 font-mono text-[9px] break-all text-red-500 select-all overflow-hidden">
-                                {window.location.origin + window.location.pathname}
-                            </div>
-                            <button 
-                                onClick={() => {
-                                    navigator.clipboard.writeText(window.location.origin + window.location.pathname);
-                                    alert("Copiado! Certifique-se de colar na seção 'URIs de Redirecionamento' do seu console GCP.");
-                                }}
-                                className="px-2 bg-zinc-800 rounded border border-zinc-700 text-zinc-400 hover:text-white"
-                            >
-                                <span className="text-[8px] font-bold uppercase">Copiar</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-              )}
+            <div className="flex items-center gap-2 text-red-400 text-[10px] font-bold bg-red-400/5 p-2 rounded border border-red-400/10">
+              <AlertCircle size={14} /> 
+              <span>{error}</span>
             </div>
           ) : (
             <div className="flex flex-col gap-1">

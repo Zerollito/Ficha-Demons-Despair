@@ -985,7 +985,6 @@ export default function App() {
               lastSync={lastSync}
               error={driveError}
               userAccount={userAccount}
-              origin={currentOrigin}
               onSync={syncToDrive}
               onFetch={fetchFromDrive}
               onLogout={handleLogout}
@@ -3741,7 +3740,6 @@ export default function App() {
                   lastSync={lastSync}
                   error={driveError}
                   userAccount={userAccount}
-                  origin={currentOrigin}
                   onSync={syncToDrive}
                   onFetch={fetchFromDrive}
                   onLogout={handleLogout}
@@ -4389,7 +4387,6 @@ export default function App() {
                         lastSync={lastSync}
                         error={driveError}
                         userAccount={userAccount}
-                        origin={currentOrigin}
                         onSync={syncToDrive}
                         onFetch={fetchFromDrive}
                         onLogout={handleLogout}

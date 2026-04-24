@@ -3,29 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RPG: Demon's Despair - V5.9 Stable</title>
+    <title>RPG: Demon's Despair - V6.0 Stable</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script>
-      // SCRIPT DE EMERGÊNCIA - FORCE UPDATE V5.9
+      // SCRIPT DE VERSÃO - V6.0
       (function() {
-        const VERSION = '5.9';
+        const VERSION = '6.0';
         const lastInjected = localStorage.getItem('app_version_injected');
         if (lastInjected !== VERSION) {
-          console.log("Versão antiga detectada (V5.9). Limpando tudo...");
+          console.log("Atualizando para V6.0...");
           localStorage.setItem('app_version_injected', VERSION);
-          
-          // Limpa todos os caches possíveis
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
-          }
           if (typeof caches !== 'undefined') {
             caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
           }
-          
-          // Pequeno delay para garantir limpeza antes do reload
-          setTimeout(() => {
-            window.location.reload(true);
-          }, 100);
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+          }
+          setTimeout(() => window.location.reload(true), 100);
         }
       })();
     </script>
