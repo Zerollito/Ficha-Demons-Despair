@@ -3,28 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RPG: Demon's Despair - V5.4 Stable</title>
+    <title>RPG: Demon's Despair - V5.9 Stable</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script>
-      // SCRIPT DE EMERGÊNCIA - FORCE UPDATE V5.4
+      // SCRIPT DE EMERGÊNCIA - FORCE UPDATE V5.9
       (function() {
-        const VERSION = '5.4';
+        const VERSION = '5.9';
         const lastInjected = localStorage.getItem('app_version_injected');
         if (lastInjected !== VERSION) {
-          console.log("Versão antiga detectada. Limpando caches...");
+          console.log("Versão antiga detectada (V5.9). Limpando tudo...");
           localStorage.setItem('app_version_injected', VERSION);
+          
+          // Limpa todos os caches possíveis
           if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(regs => {
-              regs.forEach(r => r.unregister());
-            });
+            navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
           }
           if (typeof caches !== 'undefined') {
-            caches.keys().then(keys => {
-              keys.forEach(k => caches.delete(k));
-            });
+            caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
           }
-          // Limpa caches residuais de Clients IDs antigos
-          localStorage.removeItem('google_drive_client_id');
+          
+          // Pequeno delay para garantir limpeza antes do reload
+          setTimeout(() => {
+            window.location.reload(true);
+          }, 100);
         }
       })();
     </script>
