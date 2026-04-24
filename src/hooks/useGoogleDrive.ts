@@ -46,14 +46,20 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     }
 
     try {
-        const view = new window.google.picker.DocsView();
-        view.setIncludeFolders(true);
-        view.setMimeTypes('application/vnd.google-apps.folder');
-        view.setSelectableMimeTypes('application/vnd.google-apps.folder');
+        const view = new window.google.picker.DocsView(window.google.picker.ViewId.FOLDERS);
+        
+        // Tentativa segura de habilitar seleção de pastas
+        try {
+            if (typeof view.setSelectableMimeTypes === 'function') {
+                view.setSelectableMimeTypes('application/vnd.google-apps.folder');
+            }
+        } catch (e) {
+            console.warn("setSelectableMimeTypes não suportado nesta view");
+        }
 
         const picker = new window.google.picker.PickerBuilder()
             .addView(view)
-            .addView(new window.google.picker.NavigationWidgetView()) // Adiciona navegação lateral
+            .addView(new window.google.picker.NavigationWidgetView())
             .setOAuthToken(token)
             .setCallback((data: any) => {
                 if (data.action === window.google.picker.Action.PICKED) {

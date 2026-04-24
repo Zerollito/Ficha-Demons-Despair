@@ -3,16 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RPG: Demon's Despair - V6.1 Stable</title>
+    <title>RPG: Demon's Despair - V6.2 Stable</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://apis.google.com/js/api.js"></script>
     <script>
-      // SCRIPT DE VERSÃO - V6.1
+      // SCRIPT DE VERSÃO - V6.2
       (function() {
-        const VERSION = '6.1';
+        const VERSION = '6.2';
         const lastInjected = localStorage.getItem('app_version_injected');
         if (lastInjected !== VERSION) {
-          console.log("Atualizando para V6.1...");
+          console.log("Atualizando para V6.2...");
           localStorage.setItem('app_version_injected', VERSION);
           if (typeof caches !== 'undefined') {
             caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
