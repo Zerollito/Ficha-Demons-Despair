@@ -46,11 +46,14 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     }
 
     try {
-        const view = new window.google.picker.DocsView(window.google.picker.ViewId.FOLDERS)
-            .setMimeTypes('application/vnd.google-apps.folder');
+        const view = new window.google.picker.DocsView();
+        view.setIncludeFolders(true);
+        view.setMimeTypes('application/vnd.google-apps.folder');
+        view.setSelectableMimeTypes('application/vnd.google-apps.folder');
 
         const picker = new window.google.picker.PickerBuilder()
             .addView(view)
+            .addView(new window.google.picker.NavigationWidgetView()) // Adiciona navegação lateral
             .setOAuthToken(token)
             .setCallback((data: any) => {
                 if (data.action === window.google.picker.Action.PICKED) {
