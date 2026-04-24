@@ -447,7 +447,7 @@ export default function App() {
   };
 
   const rollCombat = (arma: any, bonusManual: number) => {
-    // 1. Calculate Hit Bonus (Acurácia + Arma.acerto)
+    // 1. Calculate Hit Bonus (Acurácia)
     const acuraciaBonus = calculateProficiencyBonus(
       activeChar.stats,
       "Acurácia",
@@ -460,7 +460,7 @@ export default function App() {
       activeChar.bonusProficiencias?.["Acurácia"] || 0,
     );
     const totalHitBonus =
-      (acuraciaBonus || 0) + (arma.acerto || 0) + (bonusManual || 0);
+      (acuraciaBonus || 0) + (bonusManual || 0);
 
     // 2. Roll Hit (3d8)
     const hitRolls: number[] = [];
@@ -3810,6 +3810,22 @@ export default function App() {
                           statValue,
                         );
 
+                        const acuraciaBonus = calculateProficiencyBonus(
+                          activeChar.stats,
+                          "Acurácia",
+                          ["FOR", "DEX"],
+                          activeChar.fome,
+                          activeChar.sede,
+                          activeChar.cansaco,
+                          activeChar.clima,
+                          climateProficiency,
+                          activeChar.bonusProficiencias?.["Acurácia"] || 0,
+                        );
+
+                        const totalHit = (acuraciaBonus || 0);
+                        const weaponAcerto = (arma.acerto || 0);
+                        const danoStr = (arma.dano || "1d6").toLowerCase().replace(/\s+/g, "");
+
                         return (
                           <motion.button
                             key={`${arma.id}-${aIdx}`}
@@ -3825,15 +3841,41 @@ export default function App() {
                               <span className="text-xs font-black text-amber-500 uppercase tracking-tighter truncate pr-8">
                                 {arma.nome}
                               </span>
-                              <span className="text-[9px] text-zinc-500 font-bold uppercase">
-                                Escala {arma.escala || "0"} •{" "}
-                                {arma.atributoBase}
-                              </span>
+                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
+                                <span className="text-[9px] text-zinc-500 font-bold uppercase">
+                                  Escala {arma.escala || "0"} • {arma.atributoBase} • Acerto Arma: {weaponAcerto}
+                                </span>
+                              </div>
                             </div>
 
-                            <div className="pt-2 border-t border-zinc-800/50">
+                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800/50">
+                              <div className="flex flex-col">
+                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">
+                                  Bônus Acerto
+                                </span>
+                                <span className="text-xs font-black text-amber-500">
+                                  +{totalHit}
+                                </span>
+                                <span className="text-[7px] text-zinc-600 uppercase font-bold">
+                                  Acurácia +{acuraciaBonus}
+                                </span>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">
+                                  Dano
+                                </span>
+                                <span className="text-xs font-black text-zinc-300">
+                                  {danoStr}{scalingBonus > 0 ? `+${scalingBonus}` : scalingBonus < 0 ? scalingBonus : ""}
+                                </span>
+                                <span className="text-[7px] text-zinc-600 uppercase font-bold">
+                                  Escala +{scalingBonus}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-zinc-800/50 flex items-center justify-between">
                               <span className="text-[10px] font-black text-amber-500/80 uppercase tracking-widest flex items-center gap-1">
-                                Rolar Combate <Plus size={10} />
+                                Rolar <Plus size={10} />
                               </span>
                             </div>
                           </motion.button>

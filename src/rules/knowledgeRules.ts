@@ -8,8 +8,9 @@ export interface Knowledge {
 }
 
 export const getXpToNextLevel = (currentLevel: number) => {
-  // nivel 0->1 = 5, cada nível seguinte +5
-  return CONFIG.knowledge.baseXp + (currentLevel * CONFIG.knowledge.xpIncrement);
+  // nivel -1->0 = 5, 0->1 = 5, cada nível seguinte +5
+  const level = Math.max(0, currentLevel);
+  return CONFIG.knowledge.baseXp + (level * CONFIG.knowledge.xpIncrement);
 };
 
 export const INITIAL_KNOWLEDGES = [
