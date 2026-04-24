@@ -3741,31 +3741,7 @@ export default function App() {
                 </div>
               </Section>
 
-              {/* Cloud Sync section at the bottom of the sheet for maximum visibility */}
-              <div className="mt-8 pt-8 border-t border-zinc-800/30">
-                <GoogleDriveSync
-                  isConnected={isConnected}
-                  isSyncing={isSyncing}
-                  lastSync={lastSync}
-                  error={driveError}
-                  userAccount={userAccount}
-                  onSync={syncToDrive}
-                  onFetch={fetchFromDrive}
-                  onLogout={handleLogout}
-                  onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
-                  onCheckStatus={checkStatus}
-                  onPickerOpen={handleOpenPicker}
-                  listFolders={listFolders}
-                  listFiles={listFiles}
-                  onDownloadFile={downloadFile}
-                  onFolderIdChange={(id) => setState(prev => ({ ...prev, syncFolderId: id }))}
-                  fileName={state.syncFileName}
-                  onFileNameChange={(name) => setState(prev => ({ ...prev, syncFileName: name }))}
-                  folderName={state.syncFolderName}
-                  onFolderNameChange={(name) => setState(prev => ({ ...prev, syncFolderName: name }))}
-                  variant="full"
-                />
-              </div>
+
             </div>
           </div>
         ) : activePage === "dice" ? (
