@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Cloud as CloudIcon, CloudOff as CloudOffIcon, RefreshCw as RefreshCwIcon, LogIn, LogOut, CheckCircle2, AlertCircle, ChevronDown } from 'lucide-react';
+import { Cloud as CloudIcon, CloudOff as CloudOffIcon, RefreshCw as RefreshCwIcon, LogIn, LogOut, CheckCircle2, AlertCircle, ChevronDown, FolderOpen } from 'lucide-react';
+import { DriveExplorer } from './DriveExplorer';
+import { CloudFileSelector } from './CloudFileSelector';
 
 interface GoogleDriveSyncProps {
   isConnected: boolean;
@@ -12,12 +14,16 @@ interface GoogleDriveSyncProps {
   folderName?: string;
   onSync: () => void;
   onFetch: () => void;
+  onDownloadFile?: (fileId: string) => void;
   onLogout: () => void;
   onConnect: (useRedirect?: boolean) => void;
   onFileNameChange?: (name: string) => void;
   onFolderNameChange?: (name: string) => void;
+  onFolderIdChange?: (id: string) => void;
   onPickerOpen?: () => void;
   onCheckStatus?: () => void;
+  listFolders: (parentId?: string) => Promise<any[]>;
+  listFiles: (folderId?: string) => Promise<any[]>;
   variant?: 'full' | 'menu';
 }
 
@@ -31,15 +37,21 @@ export function GoogleDriveSync({
   folderName,
   onSync, 
   onFetch, 
+  onDownloadFile,
   onLogout, 
   onConnect,
   onFileNameChange,
   onFolderNameChange,
+  onFolderIdChange,
   onPickerOpen,
   onCheckStatus,
+  listFolders,
+  listFiles,
   variant = 'full' 
 }: GoogleDriveSyncProps) {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showExplorer, setShowExplorer] = useState(false);
+  const [showFileSelector, setShowFileSelector] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(fileName);
   const [tempFolder, setTempFolder] = useState(folderName || '');
@@ -63,6 +75,54 @@ export function GoogleDriveSync({
     }
   };
 
+  // Content for the logout modal - extracted to be reusable
+  const logoutModal = (
+    <AnimatePresence>
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+            className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl max-w-sm w-full shadow-2xl text-center"
+          >
+            <div className="flex justify-center mb-6">
+                <div className="p-4 bg-red-500/10 rounded-2xl text-red-500">
+                    <LogOut size={32} />
+                </div>
+            </div>
+            
+            <h3 className="text-xl font-black text-white mb-2 uppercase tracking-tight">Desconectar?</h3>
+            <p className="text-zinc-500 text-sm mb-8 font-medium leading-relaxed">
+              Deseja desconectar sua conta do Google Drive? 
+              Seus saves em nuvem continuarão seguros, mas a sincronização automática será pausada.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setShowLogoutConfirm(false)}
+                className="py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl transition-all text-xs font-black uppercase tracking-widest text-zinc-400"
+              >
+                Cancelar
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => {
+                    onLogout();
+                    setShowLogoutConfirm(false);
+                }}
+                className="py-3 bg-red-600 hover:bg-red-500 rounded-xl transition-all text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-red-600/20"
+              >
+                Sair
+              </motion.button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+
   // Menu variant renders as a button for the dropdown
   if (variant === 'menu') {
     return (
@@ -70,7 +130,7 @@ export function GoogleDriveSync({
         {!isConnected ? (
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={onConnect}
+            onClick={() => onConnect()}
             className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
           >
             <CloudIcon size={18} className={error ? "text-red-500" : "text-amber-500"} /> 
@@ -107,49 +167,7 @@ export function GoogleDriveSync({
           </div>
         )}
 
-        {/* Logout Confirmation Modal */}
-        <AnimatePresence>
-          {showLogoutConfirm && (
-            <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-              <motion.div
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
-                className="bg-zinc-900 border border-zinc-800 p-6 rounded-xl max-w-sm w-full shadow-2xl"
-              >
-                <div className="flex items-center gap-3 mb-4 text-amber-500">
-                  <CloudIcon size={24} />
-                  <h3 className="text-lg font-bold">Google Drive</h3>
-                </div>
-                
-                <p className="text-zinc-400 text-sm mb-6">
-                  Deseja desconectar sua conta do Google Drive? 
-                  A sincronização em nuvem será desativada.
-                </p>
-
-                <div className="flex gap-3">
-                  <motion.button
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowLogoutConfirm(false)}
-                    className="flex-1 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-sm font-medium text-zinc-300"
-                  >
-                    Manter
-                  </motion.button>
-                  <motion.button
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => {
-                        onLogout();
-                        setShowLogoutConfirm(false);
-                    }}
-                    className="flex-1 py-2 bg-red-600 hover:bg-red-500 rounded-lg transition-colors text-sm font-medium text-white"
-                  >
-                    Desconectar
-                  </motion.button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
+        {logoutModal}
       </>
     );
   }
@@ -216,7 +234,7 @@ export function GoogleDriveSync({
             </motion.button>
             <motion.button
               whileTap={{ scale: 0.95 }}
-              onClick={onFetch}
+              onClick={() => setShowFileSelector(true)}
               disabled={isSyncing}
               className="flex flex-col items-center justify-center gap-1 py-3 bg-zinc-800 hover:bg-blue-600/10 hover:border-blue-500/30 disabled:opacity-50 text-zinc-300 hover:text-blue-400 rounded-lg text-xs font-bold transition-all border border-zinc-700"
             >
@@ -319,14 +337,22 @@ export function GoogleDriveSync({
                     <div>
                         <div className="flex items-center justify-between mb-1">
                             <label className="text-[8px] text-zinc-600 uppercase font-bold">Pasta no Google Drive</label>
-                            {onPickerOpen && (
+                            <div className="flex gap-2">
                                 <button 
-                                    onClick={onPickerOpen}
-                                    className="text-[8px] text-amber-500 hover:text-amber-400 font-black uppercase tracking-tighter"
+                                    onClick={() => setShowExplorer(true)}
+                                    className="text-[8px] text-amber-500 hover:text-amber-400 font-black uppercase tracking-tighter flex items-center gap-1"
                                 >
-                                    Selecionar Manualmente
+                                    <FolderOpen size={10} /> Explorer
                                 </button>
-                            )}
+                                {onPickerOpen && (
+                                    <button 
+                                        onClick={onPickerOpen}
+                                        className="text-[8px] text-zinc-500 hover:text-zinc-400 font-black uppercase tracking-tighter"
+                                    >
+                                        Picker
+                                    </button>
+                                )}
+                            </div>
                         </div>
                         <input 
                             type="text"
@@ -365,6 +391,41 @@ export function GoogleDriveSync({
           </div>
         </div>
       )}
+
+      {/* Navegador de Pastas */}
+      <AnimatePresence>
+        {showExplorer && (
+          <DriveExplorer
+            isOpen={showExplorer}
+            onClose={() => setShowExplorer(false)}
+            listFolders={listFolders}
+            onSelect={(folder) => {
+              setTempFolder(folder.name);
+              onFolderNameChange?.(folder.name);
+              onFolderIdChange?.(folder.id);
+              setShowExplorer(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Seletor de Arquivos para Download */}
+      <AnimatePresence>
+        {showFileSelector && (
+          <CloudFileSelector
+            isOpen={showFileSelector}
+            onClose={() => setShowFileSelector(false)}
+            listFiles={listFiles}
+            currentFolderName={folderName}
+            onSelect={(fileId) => {
+                onDownloadFile?.(fileId);
+                setShowFileSelector(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {logoutModal}
     </div>
   );
 }

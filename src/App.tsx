@@ -272,11 +272,14 @@ export default function App() {
     userAccount,
     fetchFromDrive,
     syncToDrive,
+    downloadFile,
     handleLogout,
     handleGoogleConnect,
     handleOpenPicker,
     checkStatus,
     setError: setDriveError,
+    listFolders,
+    listFiles,
     currentOrigin
   } = useGoogleDrive(state, setState);
 
@@ -992,6 +995,10 @@ export default function App() {
               onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
               onCheckStatus={checkStatus}
               onPickerOpen={handleOpenPicker}
+              listFolders={listFolders}
+              listFiles={listFiles}
+              onDownloadFile={downloadFile}
+              onFolderIdChange={(id) => setState(prev => ({ ...prev, syncFolderId: id }))}
               fileName={state.syncFileName}
               onFileNameChange={(name) => setState(prev => ({ ...prev, syncFileName: name }))}
               folderName={state.syncFolderName}
@@ -3748,6 +3755,10 @@ export default function App() {
                   onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
                   onCheckStatus={checkStatus}
                   onPickerOpen={handleOpenPicker}
+                  listFolders={listFolders}
+                  listFiles={listFiles}
+                  onDownloadFile={downloadFile}
+                  onFolderIdChange={(id) => setState(prev => ({ ...prev, syncFolderId: id }))}
                   fileName={state.syncFileName}
                   onFileNameChange={(name) => setState(prev => ({ ...prev, syncFileName: name }))}
                   folderName={state.syncFolderName}
@@ -4396,6 +4407,10 @@ export default function App() {
                         onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
                         onCheckStatus={checkStatus}
                         onPickerOpen={handleOpenPicker}
+                        listFolders={listFolders}
+                        listFiles={listFiles}
+                        onDownloadFile={downloadFile}
+                        onFolderIdChange={(id) => setState(prev => ({ ...prev, syncFolderId: id }))}
                         fileName={state.syncFileName}
                         onFileNameChange={(name) => setState(prev => ({ ...prev, syncFileName: name }))}
                         folderName={state.syncFolderName}

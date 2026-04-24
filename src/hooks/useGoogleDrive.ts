@@ -46,38 +46,35 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     }
 
     try {
-        const view = new window.google.picker.DocsView(window.google.picker.ViewId.FOLDERS);
-        
-        // Tentativa segura de habilitar seleção de pastas
-        try {
-            if (typeof view.setSelectableMimeTypes === 'function') {
-                view.setSelectableMimeTypes('application/vnd.google-apps.folder');
-            }
-        } catch (e) {
-            console.warn("setSelectableMimeTypes não suportado nesta view");
-        }
+        const view = new window.google.picker.DocsView()
+            .setIncludeFolders(true)
+            .setMimeTypes('application/vnd.google-apps.folder');
 
+        // Proteção contra erro de método em versões específicas
+        if (typeof (view as any).setSelectableMimeTypes === 'function') {
+            (view as any).setSelectableMimeTypes('application/vnd.google-apps.folder');
+        }
+        
         const picker = new window.google.picker.PickerBuilder()
             .addView(view)
-            .addView(new window.google.picker.NavigationWidgetView())
+            .enableFeature(window.google.picker.Feature.SELECT_FOLDER)
             .setOAuthToken(token)
+            .setOrigin(window.location.origin)
+            .setTitle('Selecione uma pasta e clique no botão azul')
             .setCallback((data: any) => {
                 if (data.action === window.google.picker.Action.PICKED) {
                     const doc = data.docs[0];
-                    const folderId = doc.id;
-                    const folderName = doc.name;
-                    
                     onStateUpdate({
                         ...appState,
-                        syncFolderName: folderName,
-                        syncFolderId: folderId
+                        syncFolderName: doc.name,
+                        syncFolderId: doc.id
                     });
                 }
             })
             .build();
         picker.setVisible(true);
     } catch (e: any) {
-        setError("Erro ao abrir seletor: " + e.message + ". Certifique-se de estar em uma Janela Isolada.");
+        setError("Erro ao abrir seletor: " + e.message);
     }
   };
 
@@ -105,7 +102,7 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
         try {
             const client = window.google.accounts.oauth2.initTokenClient({
               client_id: GOOGLE_CLIENT_ID,
-              scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
+              scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.email',
               callback: (response: any) => {
                 if (response.error) {
                   if (response.error === 'access_denied' || response.error === 'idpiframe_initialization_failed') {
@@ -191,7 +188,7 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
 
   const handleGoogleConnect = (useRedirect: boolean = false) => {
     if (useRedirect) {
-        const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email');
+        const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.email');
         const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
         const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${redirectUri}&response_type=token&scope=${scope}&prompt=consent`;
         window.location.href = authUrl;
@@ -328,11 +325,113 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     setIsConnected(false);
     setUserAccount(null);
     setLastSync(null);
+    setError(null);
   };
 
   const checkStatus = () => {
     const token = localStorage.getItem('google_drive_access_token');
     if (token) fetchFromDrive(token);
+  };
+
+  const listFiles = async (folderId?: string) => {
+    const token = localStorage.getItem('google_drive_access_token');
+    if (!token) return [];
+
+    try {
+      let q = "mimeType = 'application/json' and trashed = false";
+      if (folderId) {
+        q += ` and '${folderId}' in parents`;
+      } else if (appState.syncFolderId) {
+          q += ` and '${appState.syncFolderId}' in parents`;
+      }
+      
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc&supportsAllDrives=true&includeItemsFromAllDrives=true`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      return data.files || [];
+    } catch (e) {
+      console.error("Erro ao listar arquivos", e);
+      return [];
+    }
+  };
+
+  const downloadFile = async (fileId: string) => {
+    const token = localStorage.getItem('google_drive_access_token');
+    if (!token) return;
+
+    setIsSyncing(true);
+    try {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        onStateUpdate(data);
+        setLastSync(new Date().toLocaleTimeString());
+        setError(null);
+      } else {
+          throw new Error("Erro ao baixar arquivo do Drive.");
+      }
+    } catch (err: any) {
+      setError(err.message || "Erro ao baixar arquivo.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const listFolders = async (parentFolderId: string = 'root') => {
+    const token = localStorage.getItem('google_drive_access_token');
+    if (!token) return [];
+
+    console.log(`Buscando pastas em: ${parentFolderId}...`);
+
+    try {
+      // Tenta listar com suporte a Shared Drives
+      const q = encodeURIComponent(`mimeType = 'application/vnd.google-apps.folder' and '${parentFolderId}' in parents and trashed = false`);
+      const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&orderBy=name&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+      
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const data = await res.json();
+      
+      if (data.error) {
+        console.error("Erro da API do Google:", data.error);
+        if (data.error.status === 'PERMISSION_DENIED') {
+          setError("Permissão negada. Tente desconectar e conectar novamente para aceitar os novos escopos.");
+        }
+        return [];
+      }
+      
+      // Se for root e não vier nada, tenta carregar os Shared Drives também
+      let folders = data.files || [];
+      console.log(`Encontradas ${folders.length} pastas.`);
+      
+      if (parentFolderId === 'root') {
+        try {
+          const drivesRes = await fetch(`https://www.googleapis.com/drive/v3/drives?fields=drives(id,name)`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const drivesData = await drivesRes.json();
+          if (drivesData.drives) {
+            const driveFolders = drivesData.drives.map((d: any) => ({
+              id: d.id,
+              name: `[Drive Compartilhado] ${d.name}`
+            }));
+            folders = [...driveFolders, ...folders];
+          }
+        } catch (e) {
+          console.warn("Shared Drives não suportados ou erro ao carregar", e);
+        }
+      }
+      
+      return folders;
+    } catch (e) {
+      console.error("Erro ao listar pastas", e);
+      return [];
+    }
   };
 
   return {
@@ -343,11 +442,14 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     userAccount,
     fetchFromDrive,
     syncToDrive,
+    downloadFile,
     handleLogout,
     handleGoogleConnect,
     handleOpenPicker,
     checkStatus,
     setError,
+    listFolders,
+    listFiles,
     currentOrigin
   };
 }
