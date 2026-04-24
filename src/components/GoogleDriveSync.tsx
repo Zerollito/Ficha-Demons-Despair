@@ -16,6 +16,7 @@ interface GoogleDriveSyncProps {
   onConnect: (useRedirect?: boolean) => void;
   onFileNameChange?: (name: string) => void;
   onFolderNameChange?: (name: string) => void;
+  onPickerOpen?: () => void;
   onCheckStatus?: () => void;
   variant?: 'full' | 'menu';
 }
@@ -34,6 +35,7 @@ export function GoogleDriveSync({
   onConnect,
   onFileNameChange,
   onFolderNameChange,
+  onPickerOpen,
   onCheckStatus,
   variant = 'full' 
 }: GoogleDriveSyncProps) {
@@ -315,7 +317,17 @@ export function GoogleDriveSync({
              {isEditingName ? (
                  <div className="space-y-3">
                     <div>
-                        <label className="text-[8px] text-zinc-600 uppercase font-bold mb-1 block">Pasta (Opcional)</label>
+                        <div className="flex items-center justify-between mb-1">
+                            <label className="text-[8px] text-zinc-600 uppercase font-bold">Pasta no Google Drive</label>
+                            {onPickerOpen && (
+                                <button 
+                                    onClick={onPickerOpen}
+                                    className="text-[8px] text-amber-500 hover:text-amber-400 font-black uppercase tracking-tighter"
+                                >
+                                    Selecionar Manualmente
+                                </button>
+                            )}
+                        </div>
                         <input 
                             type="text"
                             value={tempFolder}

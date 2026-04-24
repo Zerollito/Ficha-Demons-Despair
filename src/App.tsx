@@ -274,6 +274,7 @@ export default function App() {
     syncToDrive,
     handleLogout,
     handleGoogleConnect,
+    handleOpenPicker,
     checkStatus,
     setError: setDriveError,
     currentOrigin
@@ -990,6 +991,7 @@ export default function App() {
               onLogout={handleLogout}
               onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
               onCheckStatus={checkStatus}
+              onPickerOpen={handleOpenPicker}
               fileName={state.syncFileName}
               onFileNameChange={(name) => setState(prev => ({ ...prev, syncFileName: name }))}
               folderName={state.syncFolderName}
@@ -3745,6 +3747,7 @@ export default function App() {
                   onLogout={handleLogout}
                   onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
                   onCheckStatus={checkStatus}
+                  onPickerOpen={handleOpenPicker}
                   fileName={state.syncFileName}
                   onFileNameChange={(name) => setState(prev => ({ ...prev, syncFileName: name }))}
                   folderName={state.syncFolderName}
@@ -4392,6 +4395,7 @@ export default function App() {
                         onLogout={handleLogout}
                         onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
                         onCheckStatus={checkStatus}
+                        onPickerOpen={handleOpenPicker}
                         fileName={state.syncFileName}
                         onFileNameChange={(name) => setState(prev => ({ ...prev, syncFileName: name }))}
                         folderName={state.syncFolderName}

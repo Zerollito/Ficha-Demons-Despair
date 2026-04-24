@@ -7,6 +7,7 @@ const GOOGLE_CLIENT_ID = "854232017401-djl9cldteppap81evo5gc8o8rg11kg5d.apps.goo
 declare global {
   interface Window {
     google: any;
+    gapi: any;
   }
 }
 
@@ -18,6 +19,59 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
   const [userAccount, setUserAccount] = useState<string | null>(localStorage.getItem('google_drive_user_email'));
   const [tokenClient, setTokenClient] = useState<any>(null);
   const [currentOrigin] = useState(() => window.location.origin);
+  const [pickerApiLoaded, setPickerApiLoaded] = useState(false);
+
+  // Inicializa Google Picker API
+  useEffect(() => {
+    const loadPicker = () => {
+      if (window.gapi) {
+        window.gapi.load('picker', { callback: () => setPickerApiLoaded(true) });
+      } else {
+        setTimeout(loadPicker, 500);
+      }
+    };
+    loadPicker();
+  }, []);
+
+  const handleOpenPicker = () => {
+    const token = localStorage.getItem('google_drive_access_token');
+    if (!token) {
+        setError("Conecte ao Google Drive primeiro.");
+        return;
+    }
+
+    if (!pickerApiLoaded) {
+        setError("O Selecionador de Pastas ainda está carregando...");
+        return;
+    }
+
+    try {
+        const view = new window.google.picker.DocsView(window.google.picker.ViewId.FOLDERS)
+            .setSelectableMimeTypes('application/vnd.google-apps.folder')
+            .setMimeTypes('application/vnd.google-apps.folder');
+
+        const picker = new window.google.picker.PickerBuilder()
+            .addView(view)
+            .setOAuthToken(token)
+            .setCallback((data: any) => {
+                if (data.action === window.google.picker.Action.PICKED) {
+                    const doc = data.docs[0];
+                    const folderId = doc.id;
+                    const folderName = doc.name;
+                    
+                    onStateUpdate({
+                        ...appState,
+                        syncFolderName: folderName,
+                        syncFolderId: folderId
+                    });
+                }
+            })
+            .build();
+        picker.setVisible(true);
+    } catch (e: any) {
+        setError("Erro ao abrir seletor: " + e.message + ". Certifique-se de estar em uma Janela Isolada.");
+    }
+  };
 
   // Inicializa o cliente do Google GIS e captura retorno de redirecionamento
   useEffect(() => {
@@ -151,7 +205,11 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     try {
       let query = `name='${fileName}' and trashed=false`;
       
-      if (folderName) {
+      const targetFolderId = appState.syncFolderId;
+      
+      if (targetFolderId) {
+        query = `name='${fileName}' and '${targetFolderId}' in parents and trashed=false`;
+      } else if (folderName) {
         const fId = await getFolderId(token, folderName);
         if (fId) {
           query = `name='${fileName}' and '${fId}' in parents and trashed=false`;
@@ -197,13 +255,14 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     setIsSyncing(true);
     try {
       let query = `name='${fileName}' and trashed=false`;
-      let folderId: string | null = null;
+      let folderId: string | null = appState.syncFolderId || null;
       
-      if (folderName) {
+      if (!folderId && folderName) {
         folderId = await getFolderId(token, folderName);
-        if (folderId) {
-          query = `name='${fileName}' and '${folderId}' in parents and trashed=false`;
-        }
+      }
+
+      if (folderId) {
+        query = `name='${fileName}' and '${folderId}' in parents and trashed=false`;
       }
 
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name)`, {
@@ -263,6 +322,11 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     setLastSync(null);
   };
 
+  const checkStatus = () => {
+    const token = localStorage.getItem('google_drive_access_token');
+    if (token) fetchFromDrive(token);
+  };
+
   return {
     isConnected,
     isSyncing,
@@ -273,6 +337,8 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     syncToDrive,
     handleLogout,
     handleGoogleConnect,
+    handleOpenPicker,
+    checkStatus,
     setError,
     currentOrigin
   };

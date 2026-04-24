@@ -95,4 +95,5 @@ export interface AppState {
   activeCharacterId: string | null;
   syncFileName?: string;
   syncFolderName?: string;
+  syncFolderId?: string;
 }
