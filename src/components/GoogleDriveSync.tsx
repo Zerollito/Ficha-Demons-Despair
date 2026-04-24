@@ -255,21 +255,21 @@ export function GoogleDriveSync({
         <div className="flex flex-col gap-2">
             <motion.button
               whileTap={{ scale: 0.95 }}
-              onClick={() => onConnect(false)}
+              onClick={() => onConnect(true)}
               className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-500 hover:bg-emerald-600 text-black rounded-lg text-xs font-bold shadow-lg shadow-emerald-500/10 transition-colors"
             >
               <LogIn size={14} /> Vincular Google Drive
             </motion.button>
             
             <button 
-              onClick={() => onConnect(true)}
+              onClick={() => onConnect(false)}
               className="text-[9px] text-zinc-500 hover:text-emerald-400 font-bold uppercase tracking-widest mt-1 text-center py-1 transition-colors"
             >
-                Problemas com o Pop-up? (Usar Modo Seguro)
+                Alternativo: Usar Pop-up (Janela Isolada)
             </button>
             
             <p className="text-[10px] text-zinc-500 text-center px-2 mt-1 italic">
-                A sincronização requer autorização do Google Drive.
+                A sincronização requer autorização via Google Accounts.
             </p>
 
             {!isConnected && onCheckStatus && (
