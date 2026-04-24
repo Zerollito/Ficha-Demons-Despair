@@ -106,6 +106,7 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
               client_id: GOOGLE_CLIENT_ID,
               scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.email',
               callback: (response: any) => {
+                setIsSyncing(false);
                 if (response.error) {
                   if (response.error === 'access_denied' || response.error === 'idpiframe_initialization_failed') {
                     setError("ERRO 403: Esta URL de Preview não está autorizada no seu Google Cloud Console.");
@@ -189,8 +190,14 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
   };
 
   const handleGoogleConnect = (useRedirect: boolean = false) => {
+    setError(null);
     if (useRedirect) {
-        const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.email');
+        const scopes = [
+            'https://www.googleapis.com/auth/drive.file',
+            'https://www.googleapis.com/auth/drive.metadata.readonly',
+            'https://www.googleapis.com/auth/userinfo.email'
+        ];
+        const scope = encodeURIComponent(scopes.join(' '));
         const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
         const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${redirectUri}&response_type=token&scope=${scope}&prompt=consent`;
         window.location.href = authUrl;
@@ -198,9 +205,18 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     }
 
     if (tokenClient) {
-      tokenClient.requestAccessToken({ prompt: 'consent' });
+      setIsSyncing(true);
+      try {
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+        // O reset do isSyncing acontece no callback do tokenClient (initClient)
+        // Adicionamos um timeout de segurança para resetar o estado caso o Google não responda
+        setTimeout(() => setIsSyncing(false), 30000); 
+      } catch (e: any) {
+        setError("Erro ao solicitar acesso: " + e.message);
+        setIsSyncing(false);
+      }
     } else {
-      setError("O Google Drive está carregando. Tente novamente em 2 segundos.");
+      setError("O Google Drive está carregando. Se persistir, recarregue a página (F5).");
     }
   };
 
