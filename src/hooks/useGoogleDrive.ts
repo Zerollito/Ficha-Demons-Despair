@@ -47,7 +47,6 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
 
     try {
         const view = new window.google.picker.DocsView(window.google.picker.ViewId.FOLDERS)
-            .setSelectableMimeTypes('application/vnd.google-apps.folder')
             .setMimeTypes('application/vnd.google-apps.folder');
 
         const picker = new window.google.picker.PickerBuilder()
