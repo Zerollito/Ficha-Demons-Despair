@@ -58,6 +58,8 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
         const picker = new window.google.picker.PickerBuilder()
             .addView(view)
             .enableFeature(window.google.picker.Feature.SELECT_FOLDER)
+            .enableFeature(window.google.picker.Feature.SUPPORT_DRIVES)
+            .enableFeature(window.google.picker.Feature.SUPPORT_TEAM_DRIVES)
             .setOAuthToken(token)
             .setOrigin(window.location.origin)
             .setTitle('Selecione uma pasta e clique no botão azul')
@@ -345,10 +347,19 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
           q += ` and '${appState.syncFolderId}' in parents`;
       }
       
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc&supportsAllDrives=true&includeItemsFromAllDrives=true`, {
+      const orderBy = encodeURIComponent('modifiedTime desc');
+      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime)&orderBy=${orderBy}&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+      
+      const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
+
+      if (data.error) {
+        console.error("Erro ao listar arquivos:", data.error);
+        return [];
+      }
+
       return data.files || [];
     } catch (e) {
       console.error("Erro ao listar arquivos", e);
@@ -389,7 +400,8 @@ export function useGoogleDrive(appState: AppState, onStateUpdate: (newState: App
     try {
       // Tenta listar com suporte a Shared Drives
       const q = encodeURIComponent(`mimeType = 'application/vnd.google-apps.folder' and '${parentFolderId}' in parents and trashed = false`);
-      const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&orderBy=name&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+      const orderBy = encodeURIComponent('name');
+      const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&orderBy=${orderBy}&supportsAllDrives=true&includeItemsFromAllDrives=true`;
       
       const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
