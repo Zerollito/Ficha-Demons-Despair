@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithRedirect, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer, collection, query, where, onSnapshot, setDoc, deleteDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { Character } from '../types';
@@ -74,7 +74,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 // Auth Helpers
 export const loginWithGoogle = async () => {
     try {
-        await signInWithPopup(auth, googleProvider);
+        await signInWithRedirect(auth, googleProvider);
     } catch (error) {
         throw error;
     }

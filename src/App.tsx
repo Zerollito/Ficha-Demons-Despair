@@ -1000,14 +1000,8 @@ export default function App() {
                 try {
                   await loginWithGoogle();
                 } catch (error: any) {
-                  if (error.code === 'auth/popup-closed-by-user') {
-                    showToast("O login foi cancelado ou a janela foi fechada.", "error");
-                  } else if (error.code === 'auth/popup-blocked') {
-                    showToast("O navegador bloqueou o popup de login. Por favor, permita popups.", "error");
-                  } else {
-                    showToast("Erro ao entrar com Firebase.", "error");
-                    console.error("Login Error:", error);
-                  }
+                  showToast("Erro ao iniciar login.", "error");
+                  console.error("Login Error:", error);
                 }
               }
             }}
