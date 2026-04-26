@@ -20,7 +20,7 @@ import {
   BookOpen,
   Activity,
   Coins,
-  User,
+  User as UserIcon,
   MapPin,
   Thermometer,
   Utensils,
@@ -45,8 +45,7 @@ import {
   Image,
   TrendingUp,
   Target,
-  Cloud as CloudIcon,
-  CloudOff as CloudOffIcon,
+  Maximize,
   RefreshCw as RefreshCwIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -54,10 +53,26 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { jsPDF } from "jspdf";
 import { diceBase64 } from "./diceIcons";
-import { GoogleDriveSync } from "./components/GoogleDriveSync";
-import { useGoogleDrive } from "./hooks/useGoogleDrive";
+import { auth, loginWithGoogle, logout as firebaseLogout } from "./lib/firebase";
+import { subscribeToUserCharacters, saveCharacterToFirestore, deleteCharacterFromFirestore } from "./services/characterService";
+import { 
+  createCampaign, 
+  subscribeToMasterCampaigns, 
+  joinCampaign, 
+  subscribeToCampaignCharacters,
+  deleteCampaign 
+} from "./services/campaignService";
+import { 
+  subscribeToTokens, 
+  subscribeToTableConfig, 
+  addToken, 
+  removeToken, 
+  updateTableConfig 
+} from "./services/vttService";
+import { onAuthStateChanged, User } from "firebase/auth";
 
-import { Character, AppState, ArmorPiece } from "./types";
+import { Character, AppState, ArmorPiece, Campaign, TableToken, TableConfig } from "./types";
+import { VTTBoard } from "./components/VTTBoard";
 import {
   Stats,
   PROFICIENCIES,
@@ -86,6 +101,7 @@ import {
   INITIAL_KNOWLEDGES,
 } from "./rules/knowledgeRules";
 import { getSurvivalPenalties } from "./rules/survivalRules";
+import { compressImageDataUrl } from "./lib/imageUtils";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -107,6 +123,7 @@ const generateId = () => {
 
 const createEmptyCharacter = (): Character => ({
   id: generateId(),
+  userId: "",
   nome: "Novo Personagem",
   etnia: "",
   dinheiro: { C: 0, B: 0, P: 0, O: 0 },
@@ -263,36 +280,84 @@ export default function App() {
     type: "Arma" | "Catalisador" | "Armadura" | "Item" | "Magia" | "Habilidade";
     data: any;
   } | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "error" | "success" | "info";
+  } | null>(null);
+  const [activePage, setActivePage] = useState<
+    "sheet" | "notes" | "dice" | "gallery" | "master" | "table"
+  >("sheet");
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null);
+  const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([]);
+  const [tokens, setTokens] = useState<TableToken[]>([]);
+  const [tableConfig, setTableConfig] = useState<TableConfig>({ gridSize: 50, showGrid: true, masterFog: false });
+  const [inviteCodeInput, setInviteCodeInput] = useState("");
+  const [newCampaignName, setNewCampaignName] = useState("");
+  const [campaignToDelete, setCampaignToDelete] = useState<string | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const {
-    isConnected,
-    isSyncing,
-    lastSync,
-    error: driveError,
-    userAccount,
-    fetchFromDrive,
-    syncToDrive,
-    downloadFile,
-    handleLogout,
-    handleGoogleConnect,
-    handleOpenPicker,
-    checkStatus,
-    setError: setDriveError,
-    listFolders,
-    listFiles,
-    currentOrigin
-  } = useGoogleDrive(state, setState);
+  const [user, setUser] = useState<User | null>(null);
 
-  // Sistema de Auto-Sync (V5.0): Salva automaticamente no Drive após alterações
+  // Firebase Auth Effect
   useEffect(() => {
-    if (!isConnected || isSyncing) return;
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
 
-    const timer = setTimeout(() => {
-      syncToDrive();
-    }, 5000); // Debounce de 5 segundos para evitar excesso de requisições durante a edição
+  // Firebase Sync Effect
+  useEffect(() => {
+    if (!user) return;
+    
+    const unsubscribe = subscribeToUserCharacters((fireChars) => {
+      // Merge with local state or just use firestore as truth
+      setState(prev => ({
+        ...prev,
+        characters: fireChars,
+        activeCharacterId: prev.activeCharacterId || (fireChars.length > 0 ? fireChars[0].id : null)
+      }));
+    });
 
-    return () => clearTimeout(timer);
-  }, [state, isConnected, syncToDrive]);
+    return () => unsubscribe();
+  }, [user]);
+
+  // Firebase Campaigns Effect
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribe = subscribeToMasterCampaigns((camps) => {
+      setCampaigns(camps);
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  // Campaign Characters Effect
+  useEffect(() => {
+    if (!activeCampaignId) {
+        setCampaignCharacters([]);
+        setTokens([]);
+        return;
+    }
+    const unsubChars = subscribeToCampaignCharacters(activeCampaignId, (chars) => {
+      setCampaignCharacters(chars);
+    });
+    
+    const unsubTokens = subscribeToTokens(activeCampaignId, (tks) => {
+      setTokens(tks);
+    });
+
+    const unsubConfig = subscribeToTableConfig(activeCampaignId, (cfg) => {
+      setTableConfig(cfg);
+    });
+
+    return () => {
+      unsubChars();
+      unsubTokens();
+      unsubConfig();
+    };
+  }, [activeCampaignId]);
+
+  const [activeCharacterIdState, setActiveCharacterIdState] = useState<string | null>(null); // renamed to avoid conflict if any
 
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -305,13 +370,6 @@ export default function App() {
   }, [state]);
 
   const [vitaisTab, setVitaisTab] = useState<"status" | "efeitos">("status");
-  const [toast, setToast] = useState<{
-    message: string;
-    type: "error" | "success" | "info";
-  } | null>(null);
-  const [activePage, setActivePage] = useState<
-    "sheet" | "notes" | "dice" | "gallery" | "cloud"
-  >("sheet");
   const [openLevelSelectorId, setOpenLevelSelectorId] = useState<string | null>(
     null,
   );
@@ -648,13 +706,25 @@ export default function App() {
   }, [state]);
 
   const updateChar = useCallback((updates: Partial<Character>) => {
-    setState((prev) => ({
-      ...prev,
-      characters: prev.characters.map((c) =>
-        c.id === prev.activeCharacterId ? { ...c, ...updates } : c,
-      ),
-    }));
-  }, []);
+    setState((prev) => {
+      const charToUpdate = prev.characters.find((c) => c.id === prev.activeCharacterId);
+      if (!charToUpdate) return prev;
+
+      const updatedChar = { ...charToUpdate, ...updates };
+
+      // Sync to Firestore if logged in
+      if (user) {
+        saveCharacterToFirestore(updatedChar);
+      }
+
+      return {
+        ...prev,
+        characters: prev.characters.map((c) =>
+          c.id === prev.activeCharacterId ? updatedChar : c,
+        ),
+      };
+    });
+  }, [user]);
 
   const showToast = useCallback(
     (message: string, type: "error" | "success" | "info" = "info") => {
@@ -743,6 +813,9 @@ export default function App() {
           characters: [...prev.characters, char],
           activeCharacterId: char.id,
         }));
+        if (user) {
+          saveCharacterToFirestore(char);
+        }
       } catch (err) {
         alert("Erro ao importar ficha.");
       }
@@ -776,24 +849,38 @@ export default function App() {
       nome: `${activeChar.nome} (Cópia)`,
     };
     setState((prev) => ({
+      ...prev,
       characters: [...prev.characters, newChar],
       activeCharacterId: newChar.id,
     }));
+    
+    // Sync to Firestore if logged in
+    if (user) {
+      saveCharacterToFirestore(newChar);
+    }
   };
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const deleteChar = () => {
     if (state.characters.length <= 1) return;
+    const idToDelete = state.activeCharacterId;
+    
     setState((prev) => {
       const remaining = prev.characters.filter(
-        (c) => c.id !== prev.activeCharacterId,
+        (c) => c.id !== idToDelete,
       );
       return {
         characters: remaining,
         activeCharacterId: remaining[0].id,
       };
     });
+    
+    // Sync to Firestore if logged in
+    if (user && idToDelete) {
+      deleteCharacterFromFirestore(idToDelete);
+    }
+    
     setShowDeleteConfirm(false);
   };
 
@@ -801,8 +888,14 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (event) => {
-      updateChar({ imagem: event.target?.result as string });
+    reader.onload = async (event) => {
+      try {
+        const compressed = await compressImageDataUrl(event.target?.result as string, 1024, 0.7);
+        updateChar({ imagem: compressed });
+      } catch (error) {
+        console.error("Compression error:", error);
+        updateChar({ imagem: event.target?.result as string });
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -824,7 +917,7 @@ export default function App() {
               )}
               title="Ficha do Personagem"
             >
-              <User size={28} />
+              <UserIcon size={28} />
             </motion.button>
             <motion.button
               whileTap={{ scale: 0.95 }}
@@ -867,43 +960,68 @@ export default function App() {
             </motion.button>
             <motion.button
               whileTap={{ scale: 0.95 }}
-              onClick={() => setActivePage("cloud")}
+              onClick={() => setActivePage("master")}
               className={cn(
                 "p-2 sm:p-4 rounded-xl transition-all",
-                activePage === "cloud"
-                  ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20"
+                activePage === "master"
+                  ? "bg-purple-600 text-white shadow-lg shadow-purple-600/20"
                   : "text-zinc-500 hover:text-zinc-300",
               )}
-              title="Backup na Nuvem"
+              title="Painel do Mestre"
             >
-              <CloudIcon size={28} />
+              <Shield size={28} />
             </motion.button>
+            {activeCampaignId && (
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setActivePage("table")}
+                className={cn(
+                  "p-2 sm:p-4 rounded-xl transition-all",
+                  activePage === "table"
+                    ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20"
+                    : "text-zinc-500 hover:text-zinc-300",
+                )}
+                title="Mesa Digital"
+              >
+                <Maximize size={28} />
+              </motion.button>
+            )}
           </div>
         </div>
 
         <div className="flex items-center gap-2 relative" ref={menuRef}>
-          {/* Cloud Status Indicator in Header */}
+          {/* Firebase Auth Indicator */}
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={() => setActivePage("cloud")}
+            onClick={async () => {
+              if (user) {
+                firebaseLogout();
+              } else {
+                try {
+                  await loginWithGoogle();
+                } catch (error: any) {
+                  if (error.code === 'auth/popup-closed-by-user') {
+                    showToast("O login foi cancelado ou a janela foi fechada.", "error");
+                  } else if (error.code === 'auth/popup-blocked') {
+                    showToast("O navegador bloqueou o popup de login. Por favor, permita popups.", "error");
+                  } else {
+                    showToast("Erro ao entrar com Firebase.", "error");
+                    console.error("Login Error:", error);
+                  }
+                }
+              }
+            }}
             className={cn(
               "flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-[10px] font-bold uppercase tracking-tight",
-              isConnected 
-                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" 
-                : driveError 
-                  ? "bg-red-500/10 border-red-500/30 text-red-400"
-                  : "bg-zinc-800 border-zinc-700 text-zinc-500"
+              user 
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-500" 
+                : "bg-zinc-800 border-zinc-700 text-zinc-500"
             )}
+            title={user ? `Logado como ${user.email}` : "Entrar com Firebase"}
           >
-            {isSyncing ? (
-                <RefreshCwIcon size={14} className="animate-spin" />
-            ) : isConnected ? (
-                <CloudIcon size={14} />
-            ) : (
-                <CloudOffIcon size={14} />
-            )}
+            <Shield size={14} />
             <span className="hidden sm:inline">
-                {isConnected ? "Nuvem ON" : "Nuvem OFF"}
+                {user ? "Firebase ON" : "Firebase OFF"}
             </span>
           </motion.button>
 
@@ -954,6 +1072,9 @@ export default function App() {
                   characters: [...prev.characters, nc],
                   activeCharacterId: nc.id,
                 }));
+                if (user) {
+                  saveCharacterToFirestore(nc);
+                }
                 setIsMenuOpen(false);
               }}
               className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
@@ -982,29 +1103,6 @@ export default function App() {
             >
               <Download size={18} className="text-amber-500" /> Exportar JSON
             </motion.button>
-
-            <GoogleDriveSync
-              isConnected={isConnected}
-              isSyncing={isSyncing}
-              lastSync={lastSync}
-              error={driveError}
-              userAccount={userAccount}
-              onSync={syncToDrive}
-              onFetch={fetchFromDrive}
-              onLogout={handleLogout}
-              onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
-              onCheckStatus={checkStatus}
-              onPickerOpen={handleOpenPicker}
-              listFolders={listFolders}
-              listFiles={listFiles}
-              onDownloadFile={downloadFile}
-              onFolderIdChange={(id) => setState(prev => ({ ...prev, syncFolderId: id }))}
-              fileName={state.syncFileName}
-              onFileNameChange={(name) => setState(prev => ({ ...prev, syncFileName: name }))}
-              folderName={state.syncFolderName}
-              onFolderNameChange={(name) => setState(prev => ({ ...prev, syncFolderName: name }))}
-              variant="menu"
-            />
 
             <label className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300 cursor-pointer">
               <Upload size={18} className="text-amber-500" /> Importar JSON
@@ -1087,7 +1185,7 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Left Column: Basic Info & Stats */}
             <div className="lg:col-span-4 space-y-6">
-              <Section title="Personagem" icon={<User size={18} />} collapsible>
+              <Section title="Personagem" icon={<UserIcon size={18} />} collapsible>
                 <div className="space-y-4">
                   <div className="flex flex-col items-center gap-4 mb-4">
                     <div className="w-32 h-32 bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden flex items-center justify-center relative group">
@@ -1099,7 +1197,7 @@ export default function App() {
                           referrerPolicy="no-referrer"
                         />
                       ) : (
-                        <User size={48} className="text-zinc-700" />
+                        <UserIcon size={48} className="text-zinc-700" />
                       )}
                       <label className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
                         <Upload size={24} className="text-white" />
@@ -1816,7 +1914,7 @@ export default function App() {
                         >
                           <div className="flex justify-between items-center">
                             <input
-                              value={w.nome}
+                              value={w.nome || ""}
                               onChange={(e) => {
                                 const newArmas = [...armas];
                                 newArmas[idx].nome = e.target.value;
@@ -1928,7 +2026,7 @@ export default function App() {
                         >
                           <div className="flex justify-between items-center">
                             <input
-                              value={c.nome}
+                              value={c.nome || ""}
                               onChange={(e) => {
                                 const newCats = [...catalisadores];
                                 newCats[idx].nome = e.target.value;
@@ -1995,7 +2093,6 @@ export default function App() {
                               {
                                 id: generateId(),
                                 nome: "Nova Armadura",
-                                tipo: "Armadura",
                                 corte: 0,
                                 impacto: 0,
                                 perfuracao: 0,
@@ -2042,7 +2139,7 @@ export default function App() {
                         >
                           <div className="flex justify-between items-center">
                             <input
-                              value={a.nome}
+                              value={a.nome || ""}
                               onChange={(e) => {
                                 const newArms = [
                                   ...(activeChar?.armaduras || []),
@@ -2109,7 +2206,6 @@ export default function App() {
                               {
                                 id: generateId(),
                                 nome: "Novo Acessório",
-                                tipo: "Armadura",
                                 corte: 0,
                                 impacto: 0,
                                 perfuracao: 0,
@@ -2156,7 +2252,7 @@ export default function App() {
                         >
                           <div className="flex justify-between items-center">
                             <input
-                              value={a.nome}
+                              value={a.nome || ""}
                               onChange={(e) => {
                                 const newAccs = [
                                   ...(activeChar?.acessorios || []),
@@ -2254,7 +2350,7 @@ export default function App() {
                               className="text-amber-500 shrink-0"
                             />
                             <input
-                              value={comp.nome}
+                              value={comp.nome || ""}
                               onChange={(e) => {
                                 const nc = [...compartimentos];
                                 nc[cIdx].nome = e.target.value;
@@ -2952,7 +3048,7 @@ export default function App() {
                       >
                         <div className="flex justify-between items-center">
                           <input
-                            value={m.nome}
+                            value={m.nome || ""}
                             onChange={(e) => {
                               const newMags = [...(activeChar?.magias || [])];
                               newMags[idx].nome = e.target.value;
@@ -3297,7 +3393,7 @@ export default function App() {
                       >
                         <div className="flex justify-between items-center">
                           <input
-                            value={h.nome}
+                            value={h.nome || ""}
                             onChange={(e) => {
                               const newHabs = [
                                 ...(activeChar?.habilidades || []),
@@ -4257,7 +4353,7 @@ export default function App() {
                             Título da Aba
                           </label>
                           <input
-                            value={note.titulo}
+                            value={note.titulo || ""}
                             onChange={(e) => {
                               const newNotes = [...activeChar.anotacoes];
                               newNotes[idx].titulo = e.target.value;
@@ -4347,15 +4443,28 @@ export default function App() {
                       const file = e.target.files?.[0];
                       if (file) {
                         const reader = new FileReader();
-                        reader.onloadend = () => {
-                          const newImg = {
-                            id: generateId(),
-                            url: reader.result as string,
-                            titulo: "Nova Imagem",
-                          };
-                          updateChar({
-                            imagens: [...(activeChar.imagens || []), newImg],
-                          });
+                        reader.onloadend = async () => {
+                          try {
+                            const compressed = await compressImageDataUrl(reader.result as string, 1024, 0.7);
+                            const newImg = {
+                              id: generateId(),
+                              url: compressed,
+                              titulo: "Nova Imagem",
+                            };
+                            updateChar({
+                              imagens: [...(activeChar.imagens || []), newImg],
+                            });
+                          } catch (error) {
+                            console.error("Compression error:", error);
+                            const newImg = {
+                              id: generateId(),
+                              url: reader.result as string,
+                              titulo: "Nova Imagem",
+                            };
+                            updateChar({
+                              imagens: [...(activeChar.imagens || []), newImg],
+                            });
+                          }
                         };
                         reader.readAsDataURL(file);
                       }
@@ -4370,12 +4479,18 @@ export default function App() {
                     key={img.id}
                     className="relative bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden aspect-square shadow-lg"
                   >
-                    <img
-                      src={img.url}
-                      alt="Galeria"
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                    />
+                    {img.url ? (
+                      <img
+                        src={img.url}
+                        alt="Galeria"
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-zinc-950">
+                        <Image className="text-zinc-800" size={48} />
+                      </div>
+                    )}
                     <motion.button
                       whileTap={{ scale: 0.95 }}
                       onClick={() => {
@@ -4401,41 +4516,233 @@ export default function App() {
               )}
             </div>
           </div>
-        ) : activePage === "cloud" ? (
-          <div className="max-w-4xl mx-auto py-8 px-4">
-               <div className="bg-zinc-900/50 p-6 sm:p-10 rounded-3xl border border-zinc-800 shadow-2xl backdrop-blur-xl">
-                    <div className="flex flex-col sm:flex-row items-center gap-6 mb-12 border-b border-zinc-800 pb-8">
-                        <div className="p-5 bg-gradient-to-br from-amber-400 to-amber-600 text-zinc-950 rounded-[2rem] shadow-xl shadow-amber-500/20 rotate-3 transition-transform hover:rotate-0">
-                            <CloudIcon size={48} />
-                        </div>
-                        <div className="text-center sm:text-left">
-                            <h2 className="text-3xl font-black text-white tracking-tighter sm:text-4xl">Backups na Nuvem</h2>
-                        </div>
+        ) : activePage === "master" ? (
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
+            <div className="max-w-6xl mx-auto space-y-8">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div>
+                  <h2 className="text-3xl font-black text-purple-500 uppercase tracking-tighter">Painel do Mestre</h2>
+                  <p className="text-zinc-500 text-sm">Gerencie suas campanhas e visualize as fichas dos seus jogadores.</p>
+                </div>
+                
+                {!user ? (
+                  <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl text-center">
+                    <Shield size={32} className="mx-auto text-zinc-700 mb-4" />
+                    <p className="text-zinc-400 mb-4">Você precisa estar logado para usar o Modo Mestre.</p>
+                    <button 
+                      onClick={loginWithGoogle}
+                      className="px-6 py-2 bg-amber-500 text-zinc-950 font-bold rounded-lg hover:bg-amber-400 transition-colors"
+                    >
+                      Entrar com Google
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-3">
+                    <div className="flex gap-2">
+                       <input 
+                         type="text" 
+                         placeholder="Cód. Convite"
+                         value={inviteCodeInput}
+                         onChange={(e) => setInviteCodeInput(e.target.value)}
+                         className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                       />
+                       <button 
+                         onClick={async () => {
+                           if (!activeChar) {
+                             showToast("Selecione uma ficha para vincular à campanha.", "error");
+                             return;
+                           }
+                           try {
+                             await joinCampaign(activeChar.id, inviteCodeInput);
+                             showToast("Ficha vinculada à campanha!", "success");
+                             setInviteCodeInput("");
+                           } catch (err: any) {
+                             showToast(err.message, "error");
+                           }
+                         }}
+                         className="px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors text-xs uppercase"
+                       >
+                         Vincular Ficha
+                       </button>
                     </div>
+                    
+                    <div className="flex gap-2">
+                       <input 
+                         type="text" 
+                         placeholder="Nome da Nova Campanha"
+                         value={newCampaignName}
+                         onChange={(e) => setNewCampaignName(e.target.value)}
+                         className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                       />
+                       <button 
+                         onClick={async () => {
+                           if (!newCampaignName) return;
+                           const camp = await createCampaign(newCampaignName);
+                           if (camp) {
+                             showToast("Campanha criada!", "success");
+                             setNewCampaignName("");
+                           }
+                         }}
+                         className="px-4 py-2 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-500 transition-colors text-xs uppercase"
+                       >
+                         Criar Campanha
+                       </button>
+                    </div>
+                  </div>
+                )}
+              </div>
 
-                    <GoogleDriveSync
-                        isConnected={isConnected}
-                        isSyncing={isSyncing}
-                        lastSync={lastSync}
-                        error={driveError}
-                        userAccount={userAccount}
-                        onSync={syncToDrive}
-                        onFetch={fetchFromDrive}
-                        onLogout={handleLogout}
-                        onConnect={(useRedirect) => handleGoogleConnect(useRedirect)}
-                        onCheckStatus={checkStatus}
-                        onPickerOpen={handleOpenPicker}
-                        listFolders={listFolders}
-                        listFiles={listFiles}
-                        onDownloadFile={downloadFile}
-                        onFolderIdChange={(id) => setState(prev => ({ ...prev, syncFolderId: id }))}
-                        fileName={state.syncFileName}
-                        onFileNameChange={(name) => setState(prev => ({ ...prev, syncFileName: name }))}
-                        folderName={state.syncFolderName}
-                        onFolderNameChange={(name) => setState(prev => ({ ...prev, syncFolderName: name }))}
-                        variant="full"
-                    />
-               </div>
+              {user && (
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                  {/* Minhas Campanhas */}
+                  <div className="lg:col-span-1 space-y-4">
+                    <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest px-1">Minhas Campanhas</h3>
+                    <div className="space-y-2">
+                      {campaigns.map(camp => (
+                        <div
+                          key={camp.id}
+                          className={cn(
+                            "group relative w-full p-4 rounded-xl border transition-all flex flex-col gap-1 cursor-pointer",
+                            activeCampaignId === camp.id
+                              ? "bg-purple-600/10 border-purple-500 text-purple-400"
+                              : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700"
+                          )}
+                          onClick={() => setActiveCampaignId(camp.id)}
+                        >
+                          <span className="font-bold">{camp.name}</span>
+                          <span className="text-[10px] font-mono opacity-60">Cód: {camp.inviteCode}</span>
+                          
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (campaignToDelete === camp.id) {
+                                try {
+                                  await deleteCampaign(camp.id);
+                                  if (activeCampaignId === camp.id) setActiveCampaignId(null);
+                                  showToast("Campanha apagada.", "success");
+                                  setCampaignToDelete(null);
+                                } catch (err: any) {
+                                  showToast("Erro ao apagar campanha.", "error");
+                                }
+                              } else {
+                                setCampaignToDelete(camp.id);
+                                // Reset after 3 seconds
+                                setTimeout(() => setCampaignToDelete(null), 3000);
+                              }
+                            }}
+                            className={cn(
+                              "absolute top-4 right-4 p-2 rounded-lg transition-all z-10 flex items-center gap-2",
+                              campaignToDelete === camp.id 
+                                ? "bg-red-600 text-white" 
+                                : "bg-zinc-950 text-zinc-600 hover:text-red-500 hover:bg-zinc-800"
+                            )}
+                            title={campaignToDelete === camp.id ? "Confirmar exclusão" : "Apagar Campanha"}
+                          >
+                            {campaignToDelete === camp.id ? (
+                              <>
+                                <span className="text-[10px] font-bold uppercase">Confirmar?</span>
+                                <Trash2 size={16} />
+                              </>
+                            ) : (
+                              <Trash2 size={16} />
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                      {campaigns.length === 0 && (
+                        <p className="text-zinc-600 text-xs italic p-4 text-center">Nenhuma campanha criada.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Fichas na Campanha */}
+                  <div className="lg:col-span-3 space-y-4">
+                    <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest px-1">Fichas na Selecionada</h3>
+                    {activeCampaignId ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {campaignCharacters.map(char => (
+                          <div 
+                            key={char.id}
+                            className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex items-center justify-between group hover:border-purple-500/50 transition-all"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-zinc-800 rounded-lg overflow-hidden flex items-center justify-center">
+                                {char.imagem ? (
+                                  <img src={char.imagem} className="w-full h-full object-cover" />
+                                ) : (
+                                  <UserIcon size={24} className="text-zinc-600" />
+                                )}
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-white leading-none mb-1">{char.nome}</h4>
+                                <div className="flex gap-2">
+                                  <span className="text-[10px] bg-red-500/10 text-red-400 px-1.5 rounded font-bold">PV: {char.vidaAtual}</span>
+                                  <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 rounded font-bold">PM: {char.manaAtual}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => {
+                                // Master opening player's character
+                                setState(prev => {
+                                  const exists = prev.characters.find(c => c.id === char.id);
+                                  if (exists) {
+                                    return { ...prev, activeCharacterId: char.id };
+                                  } else {
+                                    return { 
+                                      ...prev, 
+                                      characters: [...prev.characters, char],
+                                      activeCharacterId: char.id
+                                    };
+                                  }
+                                });
+                                setActivePage("sheet");
+                              }}
+                              className="opacity-0 group-hover:opacity-100 p-2 bg-purple-600 text-white rounded-lg transition-all text-[10px] font-bold uppercase"
+                            >
+                              Ver/Editar
+                            </button>
+                          </div>
+                        ))}
+                        {campaignCharacters.length === 0 && (
+                          <div className="col-span-full py-12 text-center text-zinc-600 italic text-sm">
+                            Nenhum jogador vinculado a esta campanha ainda.
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/10 border border-dashed border-zinc-800 rounded-3xl">
+                        <Shield size={48} className="text-zinc-800 mb-4" />
+                        <p className="text-zinc-500 italic">Selecione uma campanha para ver os jogadores.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : activePage === "table" ? (
+          <div className="flex-1 overflow-hidden relative">
+            {activeCampaignId ? (
+              <VTTBoard 
+                campaignId={activeCampaignId}
+                isMaster={campaigns.find(c => c.id === activeCampaignId)?.masterId === user?.uid}
+                tokens={tokens}
+                config={tableConfig}
+                availableCharacters={campaignCharacters}
+                onAddToken={(t) => addToken(activeCampaignId, t)}
+                onRemoveToken={(tid) => removeToken(activeCampaignId, tid)}
+                onUpdateConfig={(cfg) => updateTableConfig(activeCampaignId, cfg)}
+              />
+            ) : (
+                <div className="h-full flex items-center justify-center bg-zinc-950">
+                    <div className="text-center p-8 bg-zinc-900 border border-zinc-800 rounded-3xl max-w-md">
+                        <Shield size={48} className="mx-auto text-zinc-700 mb-6" />
+                        <h2 className="text-xl font-bold text-white mb-2">Sem Mesa Ativa</h2>
+                        <p className="text-zinc-500 text-sm">Selecione uma campanha no Painel do Mestre para entrar na mesa.</p>
+                    </div>
+                </div>
+            )}
           </div>
         ) : null}
       </main>

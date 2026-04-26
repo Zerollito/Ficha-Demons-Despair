@@ -3,6 +3,7 @@ import { INITIAL_KNOWLEDGES } from '../rules/knowledgeRules';
 
 export const createEmptyCharacter = (): Character => ({
   id: crypto.randomUUID(),
+  userId: '',
   nome: 'Novo Personagem',
   etnia: '',
   dinheiro: { C: 0, B: 0, P: 0, O: 0 },

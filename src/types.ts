@@ -34,8 +34,49 @@ export interface Ability {
   efeito: string;
 }
 
+export interface UserProfile {
+  uid: string;
+  displayName: string | null;
+  email: string | null;
+  photoURL: string | null;
+}
+
+export interface Campaign {
+  id: string;
+  name: string;
+  masterId: string;
+  inviteCode: string;
+  createdAt: any;
+}
+
+export interface TableToken {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  prevX?: number; // Previous snapped X position
+  prevY?: number; // Previous snapped Y position
+  size: number;
+  imageUrl?: string;
+  type: 'character' | 'creature';
+  characterId?: string; // ID of the character sheet if type is 'character'
+  hp?: number;
+  maxHp?: number;
+  color?: string;
+}
+
+export interface TableConfig {
+  mapUrl?: string;
+  gridSize: number;
+  showGrid: boolean;
+  masterFog: boolean;
+  gridColor?: string;
+}
+
 export interface Character {
   id: string;
+  userId: string;
+  campaignId?: string;
   nome: string;
   etnia: string;
   dinheiro: {
@@ -93,7 +134,7 @@ export interface Escala {
 export interface AppState {
   characters: Character[];
   activeCharacterId: string | null;
-  syncFileName?: string;
-  syncFolderName?: string;
-  syncFolderId?: string;
+  userProfile?: UserProfile | null;
+  activeCampaignId?: string | null;
+  campaigns?: Campaign[];
 }

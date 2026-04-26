@@ -1,0 +1,93 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User specific data and roles",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" }
+      }
+    },
+    "Campaign": {
+      "title": "Campaign",
+      "description": "An RPG campaign session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "masterId": { "type": "string" },
+        "inviteCode": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "masterId", "inviteCode"]
+    },
+    "Character": {
+      "title": "Character",
+      "description": "A character in the RPG system",
+      "properties": {
+        "id": { "type": "string" },
+        "nome": { "type": "string" },
+        "userId": { "type": "string" },
+        "campaignId": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "TableToken": {
+      "title": "Table Token",
+      "description": "A token on the VTT board",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "size": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "type": { "type": "string", "enum": ["character", "creature"] },
+        "hp": { "type": "number" },
+        "maxHp": { "type": "number" },
+        "color": { "type": "string" }
+      },
+      "required": ["id", "x", "y"]
+    },
+    "TableConfig": {
+      "title": "Table Config",
+      "description": "Settings for the VTT board",
+      "type": "object",
+      "properties": {
+        "mapUrl": { "type": "string" },
+        "gridSize": { "type": "number" },
+        "showGrid": { "type": "boolean" },
+        "masterFog": { "type": "boolean" }
+      }
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles"
+    },
+    "campaigns/{campaignId}": {
+      "schema": "Campaign",
+      "description": "Campaigns managed by masters"
+    },
+    "campaigns/{campaignId}/tokens/{tokenId}": {
+      "schema": "TableToken",
+      "description": "Tokens active on the campaign table"
+    },
+    "campaigns/{campaignId}/config/main": {
+      "schema": "TableConfig",
+      "description": "Table configuration (map, grid, etc)"
+    },
+    "characters/{characterId}": {
+      "schema": "Character",
+      "description": "Characters created by players"
+    },
+    "test/connection": {
+      "schema": "object",
+      "description": "Connectivity test path"
+    }
+  }
+}

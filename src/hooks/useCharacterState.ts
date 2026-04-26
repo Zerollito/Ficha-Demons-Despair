@@ -60,7 +60,7 @@ export function useCharacterState() {
     [pesoTotal, cargaMax]
   );
 
-  const deslocamentoFinal = Math.max(1, deslocamentoBase + penalties.deslocamentoPenalty);
+  const deslocamentoFinal = Math.max(1, Math.floor(deslocamentoBase * (penalties.deslocamentoMult ?? 1)));
 
   const addCharacter = useCallback(() => {
     const newChar = createEmptyCharacter();
