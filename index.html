@@ -29,6 +29,33 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
+      // BLOQUEIO NUCLEAR DE GESTOS (Solução de reserva para WebViews)
+      (function() {
+        var lastTouchY = 0;
+        var preventDefault = function(e) {
+          if (document.documentElement.classList.contains('vtt-active')) {
+            if (e.cancelable) e.preventDefault();
+          }
+        };
+
+        // Bloqueia gestos nativos agressivos
+        window.addEventListener('touchstart', function(e) {
+          lastTouchY = e.touches[0].clientY;
+        }, { passive: false });
+
+        window.addEventListener('touchmove', preventDefault, { passive: false });
+        window.addEventListener('gesturestart', preventDefault, { passive: false });
+        window.addEventListener('gesturechange', preventDefault, { passive: false });
+        
+        // Bloqueio de wheel (zoom)
+        window.addEventListener('wheel', function(e) {
+          if (document.documentElement.classList.contains('vtt-active') && (e.ctrlKey || e.metaKey)) {
+             if (e.cancelable) e.preventDefault();
+          }
+        }, { passive: false });
+      })();
+    </script>
+    <script>
       // SCRIPT DE LIMPEZA DE EMERGÊNCIA (Anti-Cache/Anti-PWA)
       console.log("Iniciando limpeza de cache V4.2...");
       if ('serviceWorker' in navigator) {

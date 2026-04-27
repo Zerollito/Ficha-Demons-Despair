@@ -614,22 +614,29 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
     if (!container) return;
 
     // Impedir que eventos de toque "vazem" para o body do sistema
+    // Usamos capture: true para interceptar antes de qualquer outro lugar
     const handleCapture = (e: TouchEvent) => {
-      if (e.cancelable) e.preventDefault();
+      if (e.cancelable) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
     };
 
-    container.addEventListener('touchstart', handleCapture, { passive: false });
-    container.addEventListener('touchmove', handleCapture, { passive: false });
+    container.addEventListener('touchstart', handleCapture, { passive: false, capture: true });
+    container.addEventListener('touchmove', handleCapture, { passive: false, capture: true });
+    container.addEventListener('touchend', (e) => {
+      // Opcional: pode ser necessário para alguns ambientes
+    }, { passive: false, capture: true });
 
     return () => {
-      container.removeEventListener('touchstart', handleCapture);
-      container.removeEventListener('touchmove', handleCapture);
+      container.removeEventListener('touchstart', handleCapture, { capture: true });
+      container.removeEventListener('touchmove', handleCapture, { capture: true });
     };
   }, []);
 
   return (
     <div 
-      className="flex flex-col h-full bg-[#09090b] relative overflow-hidden overscroll-none"
+      className="flex flex-col h-full bg-[#09090b] relative overflow-hidden overscroll-none vtt-lock-box"
     >
       {/* Loading State */}
       {mapImageStatus === 'loading' && config.mapUrl && (
