@@ -49,11 +49,20 @@ button, a, select, input {
 
 @layer base {
   html, body {
-    max-width: 100vw;
-    overflow-x: hidden;
-    position: relative;
-    overscroll-behavior: none;
-  }
+  max-width: 100vw;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  position: relative;
+}
+
+#root {
+  height: 100%;
+  overflow: hidden;
+}
   
   /* Garantia universal para elementos de mídia */
   img, video, canvas, svg {

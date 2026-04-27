@@ -608,9 +608,32 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
     );
   }, [config.showGrid, config.gridSize, config.gridColor, mapImage, mapImageStatus]);
 
+  // Bloqueio de gestos do navegador (pull-to-refresh)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleNativeTouch = (e: TouchEvent) => {
+      // Bloqueia se estiver dentro do container do VTT
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+    };
+
+    // O segredo é o passive: false para permitir preventDefault
+    container.addEventListener('touchmove', handleNativeTouch, { passive: false });
+    container.addEventListener('touchstart', (e) => {
+       if (e.touches.length > 1 && e.cancelable) e.preventDefault();
+    }, { passive: false });
+
+    return () => {
+      container.removeEventListener('touchmove', handleNativeTouch);
+    };
+  }, []);
+
   return (
     <div 
-      className="flex flex-col h-full bg-[#09090b] relative overflow-hidden"
+      className="flex flex-col h-full bg-[#09090b] relative overflow-hidden overscroll-none"
     >
       {/* Loading State */}
       {mapImageStatus === 'loading' && config.mapUrl && (
@@ -991,8 +1014,13 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
 
       <div 
         ref={containerRef} 
-        className="flex-1 cursor-grab active:cursor-grabbing overflow-hidden"
-        style={{ touchAction: 'none', overscrollBehavior: 'none' }}
+        className="flex-1 cursor-grab active:cursor-grabbing overflow-hidden touch-none"
+        style={{ 
+          touchAction: 'none', 
+          overscrollBehavior: 'none',
+          WebkitUserSelect: 'none',
+          userSelect: 'none'
+        }}
       >
         <Stage
           width={dimensions.width}
