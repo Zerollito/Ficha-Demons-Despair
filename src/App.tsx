@@ -297,11 +297,20 @@ export default function App() {
   const [campaignToDelete, setCampaignToDelete] = useState<string | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // Firebase Auth Effect
   useEffect(() => {
+    console.log("Iniciando listener de autenticação...");
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      console.log("Estado de autenticação alterado:", currentUser ? `Usuário: ${currentUser.email}` : "Nenhum usuário");
       setUser(currentUser);
+      setAuthLoading(false);
+    }, (error) => {
+      console.error("Erro no listener de autenticação:", error);
+      setAuthError(error.message);
+      setAuthLoading(false);
     });
     return () => unsubscribe();
   }, []);
@@ -899,6 +908,35 @@ export default function App() {
     };
     reader.readAsDataURL(file);
   };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin"></div>
+          <p className="text-zinc-500 font-medium animate-pulse">Carregando autenticação...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (authError) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-zinc-900 border border-red-500/50 rounded-2xl p-8 text-center space-y-4">
+          <Skull className="w-12 h-12 text-red-500 mx-auto" />
+          <h1 className="text-xl font-bold text-white">Erro de Autenticação</h1>
+          <p className="text-zinc-400">{authError}</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl transition-colors"
+          >
+            Tentar Novamente
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen w-full bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30 overflow-x-hidden">

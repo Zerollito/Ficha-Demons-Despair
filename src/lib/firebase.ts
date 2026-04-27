@@ -68,7 +68,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  // Not throwing to avoid crashing the whole app; relying on logging and UI feedback
 }
 
 // Auth Helpers
