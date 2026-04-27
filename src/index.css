@@ -51,23 +51,40 @@ button, a, select, input {
   html, body {
     max-width: 100vw;
     height: 100%;
-    overflow-x: hidden;
+    margin: 0;
+    padding: 0;
   }
 
-  /* Quando o VTT está ativo, travamos tudo */
-  html.vtt-active, 
-  html.vtt-active body {
+  /* BLOQUEIO TOTAL VTT: Prevenção de Gestos do Navegador */
+  html.vtt-active-mode, 
+  html.vtt-active-mode body {
     overflow: hidden !important;
+    position: fixed !important;
+    width: 100% !important;
+    height: 100% !important;
     overscroll-behavior: none !important;
     overscroll-behavior-y: none !important;
     touch-action: none !important;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Garante que o container do VTT ocupe tudo e ignore gestos externos */
+  .vtt-container-active {
     position: fixed;
-    width: 100%;
-    height: 100%;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 100;
+    touch-action: none;
+    overscroll-behavior: none;
   }
 
   #root {
     height: 100%;
+    display: flex;
+    flex-direction: column;
   }
   
   /* Garantia universal para elementos de mídia */

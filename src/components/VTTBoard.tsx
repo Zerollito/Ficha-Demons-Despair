@@ -613,21 +613,17 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
     const container = containerRef.current;
     if (!container) return;
 
-    const handleNativeTouch = (e: TouchEvent) => {
-      // Bloqueia se estiver dentro do container do VTT
-      if (e.cancelable) {
-        e.preventDefault();
-      }
+    // Impedir que eventos de toque "vazem" para o body do sistema
+    const handleCapture = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
     };
 
-    // O segredo é o passive: false para permitir preventDefault
-    container.addEventListener('touchmove', handleNativeTouch, { passive: false });
-    container.addEventListener('touchstart', (e) => {
-       if (e.touches.length > 1 && e.cancelable) e.preventDefault();
-    }, { passive: false });
+    container.addEventListener('touchstart', handleCapture, { passive: false });
+    container.addEventListener('touchmove', handleCapture, { passive: false });
 
     return () => {
-      container.removeEventListener('touchmove', handleNativeTouch);
+      container.removeEventListener('touchstart', handleCapture);
+      container.removeEventListener('touchmove', handleCapture);
     };
   }, []);
 
