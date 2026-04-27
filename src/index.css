@@ -52,6 +52,7 @@ button, a, select, input {
     max-width: 100vw;
     overflow-x: hidden;
     position: relative;
+    overscroll-behavior: none;
   }
   
   /* Garantia universal para elementos de mídia */

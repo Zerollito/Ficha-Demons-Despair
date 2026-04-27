@@ -412,11 +412,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
   };
 
   const handleTouchMove = (e: any) => {
+    if (e.evt.cancelable) e.evt.preventDefault();
+    
     const touch1 = e.evt.touches[0];
     const touch2 = e.evt.touches[1];
 
     if (touch1 && touch2) {
-      if (e.evt.cancelable) e.evt.preventDefault();
       
       const stage = e.target.getStage();
       if (stage.isDragging()) {
@@ -609,9 +610,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
 
   return (
     <div 
-      ref={containerRef}
       className="flex flex-col h-full bg-[#09090b] relative overflow-hidden"
-      style={{ touchAction: 'none' }}
     >
       {/* Loading State */}
       {mapImageStatus === 'loading' && config.mapUrl && (
@@ -990,7 +989,11 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
         </div>
       )}
 
-      <div ref={containerRef} className="flex-1 cursor-grab active:cursor-grabbing">
+      <div 
+        ref={containerRef} 
+        className="flex-1 cursor-grab active:cursor-grabbing overflow-hidden"
+        style={{ touchAction: 'none', overscrollBehavior: 'none' }}
+      >
         <Stage
           width={dimensions.width}
           height={dimensions.height}
