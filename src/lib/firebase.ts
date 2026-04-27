@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer, collection, query, where, onSnapshot, setDoc, deleteDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { Character } from '../types';
@@ -7,7 +7,24 @@ import { Character } from '../types';
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || '(default)');
 export const auth = getAuth(app);
+
+// Configurar persistência local de forma agressiva para evitar perda de estado em WebViews/Iframes
+const initAuth = async () => {
+    try {
+        await setPersistence(auth, browserLocalPersistence);
+        console.log("Persistência do Firebase Auth configurada como Local.");
+    } catch (err) {
+        console.error("Erro ao definir persistência:", err);
+    }
+};
+initAuth();
+
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ 
+    prompt: 'select_account',
+    // Adicionando parâmetros para melhor compatibilidade com webviews
+    display: 'touch' 
+});
 
 // Connection test
 async function testConnection() {
@@ -73,9 +90,32 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 // Auth Helpers
 export const loginWithGoogle = async () => {
+    // Detecta se é mobile ou webview para preferir redirect se necessário
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
     try {
+        console.log("Iniciando login com popup...");
+        // Tentamos popup primeiro, é a melhor experiência
         await signInWithPopup(auth, googleProvider);
-    } catch (error) {
+        console.log("Login finalizado com sucesso.");
+    } catch (error: any) {
+        console.error("Erro no login:", error);
+        
+        // Se o erro for de inicialização ou popup bloqueado em mobile, podemos sugerir o redirect
+        if (error.message && (error.message.includes('missing initial state') || error.code === 'auth/popup-blocked')) {
+          console.warn("Detectado erro de estado inicial ou popup bloqueado. Sugerindo alternativas.");
+          
+          if (isMobile) {
+              // Em mobile, o redirect é mais estável. 
+              // Nota: signInWithRedirect exige configuração de domínios autorizados e proxy no Firebase.
+              // Por enquanto, vamos apenas avisar e oferecer o link direto.
+              alert("O login via janela falhou. Se estiver no celular, tente habilitar popups ou use a versão web direta.");
+          } else {
+              if (window.top !== window.self) {
+                alert("O navegador bloqueou o login dentro do quadro. Clique no ícone de 'Abrir em nova aba' no topo para entrar.");
+              }
+          }
+        }
         throw error;
     }
 };

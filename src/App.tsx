@@ -135,26 +135,10 @@ const createEmptyCharacter = (): Character => ({
   defesa: { Cabeça: 0, Torso: 0, Braços: 0, Pernas: 0 },
   clima: 0,
   stats: {
-    CON: 0,
-    RES: 0,
-    ADP: 0,
-    MEN: 0,
-    APR: 0,
-    FOR: 0,
-    DEX: 0,
-    INT: 0,
-    RIT: 0,
+    CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0
   },
   statsXP: {
-    CON: 0,
-    RES: 0,
-    ADP: 0,
-    MEN: 0,
-    APR: 0,
-    FOR: 0,
-    DEX: 0,
-    INT: 0,
-    RIT: 0,
+    CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0
   },
   bonusProficiencias: {},
   joias: [],
@@ -181,6 +165,34 @@ const createEmptyCharacter = (): Character => ({
   dadosCustomizados: [],
   imagens: [],
 });
+
+const sanitizeCharacter = (char: any): Character => {
+  const def = createEmptyCharacter();
+  return {
+    ...def,
+    ...char,
+    dinheiro: { ...def.dinheiro, ...(char.dinheiro || {}) },
+    defesa: { ...def.defesa, ...(char.defesa || {}) },
+    stats: { ...def.stats, ...(char.stats || {}) },
+    statsXP: { ...def.statsXP, ...(char.statsXP || {}) },
+    bonusProficiencias: char.bonusProficiencias || {},
+    compartimentos: (char.compartimentos || def.compartimentos).map((comp: any) => ({
+      ...comp,
+      itens: comp.itens || []
+    })),
+    conhecimentos: char.conhecimentos || def.conhecimentos,
+    anotacoes: char.anotacoes || def.anotacoes,
+    magias: (char.magias || []).map((m: any) => ({
+      ...m,
+      tipo: m.tipo === "ataque" ? "Ataque" : m.tipo,
+    })),
+    // Ensure nested fields that migrated over time are present
+    clima: typeof char.clima === "object" ? 0 : char.clima || 0,
+    escalas: char.escalas || [],
+    catalisadores: char.catalisadores || [],
+    acessorios: char.acessorios || [],
+  };
+};
 
 const NEGATIVE_EFFECTS = [
   {
@@ -243,33 +255,82 @@ const HIT_LOCATIONS = [
   "Cabeça",
 ];
 
-export default function App() {
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("ErrorBoundary caught an error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-6 text-center">
+          <div className="max-w-md w-full bg-zinc-900 border border-red-500/30 rounded-2xl p-8 space-y-6">
+            <Skull className="w-16 h-16 text-red-500 mx-auto" />
+            <div className="space-y-2">
+              <h2 className="text-2xl font-bold text-white uppercase tracking-tighter">Anomalia Planar</h2>
+              <p className="text-zinc-400 text-sm">O sistema encontrou um erro crítico e precisou ser interrompido para sua segurança.</p>
+            </div>
+            <div className="bg-black/40 rounded-lg p-4 text-left overflow-auto max-h-40 custom-scrollbar">
+              <code className="text-red-400 text-xs break-all">{this.state.error?.message}</code>
+            </div>
+            <div className="flex flex-col gap-3 pt-2">
+              <button 
+                onClick={() => window.location.reload()}
+                className="w-full py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-bold rounded-xl transition-all"
+              >
+                Tentar Recarregar
+              </button>
+              <button 
+                onClick={() => {
+                  if (confirm("Isso apagará suas fichas locais. Tem certeza?")) {
+                    localStorage.removeItem(STORAGE_KEY);
+                    window.location.reload();
+                  }
+                }}
+                className="w-full py-3 border border-red-500/30 text-red-500 hover:bg-red-500/10 font-bold rounded-xl transition-all text-xs uppercase"
+              >
+                Resetar Cache Local
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AppWrapper() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}
+
+export default AppWrapper;
+
+function App() {
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Migration for clima object and general robustness
-        if (
-          parsed &&
-          typeof parsed === "object" &&
-          Array.isArray(parsed.characters)
-        ) {
-          parsed.characters = parsed.characters.map((char: any) => ({
-            ...char,
-            clima: typeof char.clima === "object" ? 0 : char.clima || 0,
-            escalas: char.escalas || [],
-            catalisadores: char.catalisadores || [],
-            bonusProficiencias: char.bonusProficiencias || {},
-            magias: (char.magias || []).map((m: any) => ({
-              ...m,
-              tipo: m.tipo === "ataque" ? "Ataque" : m.tipo,
-            })),
-          }));
+        if (parsed && typeof parsed === "object" && Array.isArray(parsed.characters)) {
+          parsed.characters = parsed.characters.map(sanitizeCharacter);
           return parsed;
         }
       } catch (e) {
-        console.error("Error loading characters", e);
+        console.error("Erro ao carregar do localStorage", e);
       }
     }
     const initialChar = createEmptyCharacter();
@@ -911,32 +972,91 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin"></div>
-          <p className="text-zinc-500 font-medium animate-pulse">Carregando autenticação...</p>
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-6 text-center">
+        <div className="relative mb-8">
+          <div className="w-20 h-20 border-4 border-amber-500/10 border-t-amber-500 rounded-full animate-spin"></div>
+          <Skull className="absolute inset-x-0 inset-y-0 m-auto w-8 h-8 text-amber-500 animate-pulse" />
         </div>
+        <h2 className="text-xl font-bold text-white mb-2 uppercase tracking-widest">Iniciando Sistema</h2>
+        <p className="text-zinc-500 text-sm max-w-xs animate-pulse">
+          Estamos sintonizando as energias do plano astral. Por favor, aguarde...
+        </p>
+        
+        <button 
+          onClick={() => setAuthLoading(false)}
+          className="mt-8 text-[10px] text-zinc-700 hover:text-zinc-500 uppercase font-black tracking-widest transition-colors"
+        >
+          Pular Carregamento
+        </button>
       </div>
     );
   }
 
   if (authError) {
+    const isIframe = window.top !== window.self;
+    const isMissingState = authError.includes('missing initial state');
+    
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-zinc-900 border border-red-500/50 rounded-2xl p-8 text-center space-y-4">
           <Skull className="w-12 h-12 text-red-500 mx-auto" />
-          <h1 className="text-xl font-bold text-white">Erro de Autenticação</h1>
-          <p className="text-zinc-400">{authError}</p>
-          <button 
-            onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl transition-colors"
-          >
-            Tentar Novamente
-          </button>
+          <h1 className="text-xl font-bold text-white uppercase tracking-tighter">Sincronização Interrompida</h1>
+          
+          <div className="text-zinc-400 text-sm leading-relaxed space-y-2">
+            <p>
+              {isMissingState 
+                ? "O navegador do seu dispositivo bloqueou a conexão segura com o Google para proteger seus dados."
+                : authError}
+            </p>
+            {isMissingState && (
+              <p className="text-zinc-500 text-xs italic">
+                Isso é comum em aplicativos "Webview". Tente habilitar "Cookies de Terceiros" nas configurações do seu navegador padrão.
+              </p>
+            )}
+          </div>
+          
+          {isIframe && (
+            <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl text-amber-200 text-xs text-left mb-4">
+              <p className="font-bold mb-1 italic">Nota do Sistema:</p>
+              Você está acessando através de um quadro (Iframe). Clique no ícone superior de "Abrir em nova Janela" para resolver conflitos de login.
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2 pt-4">
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full py-3 bg-zinc-100 text-zinc-900 hover:bg-white rounded-xl transition-colors font-bold uppercase tracking-widest text-xs"
+            >
+              Recarregar Aplicativo
+            </button>
+            
+            <button 
+              onClick={() => {
+                auth.signOut();
+                setAuthError(null);
+                setAuthLoading(false);
+              }}
+              className="w-full py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl transition-colors font-medium text-xs"
+            >
+              Tentar Outro Login
+            </button>
+
+            <button 
+              onClick={() => {
+                setAuthError(null);
+                setAuthLoading(false);
+              }}
+              className="w-full py-2 text-zinc-600 hover:text-zinc-400 text-[10px] uppercase font-black tracking-widest"
+            >
+              Ignorar e usar Offline
+            </button>
+          </div>
         </div>
       </div>
     );
   }
+
+  console.log("Renderizando App. User:", user?.email, "Chars:", state.characters.length);
 
   return (
     <div className="min-h-screen w-full bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30 overflow-x-hidden">

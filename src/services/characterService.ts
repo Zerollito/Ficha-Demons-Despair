@@ -55,8 +55,36 @@ export const subscribeToUserCharacters = (onUpdate: (characters: Character[]) =>
   return onSnapshot(q, (snapshot) => {
     const characters = snapshot.docs.map(doc => {
       const data = doc.data();
-      // Convert Timestamps if needed or just return data as any to match Character
-      return data as Character;
+      // Basic sanitization to ensure essential structures exist before reaching the UI
+      return {
+        nome: "Personagem sem nome",
+        etnia: "",
+        dinheiro: { C: 0, B: 0, P: 0, O: 0 },
+        vidaAtual: 0,
+        manaAtual: 0,
+        fome: 100,
+        sede: 100,
+        cansaco: 8,
+        defesa: { Cabeça: 0, Torso: 0, Braços: 0, Pernas: 0 },
+        stats: { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 },
+        statsXP: { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 },
+        bonusProficiencias: {},
+        joias: [],
+        armas: [],
+        catalisadores: [],
+        habilidades: [],
+        magias: [],
+        armaduras: [],
+        acessorios: [],
+        compartimentos: [],
+        conhecimentos: [],
+        escalas: [],
+        efeitosNegativos: [],
+        anotacoes: [],
+        dadosCustomizados: [],
+        imagens: [],
+        ...data
+      } as Character;
     });
     onUpdate(characters);
   }, (error) => {
