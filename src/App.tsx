@@ -381,26 +381,23 @@ function App() {
       }
 
       const preventDefault = (e: any) => {
-        // Bloqueia se for touchmove ou se for zoom via wheel
+        // Bloqueia gestos do navegador
         if (e.cancelable) {
           // Bloqueia wheel zoom (ctrl + wheel)
           if (e.type === 'wheel' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             return;
           }
-          // Bloqueia todos os touches no body exceto se vierem do board (que já tratamos)
-          // Mas como estamos no modo "table", queremos bloquear o scroll do navegador totalmente
-          e.preventDefault();
+          // No activePage "table", queremos impedir pull-to-refresh global, 
+          // mas permitimos que os eventos cheguem aos elementos.
+          // O VTTBoard já trata o preventDefault dele.
         }
       };
 
-      // Listener para Safari (iOS) pinch gestures
       const blockSafariZoom = (e: any) => {
         if (e.cancelable) e.preventDefault();
       };
 
-      window.addEventListener('touchstart', preventDefault, { passive: false });
-      window.addEventListener('touchmove', preventDefault, { passive: false });
       window.addEventListener('wheel', preventDefault, { passive: false });
       window.addEventListener('gesturestart', blockSafariZoom, { passive: false });
       window.addEventListener('gesturechange', blockSafariZoom, { passive: false });
@@ -414,8 +411,6 @@ function App() {
         document.documentElement.style.overscrollBehaviorY = '';
         document.documentElement.classList.remove('vtt-active');
         if (viewport) viewport.setAttribute('content', originalViewport);
-        window.removeEventListener('touchstart', preventDefault);
-        window.removeEventListener('touchmove', preventDefault);
         window.removeEventListener('wheel', preventDefault);
         window.removeEventListener('gesturestart', blockSafariZoom);
         window.removeEventListener('gesturechange', blockSafariZoom);
@@ -1409,7 +1404,7 @@ function App() {
 
       <main key={activeChar.id} className={cn(
         "flex-1 overflow-y-auto custom-scrollbar overscroll-none",
-        activePage === "table" ? "fixed inset-0 z-[100] h-screen w-screen overflow-hidden p-0 bg-black" : "max-w-7xl mx-auto p-4 md:p-6 pb-20"
+        activePage === "table" ? "h-full w-full overflow-hidden p-0 bg-black" : "max-w-7xl mx-auto p-4 md:p-6 pb-20"
       )}>
         {activePage === "sheet" ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

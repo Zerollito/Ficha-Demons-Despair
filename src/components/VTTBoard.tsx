@@ -613,30 +613,26 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
     const container = containerRef.current;
     if (!container) return;
 
-    // Impedir que eventos de toque "vazem" para o body do sistema
-    // Usamos capture: true para interceptar antes de qualquer outro lugar
-    const handleCapture = (e: TouchEvent) => {
+    // Impedir apenas o comportamento padrão do navegador em movimentos
+    const handleTouchMove = (e: TouchEvent) => {
+      // Se tivermos mais de um toque (pinch), ou se estivermos tentando arrastar o "nada" no mobile
+      // o navegador pode tentar dar zoom ou scroll. Bloqueamos apenas se o evento for cancelável.
       if (e.cancelable) {
         e.preventDefault();
-        e.stopPropagation();
       }
     };
 
-    container.addEventListener('touchstart', handleCapture, { passive: false, capture: true });
-    container.addEventListener('touchmove', handleCapture, { passive: false, capture: true });
-    container.addEventListener('touchend', (e) => {
-      // Opcional: pode ser necessário para alguns ambientes
-    }, { passive: false, capture: true });
+    // Usamos o container específico do VTT para não quebrar o resto do app
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
 
     return () => {
-      container.removeEventListener('touchstart', handleCapture, { capture: true });
-      container.removeEventListener('touchmove', handleCapture, { capture: true });
+      container.removeEventListener('touchmove', handleTouchMove);
     };
   }, []);
 
   return (
     <div 
-      className="flex flex-col h-full bg-[#09090b] relative overflow-hidden overscroll-none vtt-lock-box"
+      className="flex flex-col h-full bg-[#09090b] relative overflow-hidden overscroll-none"
     >
       {/* Loading State */}
       {mapImageStatus === 'loading' && config.mapUrl && (
