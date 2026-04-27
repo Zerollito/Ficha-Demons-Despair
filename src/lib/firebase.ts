@@ -1,5 +1,15 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import { 
+    getAuth, 
+    GoogleAuthProvider, 
+    signInWithPopup, 
+    signInWithRedirect, 
+    getRedirectResult, 
+    onAuthStateChanged, 
+    User, 
+    setPersistence, 
+    browserLocalPersistence 
+} from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer, collection, query, where, onSnapshot, setDoc, deleteDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { Character } from '../types';
@@ -89,10 +99,34 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 }
 
 // Auth Helpers
+export const handleRedirectResult = async () => {
+    try {
+        const result = await getRedirectResult(auth);
+        if (result) {
+            console.log("Login via redirect detectado e processado.");
+            return result.user;
+        }
+    } catch (error) {
+        console.error("Erro ao processar resultado do redirect:", error);
+    }
+    return null;
+};
+
 export const loginWithGoogle = async () => {
     // Detecta se é mobile ou webview para preferir redirect se necessário
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const isIframe = window.top !== window.self;
     
+    if (isMobile || isIframe) {
+        console.log("Ambiente restrito detectado. Usando Redirect em vez de Popup.");
+        try {
+            await signInWithRedirect(auth, googleProvider);
+            return;
+        } catch (error) {
+            console.error("Erro no Redirect:", error);
+        }
+    }
+
     try {
         console.log("Iniciando login com popup...");
         // Tentamos popup primeiro, é a melhor experiência
@@ -102,21 +136,16 @@ export const loginWithGoogle = async () => {
         console.error("Erro no login:", error);
         
         // Se o erro for de inicialização ou popup bloqueado em mobile, podemos sugerir o redirect
-        if (error.message && (error.message.includes('missing initial state') || error.code === 'auth/popup-blocked')) {
-          console.warn("Detectado erro de estado inicial ou popup bloqueado. Sugerindo alternativas.");
-          
-          if (isMobile) {
-              // Em mobile, o redirect é mais estável. 
-              // Nota: signInWithRedirect exige configuração de domínios autorizados e proxy no Firebase.
-              // Por enquanto, vamos apenas avisar e oferecer o link direto.
-              alert("O login via janela falhou. Se estiver no celular, tente habilitar popups ou use a versão web direta.");
-          } else {
-              if (window.top !== window.self) {
-                alert("O navegador bloqueou o login dentro do quadro. Clique no ícone de 'Abrir em nova aba' no topo para entrar.");
-              }
+        if (error.code === 'auth/popup-blocked' || error.message?.includes('missing initial state')) {
+          console.warn("Detectado erro de estado inicial ou popup bloqueado. Tentando Redirect...");
+          try {
+              await signInWithRedirect(auth, googleProvider);
+          } catch (reErr) {
+              console.error("Erro no fallback de redirect:", reErr);
           }
+        } else {
+            throw error;
         }
-        throw error;
     }
 };
 

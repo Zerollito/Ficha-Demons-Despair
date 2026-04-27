@@ -53,7 +53,7 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { jsPDF } from "jspdf";
 import { diceBase64 } from "./diceIcons";
-import { auth, loginWithGoogle, logout as firebaseLogout } from "./lib/firebase";
+import { auth, loginWithGoogle, logout as firebaseLogout, handleRedirectResult } from "./lib/firebase";
 import { subscribeToUserCharacters, saveCharacterToFirestore, deleteCharacterFromFirestore } from "./services/characterService";
 import { 
   createCampaign, 
@@ -364,6 +364,16 @@ function App() {
   // Firebase Auth Effect
   useEffect(() => {
     console.log("Iniciando listener de autenticação...");
+    
+    // Verificar se voltamos de um redirect de login
+    handleRedirectResult().then(user => {
+      if (user) {
+        console.log("Processado login via redirect para:", user.email);
+        setUser(user);
+        setAuthLoading(false);
+      }
+    });
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       console.log("Estado de autenticação alterado:", currentUser ? `Usuário: ${currentUser.email}` : "Nenhum usuário");
       setUser(currentUser);
@@ -1032,13 +1042,13 @@ function App() {
             
             <button 
               onClick={() => {
-                auth.signOut();
-                setAuthError(null);
-                setAuthLoading(false);
+                auth.signOut().then(() => {
+                  window.location.reload();
+                });
               }}
               className="w-full py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl transition-colors font-medium text-xs"
             >
-              Tentar Outro Login
+              Limpar Sessão e Tentar Novamente
             </button>
 
             <button 
