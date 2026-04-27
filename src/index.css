@@ -53,10 +53,13 @@ button, a, select, input {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
+  overscroll-behavior-y: none;
+  touch-action: none;
 }
 
 body {
   position: relative;
+  touch-action: manipulation;
 }
 
 #root {

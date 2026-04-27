@@ -361,6 +361,38 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
+  // Bloqueio de gestos do navegador para evitar pull-to-refresh
+  useEffect(() => {
+    if (activePage === "table") {
+      // Bloqueio via CSS no body
+      document.body.style.overflow = 'hidden';
+      document.body.style.overscrollBehaviorY = 'none';
+      document.body.style.position = 'fixed';
+      document.body.style.width = '100%';
+      document.body.style.height = '100%';
+      document.documentElement.style.overscrollBehaviorY = 'none';
+
+      // Bloqueio via Event Listener (Nuclear)
+      const preventDefault = (e: TouchEvent) => {
+        if (e.touches.length === 1 && e.cancelable) {
+          e.preventDefault();
+        }
+      };
+
+      window.addEventListener('touchmove', preventDefault, { passive: false });
+
+      return () => {
+        document.body.style.overflow = '';
+        document.body.style.overscrollBehaviorY = '';
+        document.body.style.position = '';
+        document.body.style.width = '';
+        document.body.style.height = '';
+        document.documentElement.style.overscrollBehaviorY = '';
+        window.removeEventListener('touchmove', preventDefault);
+      };
+    }
+  }, [activePage]);
+
   // Firebase Auth Effect
   useEffect(() => {
     console.log("Iniciando listener de autenticação...");
@@ -1070,8 +1102,8 @@ function App() {
 
   return (
     <div className={cn(
-      "min-h-screen h-screen w-full bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30 flex flex-col overflow-hidden",
-      activePage === "table" ? "overscroll-none touch-none" : ""
+      "min-h-screen w-full bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30 flex flex-col",
+      activePage === "table" ? "h-screen fixed inset-0 overflow-hidden touch-none" : "overflow-x-hidden"
     )}>
       {/* Header */}
       <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
@@ -1346,7 +1378,7 @@ function App() {
       </header>
 
       <main key={activeChar.id} className={cn(
-        "flex-1 overflow-y-auto custom-scrollbar",
+        "flex-1 overflow-y-auto custom-scrollbar overscroll-none",
         activePage === "table" ? "overflow-hidden p-0" : "max-w-7xl mx-auto p-4 md:p-6 pb-20"
       )}>
         {activePage === "sheet" ? (
