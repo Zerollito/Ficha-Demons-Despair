@@ -49,23 +49,26 @@ button, a, select, input {
 
 @layer base {
   html, body {
-  max-width: 100vw;
-  height: 100%;
-  overflow: hidden;
-  overscroll-behavior: none;
-  overscroll-behavior-y: none;
-  touch-action: none;
-}
+    max-width: 100vw;
+    height: 100%;
+    overflow-x: hidden;
+  }
 
-body {
-  position: relative;
-  touch-action: manipulation;
-}
+  /* Quando o VTT está ativo, travamos tudo */
+  html.vtt-active, 
+  html.vtt-active body {
+    overflow: hidden !important;
+    overscroll-behavior: none !important;
+    overscroll-behavior-y: none !important;
+    touch-action: none !important;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+  }
 
-#root {
-  height: 100%;
-  overflow: hidden;
-}
+  #root {
+    height: 100%;
+  }
   
   /* Garantia universal para elementos de mídia */
   img, video, canvas, svg {

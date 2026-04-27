@@ -361,7 +361,7 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Bloqueio de gestos do navegador para evitar pull-to-refresh
+  // Bloqueio de gestos do navegador para evitar pull-to-refresh e pinch-zoom
   useEffect(() => {
     if (activePage === "table") {
       // Bloqueio via CSS no body
@@ -371,15 +371,39 @@ function App() {
       document.body.style.width = '100%';
       document.body.style.height = '100%';
       document.documentElement.style.overscrollBehaviorY = 'none';
+      document.documentElement.classList.add('vtt-active');
 
-      // Bloqueio via Event Listener (Nuclear)
-      const preventDefault = (e: TouchEvent) => {
-        if (e.touches.length === 1 && e.cancelable) {
+      // Desabilitar zoom via meta tag
+      const viewport = document.querySelector('meta[name=viewport]');
+      const originalViewport = viewport?.getAttribute('content') || '';
+      if (viewport) {
+        viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+      }
+
+      const preventDefault = (e: any) => {
+        // Bloqueia se for touchmove ou se for zoom via wheel
+        if (e.cancelable) {
+          // Bloqueia wheel zoom (ctrl + wheel)
+          if (e.type === 'wheel' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            return;
+          }
+          // Bloqueia todos os touches no body exceto se vierem do board (que já tratamos)
+          // Mas como estamos no modo "table", queremos bloquear o scroll do navegador totalmente
           e.preventDefault();
         }
       };
 
+      // Listener para Safari (iOS) pinch gestures
+      const blockSafariZoom = (e: any) => {
+        if (e.cancelable) e.preventDefault();
+      };
+
+      window.addEventListener('touchstart', preventDefault, { passive: false });
       window.addEventListener('touchmove', preventDefault, { passive: false });
+      window.addEventListener('wheel', preventDefault, { passive: false });
+      window.addEventListener('gesturestart', blockSafariZoom, { passive: false });
+      window.addEventListener('gesturechange', blockSafariZoom, { passive: false });
 
       return () => {
         document.body.style.overflow = '';
@@ -388,7 +412,13 @@ function App() {
         document.body.style.width = '';
         document.body.style.height = '';
         document.documentElement.style.overscrollBehaviorY = '';
+        document.documentElement.classList.remove('vtt-active');
+        if (viewport) viewport.setAttribute('content', originalViewport);
+        window.removeEventListener('touchstart', preventDefault);
         window.removeEventListener('touchmove', preventDefault);
+        window.removeEventListener('wheel', preventDefault);
+        window.removeEventListener('gesturestart', blockSafariZoom);
+        window.removeEventListener('gesturechange', blockSafariZoom);
       };
     }
   }, [activePage]);
