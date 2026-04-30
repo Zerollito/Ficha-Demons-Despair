@@ -1256,7 +1256,7 @@ function App() {
 
   return (
     <div className={cn(
-      "min-h-screen w-full bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30 flex flex-col",
+      "min-h-screen w-full bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30 flex flex-col overscroll-none",
       activePage === "table" ? "h-screen fixed inset-0 overflow-hidden touch-none" : "overflow-x-hidden"
     )}>
       {/* Header */}
