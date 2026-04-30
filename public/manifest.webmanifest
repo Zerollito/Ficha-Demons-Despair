@@ -8,13 +8,25 @@
   "theme_color": "#f59e0b",
   "icons": [
     {
-      "src": "/d20.png",
+      "src": "/icone.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icone.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/d20.png",
+      "src": "/icone.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icone.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

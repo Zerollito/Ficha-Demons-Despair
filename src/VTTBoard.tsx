@@ -2,16 +2,16 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from "motion/react";
 import { Stage, Layer, Image as KonvaImage, Rect, Circle, Line, Text, Group, RegularPolygon, Shape } from 'react-konva';
 import useImage from 'use-image';
-import { TableToken, TableConfig, Character } from '../types';
-import { updateTokenPosition } from '../services/vttService';
+import { TableToken, TableConfig, Character } from './types';
+import { updateTokenPosition } from './services/vttService';
 import { Shield, User, Trash2, Plus, Settings, ZoomIn, ZoomOut, Maximize, Eye, EyeOff, Upload, ChevronLeft, ChevronRight, Skull, Info, Heart, Minus, FileText, Zap } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn } from './lib/utils';
 import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { Bestiary } from './Bestiary';
-import { BestiaryMonster } from '../types';
+import { db } from './lib/firebase';
+import { Bestiary } from './components/Bestiary';
+import { BestiaryMonster } from './types';
 
-import { compressImageDataUrl } from '../lib/imageUtils';
+import { compressImageDataUrl } from './lib/imageUtils';
 
 interface VTTBoardProps {
   campaignId: string;

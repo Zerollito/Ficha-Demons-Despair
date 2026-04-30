@@ -12,14 +12,24 @@ interface NumericInputProps {
 }
 
 export function NumericInput({ label, value, onChange, className, min, max, size = "md" }: NumericInputProps) {
-  const [innerValue, setInnerValue] = useState(value?.toString() ?? '');
+  const [innerValue, setInnerValue] = useState<string>(value?.toString() ?? '');
 
   useEffect(() => {
-    if (value !== undefined && value !== null && value.toString() !== innerValue) {
+    // Only update innerValue if the external value changed and it's different from current innerValue
+    // Special case: if value is 0 and innerValue is empty, don't force '0' back in (allows clearing)
+    const valStr = value?.toString() ?? '0';
+    if (valStr !== innerValue) {
       if (value === 0 && innerValue === '') return;
-      setInnerValue(value.toString());
+      setInnerValue(valStr);
     }
   }, [value]);
+
+  const handleBlur = () => {
+    if (innerValue === '' || innerValue === '-') {
+      setInnerValue('0');
+      onChange(0);
+    }
+  };
 
   return (
     <div className={cn("flex flex-col min-w-0", className)}>
@@ -28,10 +38,23 @@ export function NumericInput({ label, value, onChange, className, min, max, size
         type="text" 
         inputMode="numeric"
         value={innerValue} 
+        onBlur={handleBlur}
+        onFocus={(e) => e.target.select()}
         onChange={e => {
           const val = e.target.value.replace(/[^0-9.,-]/g, '').replace(',', '.');
+          // Prevent multiple dots or minus in wrong place
+          if ((val.match(/\./g) || []).length > 1) return;
+          if (val.lastIndexOf('-') > 0) return;
+          
           setInnerValue(val);
-          onChange(parseFloat(val) || 0);
+          
+          // Only propagate if it's a valid number
+          const parsed = parseFloat(val);
+          if (!isNaN(parsed)) {
+            onChange(parsed);
+          } else if (val === '' || val === '-') {
+            onChange(0);
+          }
         }}
         className={cn(
           "bg-black/40 border border-zinc-700/50 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-400 font-bold text-center w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none shadow-inner",

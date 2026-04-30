@@ -53,8 +53,7 @@ button, a, select, input {
     height: 100%;
     margin: 0;
     padding: 0;
-    overscroll-behavior-y: none !important;
-    overscroll-behavior-x: none !important;
+    overscroll-behavior-y: auto;
     position: relative;
     overflow-x: hidden;
   }

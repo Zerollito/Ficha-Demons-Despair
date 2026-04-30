@@ -73,7 +73,7 @@ import {
 import { onAuthStateChanged, User } from "firebase/auth";
 
 import { Character, AppState, ArmorPiece, Campaign, TableToken, TableConfig, BestiaryMonster } from "./types";
-import { VTTBoard } from "./components/VTTBoard";
+import { VTTBoard } from "./VTTBoard";
 import { Bestiary } from "./components/Bestiary";
 import {
   Stats,
@@ -334,16 +334,32 @@ function App() {
     const preventPullToRefresh = (e: TouchEvent) => {
       const touch = e.touches[0];
       const currentY = touch.pageY;
-      const scrollY = window.scrollY || document.documentElement.scrollTop;
       
-      // Se estivermos no topo e o movimento for para baixo (pull down)
-      if (scrollY <= 0 && currentY > startY) {
-        // Verifica se o elemento sendo scrollado é um container interno que ainda tem espaço pra subir
-        // Se não for, ou se já estiver no topo do container interno, bloqueia o browser
-        const target = e.target as HTMLElement;
-        const scrollableParent = target.closest('.overflow-y-auto');
-        
-        if (!scrollableParent || scrollableParent.scrollTop <= 0) {
+      // If movement is downward
+      if (currentY > startY) {
+        let element = e.target as HTMLElement | null;
+        let canScrollUp = false;
+
+        // Traverse up the DOM tree to see if any scrollable parent is NOT at the top
+        while (element && element !== document.documentElement) {
+          const style = window.getComputedStyle(element);
+          const overflowY = style.overflowY;
+          const isScrollable = overflowY === 'auto' || overflowY === 'scroll' || element.classList.contains('overflow-y-auto');
+          
+          if (isScrollable && element.scrollTop > 0) {
+            canScrollUp = true;
+            break;
+          }
+          element = element.parentElement;
+        }
+
+        // Also check if the window/documentElement can scroll up
+        if (!canScrollUp && (window.scrollY > 0 || document.documentElement.scrollTop > 0)) {
+            canScrollUp = true;
+        }
+
+        // If no container can scroll up, this pull down will trigger browser refresh unless we prevent it
+        if (!canScrollUp) {
           if (e.cancelable) e.preventDefault();
         }
       }
@@ -1611,11 +1627,12 @@ function App() {
       </header>
 
       <main key={activeChar.id} className={cn(
-        "flex-1 overflow-y-auto custom-scrollbar overscroll-none",
-        activePage === "table" ? "h-full w-full overflow-hidden p-0 bg-black" : "max-w-7xl mx-auto p-4 md:p-6 pb-20"
+        "flex-1 overflow-y-auto custom-scrollbar overscroll-none min-h-0",
+        activePage === "table" ? "h-full w-full overflow-hidden p-0 bg-black" : "w-full"
       )}>
         {activePage === "sheet" ? (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="max-w-7xl mx-auto p-4 md:p-6 pb-32">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Left Column: Basic Info & Stats */}
             <div className="lg:col-span-4 space-y-6">
               <Section title="Personagem" icon={<UserIcon size={18} />} collapsible>
@@ -4306,12 +4323,11 @@ function App() {
                   </div>
                 </div>
               </Section>
-
-
             </div>
           </div>
+        </div>
         ) : activePage === "dice" ? (
-          <div className="flex flex-col h-full max-w-4xl mx-auto bg-zinc-950 rounded-xl overflow-hidden border border-zinc-800 shadow-2xl">
+          <div className="max-w-4xl mx-auto w-full flex flex-col h-full bg-zinc-950 overflow-hidden shadow-2xl border-x border-zinc-900">
             {/* Tabs Header */}
             <div className="flex border-b border-zinc-800 bg-zinc-900/50">
               <motion.button
@@ -4456,7 +4472,7 @@ function App() {
                   </SubSection>
 
                   {/* Dice Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+                  <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4 sm:gap-6">
                     {[
                       { sides: 4, img: "d4.png" },
                       { sides: 6, img: "d6.png" },
@@ -4896,8 +4912,7 @@ function App() {
             </div>
           </div>
         ) : activePage === "library" ? (
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
-            <div className="max-w-6xl mx-auto space-y-8">
+          <div className="max-w-6xl mx-auto space-y-8 p-4 sm:p-6 pb-32 touch-pan-y">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <h2 className="text-3xl font-black text-amber-500 uppercase tracking-tighter">
@@ -4945,6 +4960,7 @@ function App() {
                   <motion.div
                     key={char.id}
                     layoutId={char.id}
+                    style={{ touchAction: 'pan-y' }}
                     className={cn(
                       "group relative bg-zinc-900 border transition-all rounded-3xl overflow-hidden cursor-pointer",
                       state.activeCharacterId === char.id
@@ -4968,8 +4984,8 @@ function App() {
                           <UserIcon size={64} className="text-zinc-500" />
                         </div>
                       )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/40 to-transparent" />
-                      <div className="absolute bottom-4 left-4 right-4">
+                      <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/40 to-transparent pointer-events-none" />
+                      <div className="absolute bottom-4 left-4 right-4 pointer-events-none">
                         <h3 className="text-xl font-black text-white uppercase tracking-tighter truncate font-mono">
                           {char.nome || "Sem Nome"}
                         </h3>
@@ -5005,7 +5021,7 @@ function App() {
                             setActivePage("sheet");
                           }}
                           className={cn(
-                            "flex-1 py-2 px-4 rounded-xl font-bold text-xs uppercase transition-all",
+                            "flex-1 py-1 px-4 rounded-xl font-bold text-[10px] uppercase transition-all",
                             state.activeCharacterId === char.id
                               ? "bg-amber-500 text-zinc-950"
                               : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
@@ -5088,10 +5104,8 @@ function App() {
                 </div>
               )}
             </div>
-          </div>
         ) : activePage === "gallery" ? (
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
-            <div className="max-w-4xl mx-auto space-y-6">
+          <div className="max-w-4xl mx-auto space-y-6 p-4 sm:p-6 pb-24">
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-black text-amber-500 uppercase tracking-tighter">
                   Galeria de Imagens
@@ -5179,10 +5193,8 @@ function App() {
                 </div>
               )}
             </div>
-          </div>
         ) : activePage === "master" ? (
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
-            <div className="max-w-6xl mx-auto space-y-8">
+          <div className="max-w-6xl mx-auto space-y-8 p-4 sm:p-6 pb-32">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div>
                   <h2 className="text-3xl font-black text-purple-500 uppercase tracking-tighter">Painel do Mestre</h2>
@@ -5384,9 +5396,8 @@ function App() {
                 </div>
               )}
             </div>
-          </div>
         ) : activePage === "bestiary" ? (
-          <div className="max-w-6xl mx-auto">
+          <div className="max-w-6xl mx-auto p-4 sm:p-6 pb-32">
             <div className="mb-8">
               <h1 className="text-3xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
                 <Skull size={32} className="text-red-500" /> Bestiário de Demônios
@@ -6251,18 +6262,22 @@ const NumericInput = React.memo(({
   max?: number;
   size?: "sm" | "md" | "lg";
 }) => {
-  const [innerValue, setInnerValue] = useState(value?.toString() ?? "");
+  const [innerValue, setInnerValue] = useState<string>(value?.toString() ?? "");
 
   useEffect(() => {
-    if (
-      value !== undefined &&
-      value !== null &&
-      value.toString() !== innerValue
-    ) {
+    const valStr = value?.toString() ?? '0';
+    if (valStr !== innerValue) {
       if (value === 0 && innerValue === "") return;
-      setInnerValue(value.toString());
+      setInnerValue(valStr);
     }
   }, [value]);
+
+  const handleBlur = () => {
+    if (innerValue === '' || innerValue === '-') {
+      setInnerValue('0');
+      onChange(0);
+    }
+  };
 
   return (
     <div className={cn("flex flex-col min-w-0", className)}>
@@ -6275,12 +6290,23 @@ const NumericInput = React.memo(({
         type="text"
         inputMode="numeric"
         value={innerValue}
+        onBlur={handleBlur}
+        onFocus={(e) => e.target.select()}
         onChange={(e) => {
           const val = e.target.value
             .replace(/[^0-9.,-]/g, "")
             .replace(",", ".");
+          
+          if ((val.match(/\./g) || []).length > 1) return;
+          if (val.lastIndexOf('-') > 0) return;
+
           setInnerValue(val);
-          onChange(parseFloat(val) || 0);
+          const parsed = parseFloat(val);
+          if (!isNaN(parsed)) {
+            onChange(parsed);
+          } else if (val === '' || val === '-') {
+            onChange(0);
+          }
         }}
         className={cn(
           "bg-black/40 border border-zinc-700/50 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-400 font-bold text-center w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none shadow-inner",
@@ -6306,18 +6332,22 @@ const MiniInput = React.memo(({
   onChange: (v: string) => void;
   disabled?: boolean;
 }) => {
-  const [innerValue, setInnerValue] = useState(value?.toString() ?? "");
+  const [innerValue, setInnerValue] = useState<string>(value?.toString() ?? "");
 
   useEffect(() => {
-    if (
-      value !== undefined &&
-      value !== null &&
-      value.toString() !== innerValue
-    ) {
-      if (value === 0 && innerValue === "") return;
-      setInnerValue(value.toString());
+    const valStr = value?.toString() ?? (type === "number" ? "0" : "");
+    if (valStr !== innerValue) {
+      if (type === "number" && value === 0 && innerValue === "") return;
+      setInnerValue(valStr);
     }
-  }, [value]);
+  }, [value, type]);
+
+  const handleBlur = () => {
+    if (type === "number" && (innerValue === '' || innerValue === '-')) {
+      setInnerValue('0');
+      onChange('0');
+    }
+  };
 
   return (
     <div
@@ -6351,12 +6381,23 @@ const MiniInput = React.memo(({
           inputMode="numeric"
           value={innerValue}
           disabled={disabled}
+          onBlur={handleBlur}
+          onFocus={(e) => e.target.select()}
           onChange={(e) => {
             const val = e.target.value
               .replace(/[^0-9.,-]/g, "")
               .replace(",", ".");
+            
+            if ((val.match(/\./g) || []).length > 1) return;
+            if (val.lastIndexOf('-') > 0) return;
+
             setInnerValue(val);
-            onChange(val);
+            const parsed = parseFloat(val);
+            if (!isNaN(parsed)) {
+              onChange(val);
+            } else if (val === '' || val === '-') {
+              onChange('0');
+            }
           }}
           className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
