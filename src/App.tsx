@@ -322,6 +322,43 @@ function AppWrapper() {
 export default AppWrapper;
 
 function App() {
+  // Efeito para bloquear o pull-to-refresh (recarregamento ao puxar para baixo)
+  useEffect(() => {
+    let startY = 0;
+
+    const recordTouchStart = (e: TouchEvent) => {
+      startY = e.touches[0].pageY;
+      (window as any)._lastTouchY = startY;
+    };
+
+    const preventPullToRefresh = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      const currentY = touch.pageY;
+      const scrollY = window.scrollY || document.documentElement.scrollTop;
+      
+      // Se estivermos no topo e o movimento for para baixo (pull down)
+      if (scrollY <= 0 && currentY > startY) {
+        // Verifica se o elemento sendo scrollado é um container interno que ainda tem espaço pra subir
+        // Se não for, ou se já estiver no topo do container interno, bloqueia o browser
+        const target = e.target as HTMLElement;
+        const scrollableParent = target.closest('.overflow-y-auto');
+        
+        if (!scrollableParent || scrollableParent.scrollTop <= 0) {
+          if (e.cancelable) e.preventDefault();
+        }
+      }
+      startY = currentY;
+    };
+
+    document.addEventListener("touchstart", recordTouchStart, { passive: true });
+    document.addEventListener("touchmove", preventPullToRefresh, { passive: false });
+
+    return () => {
+      document.removeEventListener("touchstart", recordTouchStart);
+      document.removeEventListener("touchmove", preventPullToRefresh);
+    };
+  }, []);
+
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
