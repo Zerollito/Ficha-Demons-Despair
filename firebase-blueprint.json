@@ -26,13 +26,51 @@
     "Character": {
       "title": "Character",
       "description": "A character in the RPG system",
+      "type": "object",
       "properties": {
         "id": { "type": "string" },
         "nome": { "type": "string" },
         "userId": { "type": "string" },
         "campaignId": { "type": "string" },
-        "updatedAt": { "type": "string", "format": "date-time" }
-      }
+        "etnia": { "type": "string" },
+        "dinheiro": {
+          "type": "object",
+          "properties": {
+            "C": { "type": "number" },
+            "B": { "type": "number" },
+            "P": { "type": "number" },
+            "O": { "type": "number" }
+          }
+        },
+        "vidaAtual": { "type": "number" },
+        "manaAtual": { "type": "number" },
+        "fome": { "type": "number" },
+        "sede": { "type": "number" },
+        "cansaco": { "type": "number" },
+        "defesa": { "type": "object" },
+        "clima": { "type": "number" },
+        "stats": { "type": "object" },
+        "statsXP": { "type": "object" },
+        "bonusProficiencias": { "type": "object" },
+        "joias": { "type": "array" },
+        "imagem": { "type": "string" },
+        "armas": { "type": "array" },
+        "catalisadores": { "type": "array" },
+        "habilidades": { "type": "array" },
+        "magias": { "type": "array" },
+        "armaduras": { "type": "array" },
+        "acessorios": { "type": "array" },
+        "compartimentos": { "type": "array" },
+        "conhecimentos": { "type": "array" },
+        "efeitosNegativos": { "type": "array" },
+        "anotacoes": { "type": "array" },
+        "escalas": { "type": "array" },
+        "dadosCustomizados": { "type": "array" },
+        "imagens": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "nome", "userId", "updatedAt"]
     },
     "TableToken": {
       "title": "Table Token",
@@ -62,12 +100,65 @@
         "showGrid": { "type": "boolean" },
         "masterFog": { "type": "boolean" }
       }
+    },
+    "BestiaryMonster": {
+      "title": "Bestiary Monster",
+      "description": "Template for an enemy/demon",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "maxHp": { "type": "number" },
+        "esquiva": { "type": "number" },
+        "acuracia": { "type": "number" },
+        "deslocamento": { "type": "string" },
+        "bonus": { "type": "string" },
+        "ataque": {
+          "type": "object",
+          "properties": {
+            "corte": { "type": "number" },
+            "perfuracao": { "type": "number" },
+            "impacto": { "type": "number" },
+            "resistencia": { "type": "number" },
+            "feitico": { "type": "number" },
+            "elemental": { "type": "number" },
+            "magiaNegra": { "type": "number" },
+            "potencial": { "type": "number" }
+          }
+        },
+        "defesa": {
+          "type": "object",
+          "properties": {
+            "corte": { "type": "number" },
+            "perfuracao": { "type": "number" },
+            "impacto": { "type": "number" },
+            "feitico": { "type": "number" },
+            "elemental": { "type": "number" },
+            "magiaNegra": { "type": "number" }
+          }
+        },
+        "local": { "type": "string" },
+        "personalidade": { "type": "string" },
+        "gostaNaoGosta": { "type": "string" },
+        "partesUteis": { "type": "string" },
+        "informacoes": { "type": "string" },
+        "habitos": { "type": "string" },
+        "acoes": { "type": "array" },
+        "masterId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "masterId", "ataque", "defesa"]
     }
   },
   "firestore": {
     "users/{userId}": {
       "schema": "UserProfile",
       "description": "User profiles"
+    },
+    "bestiary/{monsterId}": {
+      "schema": "BestiaryMonster",
+      "description": "Templates for monsters created by Game Masters"
     },
     "campaigns/{campaignId}": {
       "schema": "Campaign",

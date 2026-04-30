@@ -10,12 +10,46 @@ import {
     setPersistence, 
     browserLocalPersistence 
 } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer, collection, query, where, onSnapshot, setDoc, deleteDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { 
+    initializeFirestore, 
+    enableIndexedDbPersistence,
+    doc, 
+    getDocFromServer, 
+    collection, 
+    query, 
+    where, 
+    onSnapshot, 
+    setDoc, 
+    deleteDoc, 
+    updateDoc, 
+    serverTimestamp, 
+    Timestamp 
+} from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { Character } from '../types';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || '(default)');
+
+// Inicializar Firestore com configurações otimizadas para o ambiente de preview
+export const db = initializeFirestore(app, {
+    experimentalForceLongPolling: true, // Frequentemente necessário em ambientes de proxy/sandboxed
+}, firebaseConfig.firestoreDatabaseId || '(default)');
+
+// Habilitar persistência offline
+try {
+    enableIndexedDbPersistence(db).catch((err) => {
+        if (err.code === 'failed-precondition') {
+            // Provavelmente múltiplas abas abertas
+            console.warn("Persistência do Firestore: múltipla abas abertas.");
+        } else if (err.code === 'unimplemented') {
+            // O navegador não suporta
+            console.warn("Persistência do Firestore: navegador não suportado.");
+        }
+    });
+} catch (e) {
+    console.error("Erro ao habilitar persistência:", e);
+}
+
 export const auth = getAuth(app);
 
 // Configurar persistência local de forma agressiva para evitar perda de estado em WebViews/Iframes

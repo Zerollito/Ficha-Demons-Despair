@@ -55,13 +55,14 @@ export const subscribeToTableConfig = (campaignId: string, onUpdate: (config: Ta
   };
 };
 
-export const updateTokenPosition = async (campaignId: string, tokenId: string, x: number, y: number, prevX?: number, prevY?: number) => {
+export const updateTokenPosition = async (campaignId: string, tokenId: string, updates: Partial<TableToken>) => {
   const tokenRef = doc(db, 'campaigns', campaignId, 'tokens', tokenId);
   try {
-    const updateData: any = { x, y };
-    if (prevX !== undefined) updateData.prevX = prevX;
-    if (prevY !== undefined) updateData.prevY = prevY;
-    await updateDoc(tokenRef, updateData);
+    // Clean undefined values
+    const cleanUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([_, v]) => v !== undefined)
+    );
+    await updateDoc(tokenRef, cleanUpdates);
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `campaigns/${campaignId}/tokens/${tokenId}`);
   }
@@ -70,7 +71,11 @@ export const updateTokenPosition = async (campaignId: string, tokenId: string, x
 export const addToken = async (campaignId: string, token: TableToken) => {
   const tokenRef = doc(db, 'campaigns', campaignId, 'tokens', token.id);
   try {
-    await setDoc(tokenRef, token);
+    // Clean undefined values
+    const cleanToken = Object.fromEntries(
+      Object.entries(token).filter(([_, v]) => v !== undefined)
+    );
+    await setDoc(tokenRef, cleanToken);
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, `campaigns/${campaignId}/tokens/${token.id}`);
   }
@@ -90,8 +95,14 @@ export const updateTableConfig = async (campaignId: string, config: Partial<Tabl
   
   try {
     if (Object.keys(rest).length > 0) {
-      const mainRef = doc(db, 'campaigns', campaignId, 'config', 'main');
-      await setDoc(mainRef, rest, { merge: true });
+      // Clean undefined values
+      const cleanRest = Object.fromEntries(
+        Object.entries(rest).filter(([_, v]) => v !== undefined)
+      );
+      if (Object.keys(cleanRest).length > 0) {
+        const mainRef = doc(db, 'campaigns', campaignId, 'config', 'main');
+        await setDoc(mainRef, cleanRest, { merge: true });
+      }
     }
     
     if (mapUrl !== undefined) {

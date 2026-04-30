@@ -47,6 +47,7 @@ import {
   Target,
   Maximize,
   RefreshCw as RefreshCwIcon,
+  Library,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
@@ -71,8 +72,9 @@ import {
 } from "./services/vttService";
 import { onAuthStateChanged, User } from "firebase/auth";
 
-import { Character, AppState, ArmorPiece, Campaign, TableToken, TableConfig } from "./types";
+import { Character, AppState, ArmorPiece, Campaign, TableToken, TableConfig, BestiaryMonster } from "./types";
 import { VTTBoard } from "./components/VTTBoard";
+import { Bestiary } from "./components/Bestiary";
 import {
   Stats,
   PROFICIENCIES,
@@ -150,8 +152,8 @@ const createEmptyCharacter = (): Character => ({
   armaduras: [],
   acessorios: [],
   compartimentos: [
-    { id: generateId(), nome: "Mochila de Viagem", volumeMax: 30, itens: [] },
-    { id: generateId(), nome: "Bolsa de Cinto", volumeMax: 3, itens: [] },
+    { id: generateId(), nome: "Mochila de Viagem", volumeMax: 0, itens: [] },
+    { id: generateId(), nome: "Bolsa de Cinto", volumeMax: 0, itens: [] },
   ],
   conhecimentos: INITIAL_KNOWLEDGES.map((name) => ({
     name,
@@ -200,7 +202,7 @@ const NEGATIVE_EFFECTS = [
     name: "Ossos quebrados",
     icon: Bone,
     color: "text-zinc-400",
-    info: "Ponto fraco\n+3 dano extra\nImobilizado",
+    info: "Ponto fraco +3 dano extra\nImobilizado",
   },
   {
     id: "sangramento",
@@ -346,7 +348,7 @@ function App() {
     type: "error" | "success" | "info";
   } | null>(null);
   const [activePage, setActivePage] = useState<
-    "sheet" | "notes" | "dice" | "gallery" | "master" | "table"
+    "sheet" | "notes" | "dice" | "gallery" | "master" | "table" | "bestiary" | "library"
   >("sheet");
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null);
@@ -448,12 +450,34 @@ function App() {
     if (!user) return;
     
     const unsubscribe = subscribeToUserCharacters((fireChars) => {
-      // Merge with local state or just use firestore as truth
-      setState(prev => ({
-        ...prev,
-        characters: fireChars,
-        activeCharacterId: prev.activeCharacterId || (fireChars.length > 0 ? fireChars[0].id : null)
-      }));
+      // Merge with local state, preserving local changes for "dirty" characters
+      setState(prev => {
+        const mergedCharacters = fireChars.map(fChar => {
+          const charJson = JSON.stringify(fChar);
+          
+          // If we have unsaved local changes, prefer the local version
+          if (dirtyCharsRef.current.has(fChar.id)) {
+            const localMatch = prev.characters.find(lc => lc.id === fChar.id);
+            if (localMatch) {
+              console.log(`Merge: Preservando versão local de ${fChar.nome} (está sujo)`);
+              return localMatch;
+            }
+          }
+          
+          // If not dirty, use the firestore version and update the lastSyncedRef to match it
+          lastSyncedRef.current[fChar.id] = charJson;
+          return fChar;
+        });
+
+        // Add characters that exist locally but not yet in Firestore (newly created)
+        const localOnly = prev.characters.filter(lc => !fireChars.some(fc => fc.id === lc.id));
+        
+        return {
+          ...prev,
+          characters: [...mergedCharacters, ...localOnly],
+          activeCharacterId: prev.activeCharacterId || (fireChars.length > 0 ? fireChars[0].id : prev.activeCharacterId)
+        };
+      });
     });
 
     return () => unsubscribe();
@@ -494,17 +518,27 @@ function App() {
     };
   }, [activeCampaignId]);
 
-  const [activeCharacterIdState, setActiveCharacterIdState] = useState<string | null>(null); // renamed to avoid conflict if any
-
   const menuRef = useRef<HTMLDivElement>(null);
+  const dirtyCharsRef = useRef<Set<string>>(new Set());
 
   const activeChar = useMemo(() => {
-    if (state.characters.length === 0) return createEmptyCharacter();
-    return (
-      state.characters.find((c) => c.id === state.activeCharacterId) ||
-      state.characters[0]
-    );
+    const char = state.characters.find((c) => c.id === state.activeCharacterId);
+    if (char) return char;
+    if (state.characters.length > 0) return state.characters[0];
+    return null;
   }, [state]);
+
+  // Ensure there is at least one character
+  useEffect(() => {
+    if (state.characters.length === 0 && !authLoading) {
+      const newChar = createEmptyCharacter();
+      setState(prev => ({
+        ...prev,
+        characters: [newChar],
+        activeCharacterId: newChar.id
+      }));
+    }
+  }, [state.characters.length, authLoading]);
 
   const [vitaisTab, setVitaisTab] = useState<"status" | "efeitos">("status");
   const [openLevelSelectorId, setOpenLevelSelectorId] = useState<string | null>(
@@ -516,6 +550,15 @@ function App() {
   const [diceHistory, setDiceHistory] = useState<
     { id: string; result: number; formula: string; timestamp: number }[]
   >([]);
+
+  // Debounced sync to localStorage
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [state]);
+
   const [lastRoll, setLastRoll] = useState<{
     result: number;
     formula: string;
@@ -540,6 +583,7 @@ function App() {
     bonus: number,
     label?: string,
   ) => {
+    if (!activeChar) return;
     if (label === "Fome e Sede") {
       const hungerProfBase = calculateProficiencyBonus(
         activeChar.stats,
@@ -562,10 +606,12 @@ function App() {
       const finalHunger =
         totalHunger > activeChar.fome ? activeChar.fome : totalHunger;
 
-      updateChar({
+      console.log("Fome e Sede roll:", { hungerRoll, thirstRoll, finalHunger });
+
+      updateChar(c => ({
         fome: finalHunger,
         sede: thirstRoll,
-      });
+      }));
 
       const formula = `1d${activeChar.fome}${hungerProf > 0 ? ` + ${hungerProf}` : ""} (Fome) & 1d${activeChar.sede} (Sede)`;
       const finalResult = finalHunger + thirstRoll;
@@ -642,6 +688,7 @@ function App() {
   };
 
   const rollCombat = (arma: any, bonusManual: number) => {
+    if (!activeChar) return;
     // 1. Calculate Hit Bonus (Acurácia)
     const acuraciaBonus = calculateProficiencyBonus(
       activeChar.stats,
@@ -837,31 +884,93 @@ function App() {
     return effects;
   }, [activeChar?.cansaco]);
 
-  // Auto-save
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+  // Auto-save removed - handled by debounced effect above
 
-  const updateChar = useCallback((updates: Partial<Character>) => {
-    setState((prev) => {
-      const charToUpdate = prev.characters.find((c) => c.id === prev.activeCharacterId);
-      if (!charToUpdate) return prev;
-
-      const updatedChar = { ...charToUpdate, ...updates };
-
-      // Sync to Firestore if logged in
-      if (user) {
-        saveCharacterToFirestore(updatedChar);
+  const updateChar = useCallback((updatesOrFn: Partial<Character> | ((c: Character) => Partial<Character>)) => {
+    setState(prev => {
+      let characters = [...prev.characters];
+      let targetId = prev.activeCharacterId;
+      
+      // Encontrar por ID ou pegar o primeiro se não houver ID ativo
+      let charIndex = characters.findIndex(c => c.id === targetId);
+      if (charIndex === -1 && characters.length > 0) {
+        charIndex = 0;
+        targetId = characters[0].id;
       }
 
+      // Se ainda não houver nenhum personagem, criar um
+      if (charIndex === -1) {
+        const newChar = createEmptyCharacter();
+        const updates = typeof updatesOrFn === 'function' ? updatesOrFn(newChar) : updatesOrFn;
+        const updatedChar = { ...newChar, ...updates };
+        
+        console.log("updateChar: criando novo personagem pois não havia nenhum");
+        dirtyCharsRef.current.add(updatedChar.id);
+        return {
+          ...prev,
+          characters: [updatedChar],
+          activeCharacterId: updatedChar.id
+        };
+      }
+
+      const charToUpdate = characters[charIndex];
+      const updates = typeof updatesOrFn === 'function' ? updatesOrFn(charToUpdate) : updatesOrFn;
+      const updatedChar = { ...charToUpdate, ...updates };
+
+      characters[charIndex] = updatedChar;
+
+      // Sync with Firestore is handled by a separate useEffect now
+      console.log(`updateChar: atualizando personagem ${updatedChar.nome}`);
+      dirtyCharsRef.current.add(updatedChar.id);
+      
       return {
         ...prev,
-        characters: prev.characters.map((c) =>
-          c.id === prev.activeCharacterId ? updatedChar : c,
-        ),
+        characters
       };
     });
-  }, [user]);
+  }, []); // Remove user dependency here, we will sync via effect
+
+  // Sync with Firestore Effect
+  const lastSyncedRef = useRef<Record<string, string>>({}); // id -> JSON string
+  useEffect(() => {
+    if (!user) return;
+    
+    const timers: NodeJS.Timeout[] = [];
+    
+    state.characters.forEach(char => {
+      const charJson = JSON.stringify(char);
+      if (lastSyncedRef.current[char.id] !== charJson) {
+        // Debounce each character sync individually
+        const timer = setTimeout(async () => {
+          try {
+            // Before saving, verify we are still using the version that triggered this timer
+            // or if a newer version exists, this timer might be stale (though clearTimeout handles most cases)
+            console.log(`Sincronizando ${char.nome} com Firestore...`);
+            await saveCharacterToFirestore(char);
+            lastSyncedRef.current[char.id] = charJson;
+            
+            // Only clear dirty flag if the version we just saved is STILL the latest version
+            // We use the ref to check the current state indirectly without re-triggering the effect
+            setState(current => {
+              const latestChar = current.characters.find(c => c.id === char.id);
+              if (latestChar && JSON.stringify(latestChar) === charJson) {
+                console.log(`Limpando flag dirty para ${char.nome} - Versões coincidem.`);
+                dirtyCharsRef.current.delete(char.id);
+              } else {
+                console.log(`Mantendo flag dirty para ${char.nome} - Nova mudança detectada durante o sync.`);
+              }
+              return current; // No state change actually needed here
+            });
+          } catch (err) {
+            console.error("Erro ao sincronizar personagem:", err);
+          }
+        }, 1500); // Increased debounce for stability
+        timers.push(timer);
+      }
+    });
+
+    return () => timers.forEach(t => clearTimeout(t));
+  }, [state.characters, user]);
 
   const showToast = useCallback(
     (message: string, type: "error" | "success" | "info" = "info") => {
@@ -871,18 +980,25 @@ function App() {
     [],
   );
 
-  // Derived Values
-  const stats = activeChar?.stats || createEmptyCharacter().stats;
-  const vidaMax = getVidaMaxima(stats.CON);
-  const manaMax = getManaMaxima(stats.APR);
-  const cargaMax = getCargaMaxima(stats.RES);
-  const deslocamentoBase = getDeslocamentoBase(
-    stats.DEX,
-    activeChar.fome,
-    activeChar.sede,
-    activeChar.clima,
-    climateProficiency,
-  );
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Derived Values - Moved up before early returns to fix Rules of Hooks
+  const { stats, vidaMax, manaMax, cargaMax, deslocamentoBase } = useMemo(() => {
+    const s = activeChar?.stats || createEmptyCharacter().stats;
+    return {
+      stats: s,
+      vidaMax: getVidaMaxima(s.CON),
+      manaMax: getManaMaxima(s.APR),
+      cargaMax: getCargaMaxima(s.RES),
+      deslocamentoBase: activeChar ? getDeslocamentoBase(
+        s.DEX,
+        activeChar.fome,
+        activeChar.sede,
+        activeChar.clima,
+        climateProficiency,
+      ) : 0
+    };
+  }, [activeChar?.stats, activeChar?.fome, activeChar?.sede, activeChar?.clima, climateProficiency]);
 
   const compartimentos = activeChar?.compartimentos || [];
   const armas = activeChar?.armas || [];
@@ -890,152 +1006,23 @@ function App() {
   const armaduras = activeChar?.armaduras || [];
   const acessorios = activeChar?.acessorios || [];
 
-  const invTotals = calculateInventoryTotals(compartimentos);
-  const weaponPeso = armas.reduce((acc, w) => acc + (w.peso || 0), 0);
-  const catalystPeso = catalisadores.reduce((acc, c) => acc + (c.peso || 0), 0);
-  const armorPeso = armaduras.reduce((acc, a) => acc + (a.peso || 0), 0);
-  const accessoryPeso = acessorios.reduce((acc, a) => acc + (a.peso || 0), 0);
-  const pesoTotal =
-    invTotals.peso + weaponPeso + catalystPeso + armorPeso + accessoryPeso;
-
-  const penalties = getLoadPenalties(pesoTotal, cargaMax);
-  const survivalPenalties = getSurvivalPenalties(
-    activeChar.fome,
-    activeChar.sede,
-  );
-  const deslocamentoFinal = Math.max(
-    0,
-    Math.floor(deslocamentoBase * penalties.deslocamentoMult) +
-      survivalPenalties.movement,
-  );
-
-  const exportJSON = () => {
-    try {
-      const jsonString = JSON.stringify(activeChar, null, 2);
-      const blob = new Blob([jsonString], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      const safeName = (activeChar.nome || "personagem")
-        .replace(/[^a-z0-9]/gi, "_")
-        .toLowerCase();
-      link.download = `${safeName}.json`;
-      link.style.display = "none";
-      document.body.appendChild(link);
-
-      // Some mobile browsers need a slight delay or direct click
-      setTimeout(() => {
-        link.click();
-        setTimeout(() => {
-          document.body.removeChild(link);
-          URL.revokeObjectURL(url);
-        }, 100);
-      }, 0);
-    } catch (err) {
-      console.error("Erro ao exportar JSON:", err);
-      // Fallback: show in a prompt or alert if possible (though limited in iframe)
-      alert("Houve um erro ao exportar. Tente abrir o app em uma nova aba.");
-    }
-  };
-
-  const importJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const char = JSON.parse(event.target?.result as string);
-        char.id = generateId(); // New ID for safety
-        setState((prev) => ({
-          characters: [...prev.characters, char],
-          activeCharacterId: char.id,
-        }));
-        if (user) {
-          saveCharacterToFirestore(char);
-        }
-      } catch (err) {
-        alert("Erro ao importar ficha.");
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const exportPDF = () => {
-    const doc = new jsPDF();
-    doc.setFontSize(20);
-    doc.text(`Ficha: ${activeChar.nome}`, 10, 20);
-    doc.setFontSize(12);
-    doc.text(`Etnia: ${activeChar.etnia}`, 10, 30);
-    doc.text(`Vida: ${activeChar.vidaAtual}/${vidaMax}`, 10, 40);
-    doc.text(`Mana: ${activeChar.manaAtual}/${manaMax}`, 10, 50);
-    doc.text(`Deslocamento: ${deslocamentoFinal}m`, 10, 60);
-
-    let y = 80;
-    doc.text("Status:", 10, y);
-    Object.entries(stats).forEach(([key, val], i) => {
-      doc.text(`${key}: ${val}`, 10, y + 10 + i * 7);
-    });
-
-    doc.save(`${activeChar.nome}.pdf`);
-  };
-
-  const duplicateChar = () => {
-    const newChar = {
-      ...activeChar,
-      id: generateId(),
-      nome: `${activeChar.nome} (Cópia)`,
-    };
-    setState((prev) => ({
-      ...prev,
-      characters: [...prev.characters, newChar],
-      activeCharacterId: newChar.id,
-    }));
+  const { pesoTotal, penalties, survivalPenalties, deslocamentoFinal } = useMemo(() => {
+    const invTotals = calculateInventoryTotals(compartimentos);
+    const weaponPeso = armas.reduce((acc, w) => acc + (w.peso || 0), 0);
+    const catalystPeso = catalisadores.reduce((acc, c) => acc + (c.peso || 0), 0);
+    const armorPeso = armaduras.reduce((acc, a) => acc + (a.peso || 0), 0);
+    const accessoryPeso = acessorios.reduce((acc, a) => acc + (a.peso || 0), 0);
+    const total = invTotals.peso + weaponPeso + catalystPeso + armorPeso + accessoryPeso;
     
-    // Sync to Firestore if logged in
-    if (user) {
-      saveCharacterToFirestore(newChar);
-    }
-  };
+    const p = getLoadPenalties(total, cargaMax);
+    const s = getSurvivalPenalties(activeChar?.fome || 100, activeChar?.sede || 100);
+    const d = Math.max(
+      0,
+      Math.floor(deslocamentoBase * p.deslocamentoMult) + s.movement,
+    );
 
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-
-  const deleteChar = () => {
-    if (state.characters.length <= 1) return;
-    const idToDelete = state.activeCharacterId;
-    
-    setState((prev) => {
-      const remaining = prev.characters.filter(
-        (c) => c.id !== idToDelete,
-      );
-      return {
-        characters: remaining,
-        activeCharacterId: remaining[0].id,
-      };
-    });
-    
-    // Sync to Firestore if logged in
-    if (user && idToDelete) {
-      deleteCharacterFromFirestore(idToDelete);
-    }
-    
-    setShowDeleteConfirm(false);
-  };
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const compressed = await compressImageDataUrl(event.target?.result as string, 1024, 0.7);
-        updateChar({ imagem: compressed });
-      } catch (error) {
-        console.error("Compression error:", error);
-        updateChar({ imagem: event.target?.result as string });
-      }
-    };
-    reader.readAsDataURL(file);
-  };
+    return { pesoTotal: total, penalties: p, survivalPenalties: s, deslocamentoFinal: d };
+  }, [compartimentos, armas, catalisadores, armaduras, acessorios, cargaMax, deslocamentoBase, activeChar?.fome, activeChar?.sede]);
 
   if (authLoading) {
     return (
@@ -1123,6 +1110,148 @@ function App() {
     );
   }
 
+  if (!activeChar) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500" />
+      </div>
+    );
+  }
+
+  const exportJSON = () => {
+    try {
+      const jsonString = JSON.stringify(activeChar, null, 2);
+      const blob = new Blob([jsonString], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const safeName = (activeChar.nome || "personagem")
+        .replace(/[^a-z0-9]/gi, "_")
+        .toLowerCase();
+      link.download = `${safeName}.json`;
+      link.style.display = "none";
+      document.body.appendChild(link);
+
+      // Some mobile browsers need a slight delay or direct click
+      setTimeout(() => {
+        link.click();
+        setTimeout(() => {
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }, 100);
+      }, 0);
+    } catch (err) {
+      console.error("Erro ao exportar JSON:", err);
+      showToast("Erro ao exportar. Tente abrir em nova aba.", "error");
+    }
+  };
+
+  const importJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const char = sanitizeCharacter(JSON.parse(event.target?.result as string));
+        char.id = generateId(); // New ID for safety
+        
+        // Mark as dirty so the Firestore listener doesn't overwrite it immediately
+        dirtyCharsRef.current.add(char.id);
+        
+        setState((prev) => ({
+          ...prev,
+          characters: [...prev.characters, char],
+          activeCharacterId: char.id,
+        }));
+        
+        if (user) {
+          saveCharacterToFirestore(char);
+          lastSyncedRef.current[char.id] = JSON.stringify(char);
+        }
+        
+        showToast("Ficha importada com sucesso!", "success");
+      } catch (err) {
+        showToast("Erro ao importar ficha.", "error");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const exportPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(20);
+    doc.text(`Ficha: ${activeChar.nome}`, 10, 20);
+    doc.setFontSize(12);
+    doc.text(`Etnia: ${activeChar.etnia}`, 10, 30);
+    doc.text(`Vida: ${activeChar.vidaAtual}/${vidaMax}`, 10, 40);
+    doc.text(`Mana: ${activeChar.manaAtual}/${manaMax}`, 10, 50);
+    doc.text(`Deslocamento: ${deslocamentoFinal}m`, 10, 60);
+
+    let y = 80;
+    doc.text("Status:", 10, y);
+    Object.entries(stats).forEach(([key, val], i) => {
+      doc.text(`${key}: ${val}`, 10, y + 10 + i * 7);
+    });
+
+    doc.save(`${activeChar.nome}.pdf`);
+  };
+
+  const duplicateChar = () => {
+    const newChar = {
+      ...activeChar,
+      id: generateId(),
+      nome: `${activeChar.nome} (Cópia)`,
+    };
+    setState((prev) => ({
+      ...prev,
+      characters: [...prev.characters, newChar],
+      activeCharacterId: newChar.id,
+    }));
+    
+    // Sync to Firestore if logged in
+    if (user) {
+      saveCharacterToFirestore(newChar);
+    }
+  };
+
+  const deleteChar = () => {
+    if (state.characters.length <= 1) return;
+    const idToDelete = state.activeCharacterId;
+    
+    setState((prev) => {
+      const remaining = prev.characters.filter(
+        (c) => c.id !== idToDelete,
+      );
+      return {
+        characters: remaining,
+        activeCharacterId: remaining[0].id,
+      };
+    });
+    
+    // Sync to Firestore if logged in
+    if (user && idToDelete) {
+      deleteCharacterFromFirestore(idToDelete);
+    }
+    
+    setShowDeleteConfirm(false);
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const compressed = await compressImageDataUrl(event.target?.result as string, 1024, 0.7);
+        updateChar({ imagem: compressed });
+      } catch (error) {
+        console.error("Compression error:", error);
+        updateChar({ imagem: event.target?.result as string });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   console.log("Renderizando App. User:", user?.email, "Chars:", state.characters.length);
 
   return (
@@ -1134,6 +1263,19 @@ function App() {
       <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="flex items-center bg-zinc-950/50 p-1.5 rounded-xl border border-zinc-800">
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setActivePage("library")}
+              className={cn(
+                "p-2 sm:p-4 rounded-xl transition-all",
+                activePage === "library"
+                  ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20"
+                  : "text-zinc-500 hover:text-zinc-300",
+              )}
+              title="Biblioteca de Personagens"
+            >
+              <Library size={28} />
+            </motion.button>
             <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={() => setActivePage("sheet")}
@@ -1198,6 +1340,19 @@ function App() {
               title="Painel do Mestre"
             >
               <Shield size={28} />
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setActivePage("bestiary")}
+              className={cn(
+                "p-2 sm:p-4 rounded-xl transition-all",
+                activePage === "bestiary"
+                  ? "bg-red-600 text-white shadow-lg shadow-red-600/20"
+                  : "text-zinc-500 hover:text-zinc-300",
+              )}
+              title="Bestiário de Demônios"
+            >
+              <Skull size={28} />
             </motion.button>
             {activeCampaignId && (
               <motion.button
@@ -1265,7 +1420,23 @@ function App() {
           >
             <div className="px-3 py-2 border-b border-zinc-800 mb-1">
               <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">
-                Escolha de Ficha
+                Biblioteca
+              </label>
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => {
+                  setActivePage("library");
+                  setIsMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg transition-colors text-sm font-bold text-amber-500 border border-amber-500/20"
+              >
+                <Library size={18} /> Abrir "Drive" de Fichas
+              </motion.button>
+            </div>
+
+            <div className="px-3 py-2 border-b border-zinc-800 mb-1">
+              <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">
+                Troca Rápida
               </label>
               <select
                 value={state.activeCharacterId || ""}
@@ -2066,14 +2237,14 @@ function App() {
                 title="Equipamentos"
                 icon={<Package size={18} />}
                 collapsible
-                defaultCollapsed={true}
+                defaultCollapsed={false}
               >
                 <div className="space-y-6">
                   {/* Armas Section */}
                   <SubSection
                     title="Armas"
                     icon={<Sword size={14} />}
-                    defaultCollapsed={true}
+                    defaultCollapsed={false}
                   >
                     <div className="flex justify-between items-center mb-2">
                       <h4 className="text-[10px] font-bold text-zinc-500 uppercase">
@@ -2081,10 +2252,10 @@ function App() {
                       </h4>
                       <motion.button
                         whileTap={{ scale: 0.95 }}
-                        onClick={() =>
-                          updateChar({
+                        onClick={() => {
+                          updateChar(c => ({
                             armas: [
-                              ...(activeChar?.armas || []),
+                              ...(c.armas || []),
                               {
                                 id: generateId(),
                                 nome: "Nova Arma",
@@ -2103,8 +2274,8 @@ function App() {
                                 resistencia: 0,
                               },
                             ],
-                          })
-                        }
+                          }));
+                        }}
                         className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                       >
                         <Plus size={16} />
@@ -2118,12 +2289,12 @@ function App() {
                         <motion.button
                           whileTap={{ scale: 0.95 }}
                           onClick={() => {
-                            updateChar({
+                            updateChar(c => ({
                               armas: [
-                                ...(activeChar?.armas || []),
+                                ...(c.armas || []),
                                 { ...clipboard.data, id: generateId() },
                               ],
-                            });
+                            }));
                             setClipboard(null);
                           }}
                           className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
@@ -2141,9 +2312,12 @@ function App() {
                             <input
                               value={w.nome || ""}
                               onChange={(e) => {
-                                const newArmas = [...armas];
-                                newArmas[idx].nome = e.target.value;
-                                updateChar({ armas: newArmas });
+                                const newName = e.target.value;
+                                updateChar(c => {
+                                  const newArmas = [...c.armas];
+                                  newArmas[idx] = { ...newArmas[idx], nome: newName };
+                                  return { armas: newArmas };
+                                });
                               }}
                               className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
                             />
@@ -2159,9 +2333,9 @@ function App() {
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() =>
-                                  updateChar({
-                                    armas: armas.filter((a) => a.id !== w.id),
-                                  })
+                                  updateChar(c => ({
+                                    armas: c.armas.filter((a) => a.id !== w.id),
+                                  }))
                                 }
                                 className="text-red-500 hover:text-red-400 p-1"
                               >
@@ -2173,9 +2347,14 @@ function App() {
                           <WeaponProperties
                             item={w}
                             onChange={(updates) => {
-                              const na = [...armas];
-                              na[idx] = { ...na[idx], ...updates };
-                              updateChar({ armas: na });
+                              updateChar(c => {
+                                const na = [...c.armas];
+                                const index = na.findIndex(item => item.id === w.id);
+                                if (index !== -1) {
+                                  na[index] = { ...na[index], ...updates };
+                                }
+                                return { armas: na };
+                              });
                             }}
                           />
                         </div>
@@ -2195,10 +2374,10 @@ function App() {
                       </h4>
                       <motion.button
                         whileTap={{ scale: 0.95 }}
-                        onClick={() =>
-                          updateChar({
+                        onClick={() => {
+                          updateChar(c => ({
                             catalisadores: [
-                              ...(activeChar?.catalisadores || []),
+                              ...(c.catalisadores || []),
                               {
                                 id: generateId(),
                                 nome: "Novo Catalisador",
@@ -2215,8 +2394,8 @@ function App() {
                                 potencial: 0,
                               },
                             ],
-                          })
-                        }
+                          }));
+                        }}
                         className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                       >
                         <Plus size={16} />
@@ -2230,12 +2409,12 @@ function App() {
                         <motion.button
                           whileTap={{ scale: 0.95 }}
                           onClick={() => {
-                            updateChar({
+                            updateChar(c => ({
                               catalisadores: [
-                                ...(activeChar?.catalisadores || []),
+                                ...(c.catalisadores || []),
                                 { ...clipboard.data, id: generateId() },
                               ],
-                            });
+                            }));
                             setClipboard(null);
                           }}
                           className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
@@ -2253,9 +2432,12 @@ function App() {
                             <input
                               value={c.nome || ""}
                               onChange={(e) => {
-                                const newCats = [...catalisadores];
-                                newCats[idx].nome = e.target.value;
-                                updateChar({ catalisadores: newCats });
+                                const newName = e.target.value;
+                                updateChar(c => {
+                                  const newCats = [...c.catalisadores];
+                                  newCats[idx] = { ...newCats[idx], nome: newName };
+                                  return { catalisadores: newCats };
+                                });
                               }}
                               className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
                             />
@@ -2273,11 +2455,11 @@ function App() {
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() =>
-                                  updateChar({
-                                    catalisadores: catalisadores.filter(
+                                  updateChar(c => ({
+                                    catalisadores: c.catalisadores.filter(
                                       (cat) => cat.id !== c.id,
                                     ),
-                                  })
+                                  }))
                                 }
                                 className="text-red-500 hover:text-red-400 p-1"
                               >
@@ -2289,9 +2471,14 @@ function App() {
                           <CatalystProperties
                             item={c}
                             onChange={(updates) => {
-                              const na = [...catalisadores];
-                              na[idx] = { ...na[idx], ...updates };
-                              updateChar({ catalisadores: na });
+                              updateChar(prevChar => {
+                                const na = [...prevChar.catalisadores];
+                                const index = na.findIndex(item => item.id === c.id);
+                                if (index !== -1) {
+                                  na[index] = { ...na[index], ...updates };
+                                }
+                                return { catalisadores: na };
+                              });
                             }}
                           />
                         </div>
@@ -2311,10 +2498,10 @@ function App() {
                       </h4>
                       <motion.button
                         whileTap={{ scale: 0.95 }}
-                        onClick={() =>
-                          updateChar({
+                        onClick={() => {
+                          updateChar(c => ({
                             armaduras: [
-                              ...(activeChar?.armaduras || []),
+                              ...(c.armaduras || []),
                               {
                                 id: generateId(),
                                 nome: "Nova Armadura",
@@ -2328,8 +2515,8 @@ function App() {
                                 efeito: "",
                               },
                             ],
-                          })
-                        }
+                          }));
+                        }}
                         className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                       >
                         <Plus size={16} />
@@ -2343,12 +2530,12 @@ function App() {
                         <motion.button
                           whileTap={{ scale: 0.95 }}
                           onClick={() => {
-                            updateChar({
+                            updateChar(c => ({
                               armaduras: [
-                                ...(activeChar?.armaduras || []),
+                                ...(c.armaduras || []),
                                 { ...clipboard.data, id: generateId() },
                               ],
-                            });
+                            }));
                             setClipboard(null);
                           }}
                           className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
@@ -2366,11 +2553,12 @@ function App() {
                             <input
                               value={a.nome || ""}
                               onChange={(e) => {
-                                const newArms = [
-                                  ...(activeChar?.armaduras || []),
-                                ];
-                                newArms[idx].nome = e.target.value;
-                                updateChar({ armaduras: newArms });
+                                const newName = e.target.value;
+                                updateChar(c => {
+                                  const newArms = [...(c.armaduras || [])];
+                                  newArms[idx] = { ...newArms[idx], nome: newName };
+                                  return { armaduras: newArms };
+                                });
                               }}
                               className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
                             />
@@ -2386,11 +2574,11 @@ function App() {
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() =>
-                                  updateChar({
+                                  updateChar(c => ({
                                     armaduras: (
-                                      activeChar?.armaduras || []
+                                      c.armaduras || []
                                     ).filter((arm) => arm.id !== a.id),
-                                  })
+                                  }))
                                 }
                                 className="text-red-500 hover:text-red-400 p-1"
                               >
@@ -2402,9 +2590,14 @@ function App() {
                           <ArmorProperties
                             item={a}
                             onChange={(updates) => {
-                              const na = [...(activeChar?.armaduras || [])];
-                              na[idx] = { ...na[idx], ...updates };
-                              updateChar({ armaduras: na });
+                              updateChar(prevChar => {
+                                const na = [...(prevChar.armaduras || [])];
+                                const index = na.findIndex(item => item.id === a.id);
+                                if (index !== -1) {
+                                  na[index] = { ...na[index], ...updates };
+                                }
+                                return { armaduras: na };
+                              });
                             }}
                           />
                         </div>
@@ -2424,10 +2617,10 @@ function App() {
                       </h4>
                       <motion.button
                         whileTap={{ scale: 0.95 }}
-                        onClick={() =>
-                          updateChar({
+                        onClick={() => {
+                          updateChar(c => ({
                             acessorios: [
-                              ...(activeChar?.acessorios || []),
+                              ...(c.acessorios || []),
                               {
                                 id: generateId(),
                                 nome: "Novo Acessório",
@@ -2441,8 +2634,8 @@ function App() {
                                 efeito: "",
                               },
                             ],
-                          })
-                        }
+                          }));
+                        }}
                         className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                       >
                         <Plus size={16} />
@@ -2456,12 +2649,12 @@ function App() {
                         <motion.button
                           whileTap={{ scale: 0.95 }}
                           onClick={() => {
-                            updateChar({
+                            updateChar(c => ({
                               acessorios: [
-                                ...(activeChar?.acessorios || []),
+                                ...(c.acessorios || []),
                                 { ...clipboard.data, id: generateId() },
                               ],
-                            });
+                            }));
                             setClipboard(null);
                           }}
                           className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
@@ -2479,11 +2672,12 @@ function App() {
                             <input
                               value={a.nome || ""}
                               onChange={(e) => {
-                                const newAccs = [
-                                  ...(activeChar?.acessorios || []),
-                                ];
-                                newAccs[idx].nome = e.target.value;
-                                updateChar({ acessorios: newAccs });
+                                const newName = e.target.value;
+                                updateChar(c => {
+                                  const newAccs = [...(c.acessorios || [])];
+                                  newAccs[idx] = { ...newAccs[idx], nome: newName };
+                                  return { acessorios: newAccs };
+                                });
                               }}
                               className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
                             />
@@ -2499,11 +2693,11 @@ function App() {
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() =>
-                                  updateChar({
+                                  updateChar(c => ({
                                     acessorios: (
-                                      activeChar?.acessorios || []
+                                      c.acessorios || []
                                     ).filter((acc) => acc.id !== a.id),
-                                  })
+                                  }))
                                 }
                                 className="text-red-500 hover:text-red-400 p-1"
                               >
@@ -2515,9 +2709,14 @@ function App() {
                           <ArmorProperties
                             item={a}
                             onChange={(updates) => {
-                              const na = [...(activeChar?.acessorios || [])];
-                              na[idx] = { ...na[idx], ...updates };
-                              updateChar({ acessorios: na });
+                              updateChar(prevChar => {
+                                const na = [...(prevChar.acessorios || [])];
+                                const index = na.findIndex(item => item.id === a.id);
+                                if (index !== -1) {
+                                  na[index] = { ...na[index], ...updates };
+                                }
+                                return { acessorios: na };
+                              });
                             }}
                           />
                         </div>
@@ -2530,7 +2729,7 @@ function App() {
                 title="Compartimentos"
                 icon={<Backpack size={18} />}
                 collapsible
-                defaultCollapsed
+                defaultCollapsed={false}
               >
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -2540,9 +2739,9 @@ function App() {
                     <motion.button
                       whileTap={{ scale: 0.95 }}
                       onClick={() =>
-                        updateChar({
+                        updateChar(c => ({
                           compartimentos: [
-                            ...(activeChar?.compartimentos || []),
+                            ...(c.compartimentos || []),
                             {
                               id: generateId(),
                               nome: "Novo Compartimento",
@@ -2550,7 +2749,7 @@ function App() {
                               itens: [],
                             },
                           ],
-                        })
+                        }))
                       }
                       className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                     >
@@ -2577,9 +2776,12 @@ function App() {
                             <input
                               value={comp.nome || ""}
                               onChange={(e) => {
-                                const nc = [...compartimentos];
-                                nc[cIdx].nome = e.target.value;
-                                updateChar({ compartimentos: nc });
+                                const newName = e.target.value;
+                                updateChar(char => ({
+                                  compartimentos: (char.compartimentos || []).map((c) => 
+                                    c.id === comp.id ? { ...c, nome: newName } : c
+                                  )
+                                }));
                               }}
                               className="bg-transparent text-sm font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
                             />
@@ -2591,9 +2793,11 @@ function App() {
                                 <NumericInput
                                   value={comp.volumeMax}
                                   onChange={(v) => {
-                                    const nc = [...compartimentos];
-                                    nc[cIdx].volumeMax = v;
-                                    updateChar({ compartimentos: nc });
+                                    updateChar(char => ({
+                                      compartimentos: (char.compartimentos || []).map((c) => 
+                                        c.id === comp.id ? { ...c, volumeMax: v } : c
+                                      )
+                                    }));
                                   }}
                                   className="w-16"
                                   size="sm"
@@ -2602,11 +2806,11 @@ function App() {
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() =>
-                                  updateChar({
-                                    compartimentos: compartimentos.filter(
+                                  updateChar(char => ({
+                                    compartimentos: (char.compartimentos || []).filter(
                                       (c) => c.id !== comp.id,
                                     ),
-                                  })
+                                  }))
                                 }
                                 className="text-red-500 hover:text-red-400 p-1"
                               >
@@ -2634,19 +2838,29 @@ function App() {
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() => {
-                                  const nc = [...compartimentos];
-                                  nc[cIdx].itens.push({
-                                    id: generateId(),
-                                    nome: "Novo Item",
-                                    peso: 0,
-                                    volume: 0,
-                                    quantidade: 0,
-                                    tipo: "Geral",
-                                    durabilidade: 0,
-                                    maxDurabilidade: 0,
-                                    descricao: "",
+                                  updateChar(char => {
+                                    const comps = char.compartimentos || [];
+                                    const targetComp = comps[cIdx];
+                                    const newItens = [
+                                      ...(targetComp.itens || []),
+                                      {
+                                        id: generateId(),
+                                        nome: "Novo Item",
+                                        peso: 0,
+                                        volume: 0,
+                                        quantidade: 1,
+                                        tipo: "Geral",
+                                        durabilidade: 0,
+                                        maxDurabilidade: 0,
+                                        descricao: "",
+                                      }
+                                    ];
+                                    return {
+                                      compartimentos: comps.map((c, i) => 
+                                        i === cIdx ? { ...c, itens: newItens } : c
+                                      )
+                                    };
                                   });
-                                  updateChar({ compartimentos: nc });
                                 }}
                                 className="flex-1 py-1.5 border border-dashed border-zinc-700 rounded text-[9px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all px-1"
                               >
@@ -2655,27 +2869,37 @@ function App() {
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() => {
-                                  const nc = [...compartimentos];
-                                  nc[cIdx].itens.push({
-                                    id: generateId(),
-                                    nome: "Nova Arma",
-                                    peso: 0,
-                                    volume: 0,
-                                    quantidade: 0,
-                                    tipo: "Arma",
-                                    durabilidade: 0,
-                                    maxDurabilidade: 0,
-                                    descricao: "",
-                                    dano: "0",
-                                    acerto: 0,
-                                    escala: "0",
-                                    atributoBase: "Força",
-                                    corte: 0,
-                                    impacto: 0,
-                                    perfuracao: 0,
-                                    resistencia: 0,
+                                  updateChar(char => {
+                                    const comps = char.compartimentos || [];
+                                    const targetComp = comps[cIdx];
+                                    const newItens = [
+                                      ...(targetComp.itens || []),
+                                      {
+                                        id: generateId(),
+                                        nome: "Nova Arma",
+                                        peso: 0,
+                                        volume: 0,
+                                        quantidade: 1,
+                                        tipo: "Arma",
+                                        durabilidade: 0,
+                                        maxDurabilidade: 0,
+                                        descricao: "",
+                                        dano: "0",
+                                        acerto: 0,
+                                        escala: "0",
+                                        atributoBase: "Força",
+                                        corte: 0,
+                                        impacto: 0,
+                                        perfuracao: 0,
+                                        resistencia: 0,
+                                      }
+                                    ];
+                                    return {
+                                      compartimentos: comps.map((c, i) => 
+                                        i === cIdx ? { ...c, itens: newItens } : c
+                                      )
+                                    };
                                   });
-                                  updateChar({ compartimentos: nc });
                                 }}
                                 className="flex-1 py-1.5 border border-dashed border-zinc-700 rounded text-[9px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all px-1"
                               >
@@ -2684,25 +2908,35 @@ function App() {
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() => {
-                                  const nc = [...compartimentos];
-                                  nc[cIdx].itens.push({
-                                    id: generateId(),
-                                    nome: "Novo Catalisador",
-                                    peso: 0,
-                                    volume: 0,
-                                    quantidade: 0,
-                                    tipo: "Catalisador",
-                                    durabilidade: 0,
-                                    maxDurabilidade: 0,
-                                    descricao: "",
-                                    escala: "0",
-                                    atributoBase: "Inteligência",
-                                    feitico: 0,
-                                    elemental: 0,
-                                    magiaNegra: 0,
-                                    potencial: 0,
+                                  updateChar(char => {
+                                    const comps = char.compartimentos || [];
+                                    const targetComp = comps[cIdx];
+                                    const newItens = [
+                                      ...(targetComp.itens || []),
+                                      {
+                                        id: generateId(),
+                                        nome: "Novo Catalisador",
+                                        peso: 0,
+                                        volume: 0,
+                                        quantidade: 1,
+                                        tipo: "Catalisador",
+                                        durabilidade: 0,
+                                        maxDurabilidade: 0,
+                                        descricao: "",
+                                        escala: "0",
+                                        atributoBase: "Inteligência",
+                                        feitico: 0,
+                                        elemental: 0,
+                                        magiaNegra: 0,
+                                        potencial: 0,
+                                      }
+                                    ];
+                                    return {
+                                      compartimentos: comps.map((c, i) => 
+                                        i === cIdx ? { ...c, itens: newItens } : c
+                                      )
+                                    };
                                   });
-                                  updateChar({ compartimentos: nc });
                                 }}
                                 className="flex-1 py-1.5 border border-dashed border-zinc-700 rounded text-[9px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all px-1"
                               >
@@ -2711,24 +2945,34 @@ function App() {
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() => {
-                                  const nc = [...compartimentos];
-                                  nc[cIdx].itens.push({
-                                    id: generateId(),
-                                    nome: "Nova Armadura",
-                                    peso: 0,
-                                    volume: 0,
-                                    quantidade: 0,
-                                    tipo: "Armadura",
-                                    durabilidade: 0,
-                                    maxDurabilidade: 0,
-                                    descricao: "",
-                                    corte: 0,
-                                    impacto: 0,
-                                    perfuracao: 0,
-                                    reducaoDano: 0,
-                                    efeito: "",
+                                  updateChar(char => {
+                                    const comps = char.compartimentos || [];
+                                    const targetComp = comps[cIdx];
+                                    const newItens = [
+                                      ...(targetComp.itens || []),
+                                      {
+                                        id: generateId(),
+                                        nome: "Nova Armadura",
+                                        peso: 0,
+                                        volume: 0,
+                                        quantidade: 1,
+                                        tipo: "Armadura",
+                                        durabilidade: 0,
+                                        maxDurabilidade: 0,
+                                        descricao: "",
+                                        corte: 0,
+                                        impacto: 0,
+                                        perfuracao: 0,
+                                        reducaoDano: 0,
+                                        efeito: "",
+                                      }
+                                    ];
+                                    return {
+                                      compartimentos: comps.map((c, i) => 
+                                        i === cIdx ? { ...c, itens: newItens } : c
+                                      )
+                                    };
                                   });
-                                  updateChar({ compartimentos: nc });
                                 }}
                                 className="flex-1 py-1.5 border border-dashed border-zinc-700 rounded text-[9px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all px-1"
                               >
@@ -2740,12 +2984,22 @@ function App() {
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() => {
-                                  const nc = [...compartimentos];
-                                  nc[cIdx].itens.push({
-                                    ...clipboard.data,
-                                    id: generateId(),
+                                  updateChar(char => {
+                                    const comps = char.compartimentos || [];
+                                    const targetComp = comps[cIdx];
+                                    const newItens = [
+                                      ...(targetComp.itens || []),
+                                      {
+                                        ...clipboard.data,
+                                        id: generateId(),
+                                      }
+                                    ];
+                                    return {
+                                      compartimentos: comps.map((c, i) => 
+                                        i === cIdx ? { ...c, itens: newItens } : c
+                                      )
+                                    };
                                   });
-                                  updateChar({ compartimentos: nc });
                                   setClipboard(null);
                                 }}
                                 className="w-full py-1.5 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[9px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
@@ -2770,10 +3024,7 @@ function App() {
                                         <input
                                           value={item.nome}
                                           onChange={(e) => {
-                                            const nc = [...compartimentos];
-                                            nc[cIdx].itens[iIdx].nome =
-                                              e.target.value;
-                                            updateChar({ compartimentos: nc });
+                                            const newName = e.target.value; updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).map((it, j) => j === iIdx ? { ...it, nome: newName } : it) } : c) }));
                                           }}
                                           className="bg-transparent text-sm font-bold focus:outline-none flex-1 text-zinc-100"
                                         />
@@ -2798,15 +3049,7 @@ function App() {
                                           <motion.button
                                             whileTap={{ scale: 0.95 }}
                                             onClick={() => {
-                                              const nc = [...compartimentos];
-                                              nc[cIdx].itens = nc[
-                                                cIdx
-                                              ].itens.filter(
-                                                (it) => it.id !== item.id,
-                                              );
-                                              updateChar({
-                                                compartimentos: nc,
-                                              });
+                                              { updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).filter(it => it.id !== item.id) } : c) })); }
                                             }}
                                             className="text-red-500 transition-opacity p-1"
                                           >
@@ -2821,10 +3064,7 @@ function App() {
                                           type="number"
                                           value={item.quantidade}
                                           onChange={(v) => {
-                                            const nc = [...compartimentos];
-                                            nc[cIdx].itens[iIdx].quantidade =
-                                              parseInt(v) || 1;
-                                            updateChar({ compartimentos: nc });
+                                            const val = parseInt(v) || 1; updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).map((it, j) => j === iIdx ? { ...it, quantidade: val } : it) } : c) }));
                                           }}
                                         />
                                         <div className="flex flex-col">
@@ -2843,12 +3083,14 @@ function App() {
                                       <WeaponProperties
                                         item={item}
                                         onChange={(updates) => {
-                                          const nc = [...compartimentos];
-                                          nc[cIdx].itens[iIdx] = {
-                                            ...nc[cIdx].itens[iIdx],
-                                            ...updates,
-                                          };
-                                          updateChar({ compartimentos: nc });
+                                          updateChar(char => ({
+                                            compartimentos: (char.compartimentos || []).map(c => 
+                                              c.id === comp.id ? {
+                                                ...c,
+                                                itens: (c.itens || []).map(it => it.id === item.id ? { ...it, ...updates } : it)
+                                              } : c
+                                            )
+                                          }));
                                         }}
                                       />
                                     </div>
@@ -2871,10 +3113,7 @@ function App() {
                                         <input
                                           value={item.nome}
                                           onChange={(e) => {
-                                            const nc = [...compartimentos];
-                                            nc[cIdx].itens[iIdx].nome =
-                                              e.target.value;
-                                            updateChar({ compartimentos: nc });
+                                            const newName = e.target.value; updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).map((it, j) => j === iIdx ? { ...it, nome: newName } : it) } : c) }));
                                           }}
                                           className="bg-transparent text-sm font-bold focus:outline-none flex-1 text-zinc-100"
                                         />
@@ -2901,15 +3140,7 @@ function App() {
                                           <motion.button
                                             whileTap={{ scale: 0.95 }}
                                             onClick={() => {
-                                              const nc = [...compartimentos];
-                                              nc[cIdx].itens = nc[
-                                                cIdx
-                                              ].itens.filter(
-                                                (it) => it.id !== item.id,
-                                              );
-                                              updateChar({
-                                                compartimentos: nc,
-                                              });
+                                              { updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).filter(it => it.id !== item.id) } : c) })); }
                                             }}
                                             className="text-red-500 transition-opacity p-1"
                                           >
@@ -2924,10 +3155,7 @@ function App() {
                                           type="number"
                                           value={item.quantidade}
                                           onChange={(v) => {
-                                            const nc = [...compartimentos];
-                                            nc[cIdx].itens[iIdx].quantidade =
-                                              parseInt(v) || 1;
-                                            updateChar({ compartimentos: nc });
+                                            const val = parseInt(v) || 1; updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).map((it, j) => j === iIdx ? { ...it, quantidade: val } : it) } : c) }));
                                           }}
                                         />
                                         <div className="flex flex-col">
@@ -2946,12 +3174,14 @@ function App() {
                                       <CatalystProperties
                                         item={item}
                                         onChange={(updates) => {
-                                          const nc = [...compartimentos];
-                                          nc[cIdx].itens[iIdx] = {
-                                            ...nc[cIdx].itens[iIdx],
-                                            ...updates,
-                                          };
-                                          updateChar({ compartimentos: nc });
+                                          updateChar(char => ({
+                                            compartimentos: (char.compartimentos || []).map(c => 
+                                              c.id === comp.id ? {
+                                                ...c,
+                                                itens: (c.itens || []).map(it => it.id === item.id ? { ...it, ...updates } : it)
+                                              } : c
+                                            )
+                                          }));
                                         }}
                                       />
                                     </div>
@@ -2974,10 +3204,7 @@ function App() {
                                         <input
                                           value={item.nome}
                                           onChange={(e) => {
-                                            const nc = [...compartimentos];
-                                            nc[cIdx].itens[iIdx].nome =
-                                              e.target.value;
-                                            updateChar({ compartimentos: nc });
+                                            const newName = e.target.value; updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).map((it, j) => j === iIdx ? { ...it, nome: newName } : it) } : c) }));
                                           }}
                                           className="bg-transparent text-sm font-bold focus:outline-none flex-1 text-zinc-100"
                                         />
@@ -3004,15 +3231,7 @@ function App() {
                                           <motion.button
                                             whileTap={{ scale: 0.95 }}
                                             onClick={() => {
-                                              const nc = [...compartimentos];
-                                              nc[cIdx].itens = nc[
-                                                cIdx
-                                              ].itens.filter(
-                                                (it) => it.id !== item.id,
-                                              );
-                                              updateChar({
-                                                compartimentos: nc,
-                                              });
+                                              { updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).filter(it => it.id !== item.id) } : c) })); }
                                             }}
                                             className="text-red-500 transition-opacity p-1"
                                           >
@@ -3027,10 +3246,7 @@ function App() {
                                           type="number"
                                           value={item.quantidade}
                                           onChange={(v) => {
-                                            const nc = [...compartimentos];
-                                            nc[cIdx].itens[iIdx].quantidade =
-                                              parseInt(v) || 1;
-                                            updateChar({ compartimentos: nc });
+                                            const val = parseInt(v) || 1; updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).map((it, j) => j === iIdx ? { ...it, quantidade: val } : it) } : c) }));
                                           }}
                                         />
                                         <div className="flex flex-col">
@@ -3049,12 +3265,14 @@ function App() {
                                       <ArmorProperties
                                         item={item}
                                         onChange={(updates) => {
-                                          const nc = [...compartimentos];
-                                          nc[cIdx].itens[iIdx] = {
-                                            ...nc[cIdx].itens[iIdx],
-                                            ...updates,
-                                          };
-                                          updateChar({ compartimentos: nc });
+                                          updateChar(char => ({
+                                            compartimentos: (char.compartimentos || []).map(c => 
+                                              c.id === comp.id ? {
+                                                ...c,
+                                                itens: (c.itens || []).map(it => it.id === item.id ? { ...it, ...updates } : it)
+                                              } : c
+                                            )
+                                          }));
                                         }}
                                       />
                                     </div>
@@ -3079,10 +3297,7 @@ function App() {
                                         <input
                                           value={item.nome}
                                           onChange={(e) => {
-                                            const nc = [...compartimentos];
-                                            nc[cIdx].itens[iIdx].nome =
-                                              e.target.value;
-                                            updateChar({ compartimentos: nc });
+                                            const newName = e.target.value; updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).map((it, j) => j === iIdx ? { ...it, nome: newName } : it) } : c) }));
                                           }}
                                           className="bg-transparent text-sm font-bold focus:outline-none flex-1 text-zinc-100"
                                         />
@@ -3107,15 +3322,7 @@ function App() {
                                           <motion.button
                                             whileTap={{ scale: 0.95 }}
                                             onClick={() => {
-                                              const nc = [...compartimentos];
-                                              nc[cIdx].itens = nc[
-                                                cIdx
-                                              ].itens.filter(
-                                                (it) => it.id !== item.id,
-                                              );
-                                              updateChar({
-                                                compartimentos: nc,
-                                              });
+                                              { updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).filter(it => it.id !== item.id) } : c) })); }
                                             }}
                                             className="text-red-500 transition-opacity p-1"
                                           >
@@ -3130,10 +3337,7 @@ function App() {
                                           type="number"
                                           value={item.quantidade}
                                           onChange={(v) => {
-                                            const nc = [...compartimentos];
-                                            nc[cIdx].itens[iIdx].quantidade =
-                                              parseInt(v) || 1;
-                                            updateChar({ compartimentos: nc });
+                                            const val = parseInt(v) || 1; updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).map((it, j) => j === iIdx ? { ...it, quantidade: val } : it) } : c) }));
                                           }}
                                         />
                                         <MiniInput
@@ -3189,12 +3393,22 @@ function App() {
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() => {
-                                  const nc = [...compartimentos];
-                                  nc[cIdx].itens.push({
-                                    ...clipboard.data,
-                                    id: generateId(),
+                                  updateChar(char => {
+                                    const comps = char.compartimentos || [];
+                                    const targetComp = comps[cIdx];
+                                    const newItens = [
+                                      ...(targetComp.itens || []),
+                                      {
+                                        ...clipboard.data,
+                                        id: generateId(),
+                                      }
+                                    ];
+                                    return {
+                                      compartimentos: comps.map((c, i) => 
+                                        i === cIdx ? { ...c, itens: newItens } : c
+                                      )
+                                    };
                                   });
-                                  updateChar({ compartimentos: nc });
                                   setClipboard(null);
                                 }}
                                 className="w-full py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
@@ -3226,12 +3440,12 @@ function App() {
                         <motion.button
                           whileTap={{ scale: 0.95 }}
                           onClick={() => {
-                            updateChar({
+                            updateChar(char => ({
                               magias: [
-                                ...(activeChar?.magias || []),
+                                ...(char.magias || []),
                                 { ...clipboard.data, id: generateId() },
                               ],
-                            });
+                            }));
                             setClipboard(null);
                           }}
                           className="text-emerald-500 hover:text-emerald-400 flex items-center gap-1 text-[10px] font-bold uppercase"
@@ -3241,10 +3455,10 @@ function App() {
                       )}
                       <motion.button
                         whileTap={{ scale: 0.95 }}
-                        onClick={() =>
-                          updateChar({
+                        onClick={() => {
+                          updateChar(c => ({
                             magias: [
-                              ...(activeChar?.magias || []),
+                              ...(c.magias || []),
                               {
                                 id: generateId(),
                                 nome: "Nova Magia",
@@ -3257,8 +3471,8 @@ function App() {
                                 acerto: 0,
                               },
                             ],
-                          })
-                        }
+                          }));
+                        }}
                         className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                       >
                         <Plus size={16} />
@@ -3304,9 +3518,7 @@ function App() {
                             <select
                               value={m.escola || "Feitiço"}
                               onChange={(e) => {
-                                const na = [...(activeChar?.magias || [])];
-                                na[idx].escola = e.target.value;
-                                updateChar({ magias: na });
+                                const val = e.target.value; updateChar(c => { const na = [...(c.magias || [])]; if (na[idx]) na[idx].escola = val; return { magias: na }; });
                               }}
                               className="bg-black/40 border border-zinc-700/50 rounded px-2 py-0.5 text-xs text-zinc-300 font-bold focus:outline-none focus:border-amber-500/50"
                             >
@@ -3320,12 +3532,10 @@ function App() {
                               Tipo
                             </span>
                             <select
-                              value={m.tipo || "Ataque"}
-                              onChange={(e) => {
-                                const na = [...(activeChar?.magias || [])];
-                                na[idx].tipo = e.target.value as any;
-                                updateChar({ magias: na });
-                              }}
+                               value={m.tipo || "Ataque"}
+                               onChange={(e) => {
+                                 const val = e.target.value; updateChar(c => { const na = [...(c.magias || [])]; if (na[idx]) na[idx].tipo = val as any; return { magias: na }; });
+                               }}
                               className="bg-black/40 border border-zinc-700/50 rounded px-2 py-0.5 text-xs text-zinc-300 font-bold focus:outline-none focus:border-amber-500/50"
                             >
                               <option value="Ataque">Ataque</option>
@@ -3341,7 +3551,7 @@ function App() {
                             onChange={(v) => {
                               const na = [...(activeChar?.magias || [])];
                               na[idx].dano = v;
-                              updateChar({ magias: na });
+                              updateChar(c => { const na = [...(c.magias || [])]; if (na[idx]) na[idx].dano = v; return { magias: na }; });
                             }}
                             disabled={m.tipo === "Utilidade"}
                           />
@@ -3352,7 +3562,7 @@ function App() {
                             onChange={(v) => {
                               const na = [...(activeChar?.magias || [])];
                               na[idx].acerto = parseInt(v) || 0;
-                              updateChar({ magias: na });
+                              updateChar(c => { const na = [...(c.magias || [])]; if (na[idx]) na[idx].acerto = parseInt(v) || 0; return { magias: na }; });
                             }}
                             disabled={m.tipo === "Utilidade"}
                           />
@@ -3365,7 +3575,7 @@ function App() {
                             onChange={(v) => {
                               const na = [...(activeChar?.magias || [])];
                               na[idx].mana = parseInt(v) || 0;
-                              updateChar({ magias: na });
+                              updateChar(c => { const na = [...(c.magias || [])]; if (na[idx]) na[idx].mana = parseInt(v) || 0; return { magias: na }; });
                             }}
                           />
                           <div className="flex flex-col min-w-0">
@@ -3375,9 +3585,7 @@ function App() {
                             <select
                               value={m.escala || "0"}
                               onChange={(e) => {
-                                const na = [...(activeChar?.magias || [])];
-                                na[idx].escala = e.target.value as any;
-                                updateChar({ magias: na });
+                                const val = e.target.value; updateChar(c => { const na = [...(c.magias || [])]; if (na[idx]) na[idx].escala = val as any; return { magias: na }; });
                               }}
                               className="bg-black/40 border border-zinc-700/50 rounded px-2 py-0.5 text-xs text-zinc-300 font-bold focus:outline-none focus:border-amber-500/50"
                             >
@@ -3571,7 +3779,7 @@ function App() {
                           onChange={(v) => {
                             const na = [...(activeChar?.magias || [])];
                             na[idx].efeito = v;
-                            updateChar({ magias: na });
+                            updateChar(c => { const na = [...(c.magias || [])]; if (na[idx]) na[idx].efeito = v; return { magias: na }; });
                           }}
                         />
                       </div>
@@ -3594,16 +3802,16 @@ function App() {
                     <motion.button
                       whileTap={{ scale: 0.95 }}
                       onClick={() =>
-                        updateChar({
+                        updateChar(c => ({
                           habilidades: [
-                            ...(activeChar?.habilidades || []),
+                            ...(c.habilidades || []),
                             {
                               id: generateId(),
                               nome: "Nova Habilidade",
                               efeito: "",
                             },
                           ],
-                        })
+                        }))
                       }
                       className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
                     >
@@ -3624,7 +3832,7 @@ function App() {
                                 ...(activeChar?.habilidades || []),
                               ];
                               newHabs[idx].nome = e.target.value;
-                              updateChar({ habilidades: newHabs });
+                              updateChar(c => ({ habilidades: newHabs }));
                             }}
                             className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
                           />
@@ -3686,7 +3894,7 @@ function App() {
                                   ...(activeChar?.conhecimentos || []),
                                 ];
                                 newKs[idx].nivel = Math.min(5, v);
-                                updateChar({ conhecimentos: newKs });
+                                updateChar(c => ({ conhecimentos: newKs }));
                               }}
                               className="w-20"
                               size="sm"
@@ -3717,7 +3925,7 @@ function App() {
                                       ...(activeChar?.conhecimentos || []),
                                     ];
                                     newKs[idx].xp = Math.max(0, k.xp - 1);
-                                    updateChar({ conhecimentos: newKs });
+                                    updateChar(c => ({ conhecimentos: newKs }));
                                   }}
                                   className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded text-zinc-400 hover:text-white"
                                 >
@@ -4582,7 +4790,7 @@ function App() {
                             onChange={(e) => {
                               const newNotes = [...activeChar.anotacoes];
                               newNotes[idx].titulo = e.target.value;
-                              updateChar({ anotacoes: newNotes });
+                              updateChar(c => ({ anotacoes: newNotes }));
                             }}
                             className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold"
                             placeholder="Digite o título..."
@@ -4645,6 +4853,200 @@ function App() {
                     className="mt-4 text-amber-500 hover:text-amber-400 font-bold uppercase text-xs tracking-widest"
                   >
                     Criar Primeira Aba
+                  </motion.button>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : activePage === "library" ? (
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
+            <div className="max-w-6xl mx-auto space-y-8">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-3xl font-black text-amber-500 uppercase tracking-tighter">
+                    Biblioteca de Personagens
+                  </h2>
+                  <p className="text-zinc-500 text-sm">
+                    {state.characters.length} personagem(ns) sincronizados com a nuvem.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-4 py-2 rounded-xl font-bold cursor-pointer transition-all border border-zinc-700 shadow-lg">
+                    <Upload size={20} className="text-amber-500" />
+                    <span>Importar</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      onChange={importJSON}
+                      accept=".json"
+                    />
+                  </label>
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      const nc = createEmptyCharacter();
+                      setState((prev) => ({
+                        ...prev,
+                        characters: [nc, ...prev.characters],
+                        activeCharacterId: nc.id,
+                      }));
+                      if (user) {
+                        saveCharacterToFirestore(nc);
+                      }
+                      setActivePage("sheet");
+                    }}
+                    className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 px-4 py-2 rounded-xl font-bold transition-all shadow-lg shadow-amber-500/20"
+                  >
+                    <Plus size={20} />
+                    <span>Novo</span>
+                  </motion.button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {state.characters.map((char) => (
+                  <motion.div
+                    key={char.id}
+                    layoutId={char.id}
+                    className={cn(
+                      "group relative bg-zinc-900 border transition-all rounded-3xl overflow-hidden cursor-pointer",
+                      state.activeCharacterId === char.id
+                        ? "border-amber-500 ring-1 ring-amber-500/50 shadow-2xl shadow-amber-500/10"
+                        : "border-zinc-800 hover:border-zinc-700"
+                    )}
+                    onClick={() => {
+                      setState(prev => ({ ...prev, activeCharacterId: char.id }));
+                    }}
+                  >
+                    <div className="aspect-[16/9] w-full relative bg-zinc-950 overflow-hidden">
+                      {char.imagem ? (
+                        <img
+                          src={char.imagem}
+                          alt={char.nome}
+                          className="w-full h-full object-cover opacity-60 group-hover:opacity-80 transition-opacity"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center opacity-20">
+                          <UserIcon size={64} className="text-zinc-500" />
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/40 to-transparent" />
+                      <div className="absolute bottom-4 left-4 right-4">
+                        <h3 className="text-xl font-black text-white uppercase tracking-tighter truncate font-mono">
+                          {char.nome || "Sem Nome"}
+                        </h3>
+                        <p className="text-amber-500/80 text-xs font-bold uppercase tracking-wider">
+                          {char.etnia || "Etnia não definida"}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="p-5 space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-black/20 p-2 rounded-xl border border-zinc-800/50">
+                          <span className="block text-[8px] font-bold text-zinc-500 uppercase">Vida</span>
+                          <span className="text-sm font-mono text-emerald-500 font-bold">
+                            {char.vidaAtual} / {getVidaMaxima(char.stats.CON)}
+                          </span>
+                        </div>
+                        <div className="bg-black/20 p-2 rounded-xl border border-zinc-800/50">
+                          <span className="block text-[8px] font-bold text-zinc-500 uppercase">Mana</span>
+                          <span className="text-sm font-mono text-blue-500 font-bold">
+                            {char.manaAtual} / {getManaMaxima(char.stats.APR)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 pt-2">
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setState(prev => ({ ...prev, activeCharacterId: char.id }));
+                            setActivePage("sheet");
+                          }}
+                          className={cn(
+                            "flex-1 py-2 px-4 rounded-xl font-bold text-xs uppercase transition-all",
+                            state.activeCharacterId === char.id
+                              ? "bg-amber-500 text-zinc-950"
+                              : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                          )}
+                        >
+                          Jogar
+                        </motion.button>
+                        
+                        <div className="flex items-center gap-1">
+                          <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const nc = { ...char, id: generateId(), nome: `${char.nome} (Cópia)` };
+                              setState(prev => ({
+                                ...prev,
+                                characters: [nc, ...prev.characters],
+                                activeCharacterId: nc.id
+                              }));
+                              if (user) saveCharacterToFirestore(nc);
+                              showToast("Cópia criada!", "success");
+                            }}
+                            className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition-colors border border-zinc-700"
+                            title="Duplicar"
+                          >
+                            <Copy size={16} />
+                          </motion.button>
+                          
+                          <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm(`Excluir permanentemente "${char.nome}"?`)) {
+                                if (user) deleteCharacterFromFirestore(char.id);
+                                setState(prev => {
+                                  const filtered = prev.characters.filter(c => c.id !== char.id);
+                                  return {
+                                    ...prev,
+                                    characters: filtered,
+                                    activeCharacterId: filtered.length > 0 ? filtered[0].id : ""
+                                  };
+                                });
+                                showToast("Personagem removido.", "info");
+                              }
+                            }}
+                            className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors border border-red-500/20"
+                            title="Excluir"
+                          >
+                            <Trash2 size={16} />
+                          </motion.button>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+
+              {state.characters.length === 0 && (
+                <div className="text-center py-32 bg-zinc-900/20 border-2 border-dashed border-zinc-800 rounded-3xl">
+                  <Library size={64} className="mx-auto text-zinc-800 mb-6" />
+                  <h3 className="text-xl font-bold text-zinc-400 uppercase tracking-tighter">Sua biblioteca está vazia</h3>
+                  <p className="text-zinc-600 mb-8">Crie um novo personagem ou importe um arquivo .json</p>
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      const nc = createEmptyCharacter();
+                      setState((prev) => ({
+                        ...prev,
+                        characters: [nc],
+                        activeCharacterId: nc.id,
+                      }));
+                      if (user) saveCharacterToFirestore(nc);
+                    }}
+                    className="bg-amber-500 text-zinc-950 px-8 py-3 rounded-2xl font-black uppercase tracking-tighter hover:bg-amber-400 transition-all shadow-xl shadow-amber-500/20"
+                  >
+                    Iniciar Aventura
                   </motion.button>
                 </div>
               )}
@@ -4946,6 +5348,18 @@ function App() {
               )}
             </div>
           </div>
+        ) : activePage === "bestiary" ? (
+          <div className="max-w-6xl mx-auto">
+            <div className="mb-8">
+              <h1 className="text-3xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
+                <Skull size={32} className="text-red-500" /> Bestiário de Demônios
+              </h1>
+              <p className="text-zinc-500 text-sm mt-1">
+                Gerencie as criaturas e inimigos que aparecerão em suas campanhas.
+              </p>
+            </div>
+            <Bestiary />
+          </div>
         ) : activePage === "table" ? (
           <div className="flex-1 h-full overflow-hidden relative overscroll-none touch-none">
             {activeCampaignId ? (
@@ -5172,7 +5586,7 @@ function App() {
   );
 }
 
-function SubSection({
+const SubSection = React.memo(({
   title,
   icon,
   children,
@@ -5182,7 +5596,7 @@ function SubSection({
   icon: React.ReactNode;
   children: React.ReactNode;
   defaultCollapsed?: boolean;
-}) {
+}) => {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   const hasChildren = React.Children.toArray(children).some(
     (child) => child !== null,
@@ -5225,9 +5639,9 @@ function SubSection({
       </AnimatePresence>
     </div>
   );
-}
+});
 
-function Section({
+const Section = React.memo(({
   title,
   icon,
   children,
@@ -5239,7 +5653,7 @@ function Section({
   children: React.ReactNode;
   collapsible?: boolean;
   defaultCollapsed?: boolean;
-}) {
+}) => {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   return (
     <div className="bg-zinc-900/30 border-y sm:border border-zinc-800 sm:rounded-xl -mx-4 sm:mx-0">
@@ -5274,9 +5688,9 @@ function Section({
       </AnimatePresence>
     </div>
   );
-}
+});
 
-function Input({
+const Input = React.memo(({
   label,
   value,
   onChange,
@@ -5286,7 +5700,7 @@ function Input({
   value: string;
   onChange: (v: string) => void;
   className?: string;
-}) {
+}) => {
   return (
     <div className={className}>
       <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
@@ -5305,9 +5719,9 @@ function Input({
       />
     </div>
   );
-}
+});
 
-function TextArea({
+const TextArea = React.memo(({
   label,
   value,
   onChange,
@@ -5317,7 +5731,7 @@ function TextArea({
   value: string;
   onChange: (v: string) => void;
   className?: string;
-}) {
+}) => {
   return (
     <div className={className}>
       <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
@@ -5331,9 +5745,9 @@ function TextArea({
       />
     </div>
   );
-}
+});
 
-function ProgressBar({
+const ProgressBar = React.memo(({
   label,
   current,
   max,
@@ -5345,7 +5759,7 @@ function ProgressBar({
   max: number;
   color: string;
   onChange: (v: number) => void;
-}) {
+}) => {
   const percent = Math.min(100, (current / max) * 100);
   const [innerValue, setInnerValue] = useState(current?.toString() ?? "");
 
@@ -5398,9 +5812,9 @@ function ProgressBar({
       </div>
     </div>
   );
-}
+});
 
-function MiniBar({
+const MiniBar = React.memo(({
   label,
   value,
   max = 100,
@@ -5412,7 +5826,7 @@ function MiniBar({
   max?: number;
   color: string;
   onChange: (v: number) => void;
-}) {
+}) => {
   const percent = Math.min(100, (value / max) * 100);
   const [innerValue, setInnerValue] = useState(value?.toString() ?? "");
 
@@ -5452,15 +5866,15 @@ function MiniBar({
       </div>
     </div>
   );
-}
+});
 
-function WeaponProperties({
+const WeaponProperties = React.memo(({
   item,
   onChange,
 }: {
   item: any;
   onChange: (updates: any) => void;
-}) {
+}) => {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
@@ -5571,15 +5985,15 @@ function WeaponProperties({
       />
     </div>
   );
-}
+});
 
-function CatalystProperties({
+const CatalystProperties = React.memo(({
   item,
   onChange,
 }: {
   item: any;
   onChange: (updates: any) => void;
-}) {
+}) => {
   return (
     <div className="space-y-4">
       <div className="bg-zinc-950/30 p-2 rounded-lg border border-zinc-800/50 space-y-2">
@@ -5669,15 +6083,15 @@ function CatalystProperties({
       />
     </div>
   );
-}
+});
 
-function ArmorProperties({
+const ArmorProperties = React.memo(({
   item,
   onChange,
 }: {
   item: any;
   onChange: (updates: any) => void;
-}) {
+}) => {
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-3 gap-2">
@@ -5733,9 +6147,9 @@ function ArmorProperties({
       />
     </div>
   );
-}
+});
 
-function DiceImage({
+const DiceImage = React.memo(({
   sides,
   fileName,
   className,
@@ -5743,7 +6157,7 @@ function DiceImage({
   sides: number;
   fileName?: string;
   className?: string;
-}) {
+}) => {
   const [error, setError] = useState(false);
 
   const src = useMemo(() => {
@@ -5781,9 +6195,9 @@ function DiceImage({
       <span className="text-amber-500 font-black text-xl">D{sides}</span>
     </div>
   );
-}
+});
 
-function NumericInput({
+const NumericInput = React.memo(({
   label,
   value,
   onChange,
@@ -5799,7 +6213,7 @@ function NumericInput({
   min?: number;
   max?: number;
   size?: "sm" | "md" | "lg";
-}) {
+}) => {
   const [innerValue, setInnerValue] = useState(value?.toString() ?? "");
 
   useEffect(() => {
@@ -5840,9 +6254,9 @@ function NumericInput({
       />
     </div>
   );
-}
+});
 
-function MiniInput({
+const MiniInput = React.memo(({
   label,
   value,
   type = "text",
@@ -5854,7 +6268,7 @@ function MiniInput({
   type?: string;
   onChange: (v: string) => void;
   disabled?: boolean;
-}) {
+}) => {
   const [innerValue, setInnerValue] = useState(value?.toString() ?? "");
 
   useEffect(() => {
@@ -5912,4 +6326,4 @@ function MiniInput({
       )}
     </div>
   );
-}
+});

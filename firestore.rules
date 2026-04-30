@@ -11,28 +11,40 @@ service cloud.firestore {
     }
 
     // Phase 3: Primitive Definition
-    function isSignedIn() { return request.auth != null; }
-    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
-    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function isValidId(id) { return id is string && id.size() <= 128; }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
     function isOwner(data) { return isSignedIn() && data.userId == request.auth.uid; }
 
+    // Validation helper for BestiaryMonster
+    function isValidMonster(data) {
+      return data.keys().hasAll(['id', 'name', 'masterId']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() <= 200 &&
+             data.masterId == request.auth.uid;
+    }
+
     // Validation helper for Character
-    function isValidCharacter(data, isUpdate) {
+    function isValidCharacter(data) {
       let baseValid = data.keys().hasAll(['id', 'nome', 'userId', 'updatedAt']) &&
              data.id is string && data.id.size() <= 128 &&
              data.nome is string && data.nome.size() <= 200 &&
-             data.updatedAt == request.time &&
-             (data.get('createdAt', request.time) == request.time || data.createdAt == existing().createdAt);
+             data.updatedAt == request.time;
       
-      return baseValid && (isUpdate ? data.userId == existing().userId : data.userId == request.auth.uid);
+      let identityValid = resource == null ? data.userId == request.auth.uid : data.userId == existing().userId;
+      
+      // If createdAt is present, it must be request.time (on create) or unchanged (on update)
+      let createdAtValid = !data.contains('createdAt') || 
+                           (resource == null ? data.createdAt == request.time : data.createdAt == existing().createdAt);
+      
+      return baseValid && identityValid && createdAtValid;
     }
 
     // Validation helper for Campaign
     function isValidCampaign(data) {
       return data.keys().hasAll(['name', 'masterId', 'inviteCode', 'createdAt']) &&
-             data.keys().size() == 4 &&
              data.name is string && data.name.size() <= 100 &&
              data.masterId == request.auth.uid &&
              data.inviteCode is string && data.inviteCode.size() == 6 &&
@@ -64,6 +76,16 @@ service cloud.firestore {
       }
     }
 
+    match /bestiary/{monsterId} {
+      allow read: if isSignedIn();
+      allow create: if isVerified() && isValidId(monsterId) && isValidMonster(incoming());
+      allow update: if isVerified() && 
+                       existing().masterId == request.auth.uid && 
+                       isValidMonster(incoming()) &&
+                       incoming().masterId == existing().masterId;
+      allow delete: if isVerified() && existing().masterId == request.auth.uid;
+    }
+
     match /users/{userId} {
       allow read: if isSignedIn();
       allow write: if isVerified() && request.auth.uid == userId;
@@ -76,34 +98,18 @@ service cloud.firestore {
         return campId != '' && get(/databases/$(database)/documents/campaigns/$(campId)).data.masterId == request.auth.uid;
       }
 
-      // Secure List Queries
       allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isMasterOfCampaign(resource.data));
       allow get: if isSignedIn() && (isOwner(existing()) || isMasterOfCampaign(existing()));
       
       allow create: if isVerified() && 
                        isValidId(characterId) && 
-                       incoming().createdAt == request.time &&
-                       isValidCharacter(incoming(), false);
+                       incoming().userId == request.auth.uid;
 
       allow update: if isVerified() && 
-                       (isOwner(existing()) || isMasterOfCampaign(existing())) &&
-                       isValidId(characterId) &&
-                       isValidCharacter(incoming(), true) &&
-                       incoming().userId == existing().userId &&
-                       incoming().createdAt == existing().createdAt &&
-                       // Action-based pattern: allow updating various fields
-                       incoming().diff(existing()).affectedKeys().hasOnly([
-                         'nome', 'etnia', 'dinheiro', 'vidaAtual', 'manaAtual', 
-                         'fome', 'sede', 'cansaco', 'defesa', 'clima', 
-                         'stats', 'statsXP', 'bonusProficiencias', 'joias', 
-                         'imagem', 'armas', 'catalisadores', 'habilidades', 
-                         'magias', 'armaduras', 'acessorios', 'compartimentos', 
-                         'conhecimentos', 'efeitosNegativos', 'anotacoes', 
-                         'escalas', 'dadosCustomizados', 'imagens', 'updatedAt',
-                         'campaignId' // Allow joining campaigns
-                       ]);
+                       (existing().get('userId', '') == request.auth.uid || existing().get('userId', '') == "" || isMasterOfCampaign(existing())) &&
+                       incoming().userId == request.auth.uid;
 
-      allow delete: if isVerified() && (isOwner(existing()) || isMasterOfCampaign(existing()));
+      allow delete: if isVerified() && (existing().userId == request.auth.uid || isMasterOfCampaign(existing()));
     }
   }
 }

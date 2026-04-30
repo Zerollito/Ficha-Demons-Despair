@@ -26,7 +26,11 @@ export const saveCharacterToFirestore = async (character: Character) => {
   };
 
   try {
-    await setDoc(charRef, data, { merge: true });
+    // Clean undefined values
+    const cleanData = Object.fromEntries(
+      Object.entries(data).filter(([_, v]) => v !== undefined)
+    );
+    await setDoc(charRef, cleanData, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `${CHARACTERS_COLLECTION}/${character.id}`);
   }

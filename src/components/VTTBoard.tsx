@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { motion, AnimatePresence } from "motion/react";
 import { Stage, Layer, Image as KonvaImage, Rect, Circle, Line, Text, Group, RegularPolygon, Shape } from 'react-konva';
 import useImage from 'use-image';
 import { TableToken, TableConfig, Character } from '../types';
 import { updateTokenPosition } from '../services/vttService';
-import { Shield, User, Trash2, Plus, Settings, ZoomIn, ZoomOut, Maximize, Eye, EyeOff, Upload, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Shield, User, Trash2, Plus, Settings, ZoomIn, ZoomOut, Maximize, Eye, EyeOff, Upload, ChevronLeft, ChevronRight, Skull, Info, Heart, Minus, FileText, Zap } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { Bestiary } from './Bestiary';
+import { BestiaryMonster } from '../types';
 
 import { compressImageDataUrl } from '../lib/imageUtils';
 
@@ -35,7 +38,7 @@ const GRID_COLORS = [
   { name: 'Vermelho', value: '#ef4444' },
 ];
 
-const Token = ({ token, gridSize, onDragEnd, onClick, isAttacker, isTarget }: { 
+const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isTarget }: { 
   token: TableToken; 
   gridSize: number; 
   onDragEnd: (id: string, x: number, y: number) => void;
@@ -163,9 +166,9 @@ const Token = ({ token, gridSize, onDragEnd, onClick, isAttacker, isTarget }: {
       )}
     </Group>
   );
-};
+});
 
-export const VTTBoard: React.FC<VTTBoardProps> = ({ 
+export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({ 
   campaignId, 
   isMaster, 
   tokens, 
@@ -187,6 +190,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
   const [showMapModal, setShowMapModal] = useState(false);
   const [showCreatureModal, setShowCreatureModal] = useState(false);
   const [isCharacterModalOpen, setIsCharacterModalOpen] = useState(false);
+  const [viewingCreatureId, setViewingCreatureId] = useState<string | null>(null);
   
   const [inputMapUrl, setInputMapUrl] = useState(config.mapUrl || '');
   const [inputGridSize, setInputGridSize] = useState(config.gridSize?.toString() || '50');
@@ -275,7 +279,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
 
     const token = tokens.find(t => t.id === id);
     if (token) {
-      updateTokenPosition(campaignId, id, snapX, snapY, token.x, token.y);
+      updateTokenPosition(campaignId, id, { x: snapX, y: snapY, prevX: token.x, prevY: token.y });
     }
   };
 
@@ -283,7 +287,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
     if (!selectedTokenId) return;
     const token = tokens.find(t => t.id === selectedTokenId);
     if (token && token.prevX !== undefined && token.prevY !== undefined) {
-      updateTokenPosition(campaignId, token.id, token.prevX, token.prevY);
+      updateTokenPosition(campaignId, token.id, { x: token.prevX, y: token.prevY });
     }
   };
 
@@ -894,117 +898,65 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
         </div>
       )}
 
-      {/* Creature Modal */}
+      {/* Creature Modal / Bestiary */}
       {showCreatureModal && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl w-full max-w-md shadow-2xl space-y-4">
-            <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                <Plus className="text-amber-500" /> Nova Criatura
-            </h3>
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Nome</label>
-                <input 
-                  value={inputCreatureName ?? ""}
-                  onChange={(e) => setInputCreatureName(e.target.value)}
-                  placeholder="Lobo Atroz, Goblin, etc..."
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:border-amber-500"
-                />
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 overflow-hidden">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-3xl w-full max-w-4xl max-h-[90vh] shadow-2xl flex flex-col">
+            <div className="p-6 border-b border-zinc-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                  <Skull className="text-red-500" /> Invoque um Demônio
+                </h3>
+                <p className="text-zinc-500 text-xs mt-1">Selecione uma criatura do seu bestiário para colocar no mapa.</p>
               </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Icone da Criatura</label>
-                <div className="grid grid-cols-1 gap-2">
-                  <div className="relative group">
-                    <input 
-                      type="file" 
-                      onChange={handleCreatureImageUpload}
-                      className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                      accept="image/*"
-                    />
-                    <div className={cn(
-                      "w-full bg-zinc-950 border-2 border-dashed rounded-xl p-4 text-center transition-colors",
-                      inputCreatureIcon ? "border-amber-500 bg-amber-500/5" : "border-zinc-800 hover:border-amber-500"
-                    )}>
-                      {inputCreatureIcon ? (
-                        <img src={inputCreatureIcon} alt="Preview" className="mx-auto w-12 h-12 rounded-full object-cover mb-2 border-2 border-amber-500" />
-                      ) : (
-                        <Upload size={20} className="mx-auto text-zinc-600 mb-1 group-hover:text-amber-500" />
-                      )}
-                      <span className="text-[10px] font-bold text-zinc-500">{inputCreatureIcon ? "Imagem Carregada" : "Carregar Token"}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">URL (Opcional)</label>
-                <input 
-                  value={inputCreatureIcon ?? ""}
-                  onChange={(e) => setInputCreatureIcon(e.target.value)}
-                  placeholder="https://exemplo.com/token.png"
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:border-amber-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Vida (HP)</label>
-                  <input 
-                    type="text"
-                    inputMode="numeric"
-                    value={inputCreatureHP}
-                    onChange={(e) => setInputCreatureHP(e.target.value.replace(/[^0-9]/g, ''))}
-                    placeholder="10"
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Tamanho (Tiles)</label>
-                  <input 
-                    type="text"
-                    inputMode="numeric"
-                    value={inputCreatureSize}
-                    onChange={(e) => setInputCreatureSize(e.target.value.replace(/[^0-9]/g, ''))}
-                    placeholder="1"
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-2 pt-2">
               <button 
                 onClick={() => setShowCreatureModal(false)}
-                className="flex-1 p-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl font-bold transition-colors"
+                className="p-2 bg-zinc-900 text-zinc-500 hover:text-white rounded-xl transition-all"
               >
-                Cancelar
+                <Plus className="rotate-45" size={24} />
               </button>
-              <button 
-                onClick={() => {
-                  if (inputCreatureName && onAddToken) {
-                    const stage = containerRef.current;
-                    const centerX = stage ? (dimensions.width / 2 - viewport.x) / viewport.scale : 100;
-                    const centerY = stage ? (dimensions.height / 2 - viewport.y) / viewport.scale : 100;
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+              <Bestiary 
+                isSelectionMode={true} 
+                onMonsterSelect={(monster) => {
+                  if (onAddToken) {
+                    const centerX = (dimensions.width / 2 - viewport.x) / viewport.scale;
+                    const centerY = (dimensions.height / 2 - viewport.y) / viewport.scale;
                     
                     onAddToken({
-                      id: Math.random().toString(36).substring(7),
-                      name: inputCreatureName,
-                      imageUrl: inputCreatureIcon,
+                      id: Math.random().toString(36).substring(2, 11),
+                      name: monster.name,
                       x: centerX,
                       y: centerY,
-                      size: parseInt(inputCreatureSize) || 1,
+                      size: 1,
+                      imageUrl: monster.imageUrl,
                       type: 'creature',
-                      hp: parseInt(inputCreatureHP) || 10,
-                      maxHp: parseInt(inputCreatureHP) || 10
+                      hp: monster.maxHp,
+                      maxHp: monster.maxHp,
+                      description: monster.informacoes,
+                      stats: {
+                        ataque: monster.ataque,
+                        defesa: monster.defesa
+                      },
+                      acoes: monster.acoes
                     });
                   }
-                  setInputCreatureName('');
-                  setInputCreatureIcon('');
-                  setInputCreatureHP('10');
-                  setInputCreatureSize('1');
                   setShowCreatureModal(false);
-                }}
-                className="flex-1 p-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold transition-colors shadow-lg shadow-amber-600/20"
+                }} 
+              />
+            </div>
+
+            <div className="p-6 border-t border-zinc-800 bg-zinc-900/50 flex gap-4">
+               <div className="flex-1 text-zinc-500 text-xs italic">
+                 Dica: Você pode criar novos monstros na aba "Bestiário" no menu principal.
+               </div>
+               <button 
+                onClick={() => setShowCreatureModal(false)}
+                className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold uppercase tracking-widest transition-all"
               >
-                Adicionar
+                Cancelar
               </button>
             </div>
           </div>
@@ -1113,43 +1065,193 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
           </div>
           
           {/* Creatures List */}
-          <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+          <div className="flex-1 overflow-y-auto space-y-3 pr-1 py-2">
              {tokens.filter(t => t.type === 'creature').map(token => (
-              <div key={token.id} className="bg-zinc-950/50 border border-zinc-800 rounded-xl p-3 flex items-center gap-3 group hover:border-blue-500/30 transition-all">
-                <div className="relative">
-                  <div className="w-10 h-10 rounded-lg overflow-hidden border border-zinc-800 flex items-center justify-center">
-                    {token.imageUrl ? (
-                      <img src={token.imageUrl} alt={token.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <User size={16} className="text-zinc-600" />
-                    )}
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 bg-blue-500 text-[8px] font-black w-4 h-4 rounded flex items-center justify-center text-white">
-                    {token.size}
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-black text-white truncate uppercase tracking-wider">{token.name}</div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="h-1 flex-1 bg-zinc-800 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-red-500 transition-all" 
-                        style={{ width: `${((token.hp || 0) / (token.maxHp || 100)) * 100}%` }}
-                      />
+              <div key={token.id} className="bg-zinc-950/80 border border-zinc-800 rounded-2xl p-4 flex flex-col gap-3 group hover:border-red-500/30 transition-all shadow-lg">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <div className="w-10 h-10 rounded-xl overflow-hidden border border-zinc-800 flex items-center justify-center bg-zinc-900">
+                      {token.imageUrl ? (
+                        <img src={token.imageUrl} alt={token.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <User size={16} className="text-zinc-600" />
+                      )}
                     </div>
-                    <span className="text-[8px] font-black text-zinc-500">{token.hp}/{token.maxHp}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] font-black text-white truncate uppercase tracking-widest">{token.name}</div>
+                    <div className="flex items-center gap-1.5 mt-1 text-[8px] font-bold text-zinc-500 uppercase tracking-tighter">
+                      <Heart size={8} className="text-red-500" /> {token.hp} / {token.maxHp} HP
+                    </div>
+                  </div>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                    <button 
+                      onClick={() => setViewingCreatureId(token.id === viewingCreatureId ? null : token.id)}
+                      className={cn("p-1.5 rounded transition-all", viewingCreatureId === token.id ? "bg-amber-500 text-zinc-950" : "hover:bg-amber-500/10 text-amber-500")}
+                    >
+                      <Info size={12} />
+                    </button>
+                    <button 
+                      onClick={() => onRemoveToken?.(token.id)}
+                      className="p-1.5 hover:bg-red-500/10 hover:text-red-500 text-zinc-600 rounded transition-all"
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 </div>
-                <button 
-                  onClick={() => onRemoveToken?.(token.id)}
-                  className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-500/10 hover:text-red-500 text-zinc-600 rounded transition-all"
-                >
-                  <Trash2 size={12} />
-                </button>
+
+                {/* HP Controls */}
+                <div className="flex items-center gap-2 bg-zinc-900/50 p-1.5 rounded-xl border border-zinc-800">
+                  <button 
+                    onClick={() => {
+                      const newHp = Math.max(0, (token.hp || 0) - 1);
+                      updateTokenPosition(campaignId, token.id, { hp: newHp });
+                    }}
+                    className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-red-500 rounded-lg transition-colors border border-transparent hover:border-zinc-700"
+                  >
+                    <Minus size={12} />
+                  </button>
+                  <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-red-500 transition-all shadow-[0_0_8px_rgba(239,68,68,0.3)]" 
+                      style={{ width: `${((token.hp || 0) / (token.maxHp || 1)) * 100}%` }}
+                    />
+                  </div>
+                  <button 
+                    onClick={() => {
+                      const newHp = Math.min(token.maxHp || 100, (token.hp || 0) + 1);
+                      updateTokenPosition(campaignId, token.id, { hp: newHp });
+                    }}
+                    className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-green-500 rounded-lg transition-colors border border-transparent hover:border-zinc-700"
+                  >
+                    <Plus size={12} />
+                  </button>
+                </div>
+
+                {/* Quick HP Direct Input */}
+                <input 
+                  type="number"
+                  value={token.hp}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    if (!isNaN(val)) {
+                      updateTokenPosition(campaignId, token.id, { hp: Math.min(token.maxHp || 999, Math.max(0, val)) });
+                    }
+                  }}
+                  className="w-full bg-zinc-950 border border-zinc-800/50 rounded-lg py-1 px-2 text-[10px] text-center text-zinc-400 focus:outline-none focus:border-red-500/50"
+                />
+
+                {/* Monster description expand */}
+                <AnimatePresence>
+                  {viewingCreatureId === token.id && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 mt-2 space-y-4 shadow-inner">
+                        <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                           <div className="text-[10px] font-black text-amber-500 uppercase tracking-widest flex items-center gap-1.5">
+                             <FileText size={10} /> Ficha Técnica
+                           </div>
+                           <div className="text-[8px] font-bold text-zinc-500 bg-zinc-950 px-2 py-0.5 rounded-full border border-zinc-800">
+                             Size: {token.size}x{token.size}
+                           </div>
+                        </div>
+
+                        {/* Ataque Summary */}
+                        <div className="space-y-1">
+                           <span className="text-[8px] font-black text-red-500/80 uppercase">Ataque Físico (C/P/I/R)</span>
+                           <div className="grid grid-cols-4 gap-1">
+                              <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white">
+                                 {token.stats?.ataque.corte ?? 0}
+                              </div>
+                              <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white">
+                                 {token.stats?.ataque.perfuracao ?? 0}
+                              </div>
+                              <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white">
+                                 {token.stats?.ataque.impacto ?? 0}
+                              </div>
+                              <div className="bg-amber-500/10 border border-amber-500/30 rounded p-1 text-center text-[9px] font-black text-amber-500">
+                                 {token.stats?.ataque.resistencia ?? 0}
+                              </div>
+                           </div>
+                        </div>
+
+                        <div className="space-y-1">
+                           <span className="text-[8px] font-black text-purple-500/80 uppercase">Ataque Mágico (F/E/MN/P)</span>
+                           <div className="grid grid-cols-4 gap-1">
+                              <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white">
+                                 {token.stats?.ataque.feitico ?? 0}
+                              </div>
+                              <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white">
+                                 {token.stats?.ataque.elemental ?? 0}
+                              </div>
+                              <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white">
+                                 {token.stats?.ataque.magiaNegra ?? 0}
+                              </div>
+                              <div className="bg-amber-500/10 border border-amber-500/30 rounded p-1 text-center text-[9px] font-black text-amber-500">
+                                 {token.stats?.ataque.potencial ?? 0}
+                              </div>
+                           </div>
+                        </div>
+
+                        {/* Defesa Summary */}
+                        <div className="grid grid-cols-2 gap-3">
+                           <div className="space-y-1">
+                              <span className="text-[8px] font-black text-blue-500/80 uppercase">Defesa Física</span>
+                              <div className="grid grid-cols-3 gap-1">
+                                 <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white" title="Corte">
+                                    {token.stats?.defesa.corte ?? 0}
+                                 </div>
+                                 <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white" title="Perfuração">
+                                    {token.stats?.defesa.perfuracao ?? 0}
+                                 </div>
+                                 <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white" title="Impacto">
+                                    {token.stats?.defesa.impacto ?? 0}
+                                 </div>
+                              </div>
+                           </div>
+                           <div className="space-y-1">
+                              <span className="text-[8px] font-black text-indigo-500/80 uppercase">Defesa Mágica</span>
+                              <div className="grid grid-cols-3 gap-1">
+                                 <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white" title="Feitiço">
+                                    {token.stats?.defesa.feitico ?? 0}
+                                 </div>
+                                 <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white" title="Elemental">
+                                    {token.stats?.defesa.elemental ?? 0}
+                                 </div>
+                                 <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white" title="Magia Negra">
+                                    {token.stats?.defesa.magiaNegra ?? 0}
+                                 </div>
+                              </div>
+                           </div>
+                        </div>
+
+                        {token.description && (
+                          <div className="space-y-1">
+                            <span className="text-[8px] font-black text-zinc-600 uppercase">Informações</span>
+                            <p className="text-[10px] text-zinc-400 leading-relaxed italic whitespace-pre-wrap bg-zinc-950/30 p-2 rounded-xl border border-zinc-800/50">
+                              {token.description}
+                            </p>
+                          </div>
+                        )}
+                        <div className="text-[8px] text-zinc-500 italic text-center pt-1">
+                          Consulte o Bestiário para ver a ficha completa e habilidades.
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
               </div>
             ))}
             {tokens.filter(t => t.type === 'creature').length === 0 && (
-              <div className="text-[10px] text-zinc-600 italic text-center py-4">Nenhuma criatura no mapa</div>
+              <div className="flex flex-col items-center justify-center py-6 px-4 bg-zinc-950/30 border border-dashed border-zinc-800 rounded-2xl">
+                <Skull size={24} className="text-zinc-800 mb-2" />
+                <div className="text-[10px] text-zinc-600 italic text-center">Nenhum demônio invocado</div>
+              </div>
             )}
           </div>
 
@@ -1214,6 +1316,35 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
             >
               <Maximize className="rotate-45" size={14} /> Refazer Movimento
             </button>
+
+            {/* Specialized Monster Actions Quick List */}
+            {(() => {
+              const token = tokens.find(t => t.id === selectedTokenId);
+              if (token?.acoes && token.acoes.length > 0) {
+                return (
+                  <div className="mt-2 pt-2 border-t border-zinc-800 space-y-1">
+                    <span className="text-[8px] font-black text-red-500 uppercase tracking-widest pl-1">Ataques</span>
+                    <div className="grid gap-1">
+                      {token.acoes.map(action => (
+                        <div 
+                          key={action.id}
+                          className="bg-zinc-950/50 border border-zinc-800 rounded p-1.5"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-bold text-zinc-200">{action.name}</span>
+                            <span className="text-[7px] text-zinc-500 font-black uppercase opacity-50">{action.type}</span>
+                          </div>
+                          <div className="text-[8px] font-bold text-zinc-400">Acerto: +{action.acerto} | Dano: {action.dano}</div>
+                          <p className="text-[8px] text-zinc-500 italic mt-0.5 leading-tight">{action.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
             {isMaster && (
               <button 
                 onClick={() => { onRemoveToken?.(selectedTokenId); setSelectedTokenId(null); }}
@@ -1228,17 +1359,26 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
 
       {/* Weapon Select Modal */}
       {weaponSelectTokenId && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl">
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setWeaponSelectTokenId(null)}
+        >
+          <div 
+            className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-              <h3 className="text-sm font-black text-white uppercase tracking-widest">Escolha a Arma</h3>
-              <button onClick={() => setWeaponSelectTokenId(null)} className="text-zinc-500 hover:text-white"><Plus className="rotate-45" size={20} /></button>
+              <h3 className="text-sm font-black text-white uppercase tracking-widest">Escolha o Ataque</h3>
+              <button onClick={() => setWeaponSelectTokenId(null)} className="text-zinc-500 hover:text-white p-1 hover:bg-zinc-800 rounded-full transition-colors">
+                <Plus className="rotate-45" size={20} />
+              </button>
             </div>
             <div className="p-4 max-h-64 overflow-y-auto space-y-2">
               {(() => {
                 const attacker = tokens.find(t => t.id === weaponSelectTokenId);
                 const attackerChar = availableCharacters.find(c => c.id === attacker?.characterId);
                 const weapons = attackerChar?.armas || [];
+                const monsterActions = attacker?.acoes || [];
                 
                 return (
                   <>
@@ -1252,13 +1392,46 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
                           <div className="text-xs font-bold text-white group-hover:text-blue-400">{weapon.nome}</div>
                           <div className="text-[10px] text-zinc-500">Acerto: +{weapon.acerto} | Dano: {weapon.dano}</div>
                         </div>
-                        <div className="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center text-zinc-400">
+                        <div className="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center text-zinc-400 border border-zinc-800">
                           <Shield size={14} />
                         </div>
                       </button>
                     ))}
-                    {/* Basic Attack if no weapons OR always show if it's a creature */}
-                    {(weapons.length === 0 || attacker?.type === 'creature') && (
+
+                    {/* Monster Specialized Actions */}
+                    {monsterActions.map(action => (
+                      <button
+                        key={action.id}
+                        onClick={() => {
+                          resolveCombat({
+                            nome: action.name,
+                            acerto: action.acerto,
+                            dano: action.dano,
+                            category: action.categoria,
+                            isMonsterAction: true
+                          });
+                        }}
+                        className="w-full flex flex-col p-3 bg-zinc-950 border border-red-900/30 hover:border-red-500/50 rounded-xl transition-all group"
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <div className="text-xs font-black text-red-500 group-hover:text-red-400 flex items-center gap-1.5 capitalize">
+                            <Zap size={10} /> {action.name}
+                          </div>
+                          <div className="text-[8px] font-black bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500 uppercase tracking-tighter">
+                            {action.type} | {action.categoria}
+                          </div>
+                        </div>
+                        <div className="text-[10px] text-zinc-300 font-bold mt-1">
+                           Acerto: {action.acerto >= 0 ? '+' : ''}{action.acerto} | Dano: {action.dano}
+                        </div>
+                        <div className="text-[9px] text-zinc-500 mt-0.5 italic leading-tight text-left">
+                           {action.description}
+                        </div>
+                      </button>
+                    ))}
+
+                    {/* Basic Attack fallback */}
+                    {weapons.length === 0 && monsterActions.length === 0 && (
                       <button
                         onClick={() => resolveCombat({ nome: "Soco/Ataque Básico", acerto: 0, dano: "1d4+0" })}
                         className="w-full flex items-center justify-between p-3 bg-zinc-950 border border-zinc-800 hover:border-blue-500/50 rounded-xl transition-all group"
@@ -1276,11 +1449,19 @@ export const VTTBoard: React.FC<VTTBoardProps> = ({
                 );
               })()}
             </div>
+            <div className="p-3 bg-zinc-950/50 border-t border-zinc-800">
+               <button 
+                onClick={() => setWeaponSelectTokenId(null)}
+                className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold transition-all uppercase tracking-widest"
+               >
+                 Cancelar / Sair
+               </button>
+            </div>
           </div>
         </div>
       )}
 
     </div>
   );
-};
+});
 

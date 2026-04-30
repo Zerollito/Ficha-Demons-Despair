@@ -25,8 +25,8 @@ export const createEmptyCharacter = (): Character => ({
   armaduras: [],
   acessorios: [],
   compartimentos: [
-    { id: crypto.randomUUID(), nome: 'Mochila de Viagem', volumeMax: 30, itens: [] },
-    { id: crypto.randomUUID(), nome: 'Bolsa de Cinto', volumeMax: 3, itens: [] }
+    { id: crypto.randomUUID(), nome: 'Mochila de Viagem', volumeMax: 0, itens: [] },
+    { id: crypto.randomUUID(), nome: 'Bolsa de Cinto', volumeMax: 0, itens: [] }
   ],
   conhecimentos: INITIAL_KNOWLEDGES.map(name => ({ name, nivel: 0, xp: 0, limite: 5 })),
   escalas: [],

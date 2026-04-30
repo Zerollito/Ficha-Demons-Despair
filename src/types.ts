@@ -54,15 +54,28 @@ export interface TableToken {
   name: string;
   x: number;
   y: number;
-  prevX?: number; // Previous snapped X position
-  prevY?: number; // Previous snapped Y position
+  prevX?: number;
+  prevY?: number;
   size: number;
   imageUrl?: string;
   type: 'character' | 'creature';
-  characterId?: string; // ID of the character sheet if type is 'character'
+  characterId?: string;
   hp?: number;
   maxHp?: number;
   color?: string;
+  description?: string;
+  // Stats rápidos para monstros
+  stats?: {
+    ataque: { 
+      corte: number; perfuracao: number; impacto: number; resistencia: number;
+      feitico: number; elemental: number; magiaNegra: number; potencial: number;
+    };
+    defesa: { 
+      corte: number; perfuracao: number; impacto: number;
+      feitico: number; elemental: number; magiaNegra: number;
+    };
+  };
+  acoes?: MonsterAction[];
 }
 
 export interface TableConfig {
@@ -71,6 +84,64 @@ export interface TableConfig {
   showGrid: boolean;
   masterFog: boolean;
   gridColor?: string;
+}
+
+export interface MonsterAction {
+  id: string;
+  name: string;
+  type: 'Major' | 'Minor';
+  categoria: 'Corte' | 'Perfuração' | 'Impacto' | 'Feitiço' | 'Elemental' | 'Magia Negra' | 'Efeito' | 'Outro';
+  acerto: number;
+  dano: string;
+  description: string;
+}
+
+export interface BestiaryMonster {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  maxHp: number;
+  esquiva: number;
+  acuracia: number;
+  deslocamento: string;
+  bonus: string;
+  
+  // Níveis de Ataque
+  ataque: {
+    corte: number;
+    perfuracao: number;
+    impacto: number;
+    resistencia: number;
+    feitico: number;
+    elemental: number;
+    magiaNegra: number;
+    potencial: number;
+  };
+
+  // Níveis de Defesa
+  defesa: {
+    corte: number;
+    perfuracao: number;
+    impacto: number;
+    feitico: number;
+    elemental: number;
+    magiaNegra: number;
+  };
+
+  // Lore / Informações
+  local?: string;
+  personalidade?: string;
+  gostaNaoGosta?: string;
+  partesUteis?: string;
+  informacoes?: string;
+  habitos?: string;
+
+  // Lista de Ações/Ataques
+  acoes: MonsterAction[];
+
+  masterId: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Character {
