@@ -148,7 +148,7 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
   );
 
   return (
-    <div className="flex flex-col h-full space-y-6">
+    <div className="flex flex-col space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
@@ -243,14 +243,14 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
       {/* Edit Modal */}
       <AnimatePresence>
         {editingMonster && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md overflow-hidden">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md">
             <motion.div
               initial={{ scale: 0.95, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="bg-zinc-950 border border-zinc-800 rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+              className="relative bg-zinc-950 border border-zinc-800 rounded-3xl w-full max-w-4xl max-h-[90vh] shadow-2xl flex flex-col overflow-hidden"
             >
-              <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
+              <div className="flex-none p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
                 <h3 className="text-xl font-bold text-amber-500 uppercase tracking-widest flex items-center gap-3">
                   <Skull size={24} /> {isAdding ? "Nova Entidade" : `Ficha de ${editingMonster.name}`}
                 </h3>

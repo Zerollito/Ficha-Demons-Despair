@@ -324,55 +324,7 @@ export default AppWrapper;
 function App() {
   // Efeito para bloquear o pull-to-refresh (recarregamento ao puxar para baixo)
   useEffect(() => {
-    let startY = 0;
-
-    const recordTouchStart = (e: TouchEvent) => {
-      startY = e.touches[0].pageY;
-      (window as any)._lastTouchY = startY;
-    };
-
-    const preventPullToRefresh = (e: TouchEvent) => {
-      const touch = e.touches[0];
-      const currentY = touch.pageY;
-      
-      // If movement is downward
-      if (currentY > startY) {
-        let element = e.target as HTMLElement | null;
-        let canScrollUp = false;
-
-        // Traverse up the DOM tree to see if any scrollable parent is NOT at the top
-        while (element && element !== document.documentElement) {
-          const style = window.getComputedStyle(element);
-          const overflowY = style.overflowY;
-          const isScrollable = overflowY === 'auto' || overflowY === 'scroll' || element.classList.contains('overflow-y-auto');
-          
-          if (isScrollable && element.scrollTop > 0) {
-            canScrollUp = true;
-            break;
-          }
-          element = element.parentElement;
-        }
-
-        // Also check if the window/documentElement can scroll up
-        if (!canScrollUp && (window.scrollY > 0 || document.documentElement.scrollTop > 0)) {
-            canScrollUp = true;
-        }
-
-        // If no container can scroll up, this pull down will trigger browser refresh unless we prevent it
-        if (!canScrollUp) {
-          if (e.cancelable) e.preventDefault();
-        }
-      }
-      startY = currentY;
-    };
-
-    document.addEventListener("touchstart", recordTouchStart, { passive: true });
-    document.addEventListener("touchmove", preventPullToRefresh, { passive: false });
-
-    return () => {
-      document.removeEventListener("touchstart", recordTouchStart);
-      document.removeEventListener("touchmove", preventPullToRefresh);
-    };
+    // Relying on CSS overscroll-behavior instead of JS prevention to avoid breaking scrolling
   }, []);
 
   const [state, setState] = useState<AppState>(() => {
@@ -1309,11 +1261,13 @@ function App() {
 
   return (
     <div className={cn(
-      "min-h-screen w-full bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30 flex flex-col overscroll-none",
-      activePage === "table" ? "h-screen fixed inset-0 overflow-hidden touch-none" : "overflow-x-hidden"
+      "h-screen w-full bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30 flex flex-col overflow-hidden",
     )}>
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
+      <header className={cn(
+        "flex-none bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between z-50",
+        activePage === "table" && "hidden"
+      )}>
         <div className="flex items-center gap-4">
           <div className="flex items-center bg-zinc-950/50 p-1.5 rounded-xl border border-zinc-800">
             <motion.button
@@ -1627,11 +1581,11 @@ function App() {
       </header>
 
       <main key={activeChar.id} className={cn(
-        "flex-1 overflow-y-auto custom-scrollbar overscroll-none min-h-0",
-        activePage === "table" ? "h-full w-full overflow-hidden p-0 bg-black" : "w-full"
+        "flex-1 overflow-y-auto custom-scrollbar overflow-x-hidden",
+        activePage === "table" ? "p-0 bg-black overflow-hidden" : "w-full"
       )}>
         {activePage === "sheet" ? (
-          <div className="max-w-7xl mx-auto p-4 md:p-6 pb-32">
+          <div className="max-w-7xl mx-auto w-full p-4 md:p-6 pb-32">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Left Column: Basic Info & Stats */}
             <div className="lg:col-span-4 space-y-6">
@@ -4327,7 +4281,7 @@ function App() {
           </div>
         </div>
         ) : activePage === "dice" ? (
-          <div className="max-w-4xl mx-auto w-full flex flex-col h-full bg-zinc-950 overflow-hidden shadow-2xl border-x border-zinc-900">
+          <div className="max-w-4xl mx-auto w-full flex flex-col bg-zinc-950 shadow-2xl border-x border-zinc-900">
             {/* Tabs Header */}
             <div className="flex border-b border-zinc-800 bg-zinc-900/50">
               <motion.button
@@ -4368,7 +4322,7 @@ function App() {
               </motion.button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
+            <div className="p-4 sm:p-6 pb-24">
               {diceTab === "mesa" ? (
                 <div className="space-y-8 pb-24">
                   {/* Armas do Personagem */}
@@ -4799,7 +4753,7 @@ function App() {
             {/* Bottom Controls Bar - REMOVED (Moved to top) */}
           </div>
         ) : activePage === "notes" ? (
-          <div className="space-y-6 max-w-4xl mx-auto">
+          <div className="space-y-6 max-w-4xl mx-auto w-full p-4 sm:p-6 pb-32">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-amber-500 flex items-center gap-2">
                 <FileText size={24} /> Anotações
@@ -4912,7 +4866,7 @@ function App() {
             </div>
           </div>
         ) : activePage === "library" ? (
-          <div className="max-w-6xl mx-auto space-y-8 p-4 sm:p-6 pb-32 touch-pan-y">
+          <div className="max-w-6xl mx-auto w-full space-y-8 p-4 sm:p-6 pb-32">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <h2 className="text-3xl font-black text-amber-500 uppercase tracking-tighter">
@@ -4960,7 +4914,6 @@ function App() {
                   <motion.div
                     key={char.id}
                     layoutId={char.id}
-                    style={{ touchAction: 'pan-y' }}
                     className={cn(
                       "group relative bg-zinc-900 border transition-all rounded-3xl overflow-hidden cursor-pointer",
                       state.activeCharacterId === char.id
@@ -5105,7 +5058,7 @@ function App() {
               )}
             </div>
         ) : activePage === "gallery" ? (
-          <div className="max-w-4xl mx-auto space-y-6 p-4 sm:p-6 pb-24">
+          <div className="max-w-4xl mx-auto w-full space-y-6 p-4 sm:p-6 pb-24">
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-black text-amber-500 uppercase tracking-tighter">
                   Galeria de Imagens
@@ -5194,7 +5147,7 @@ function App() {
               )}
             </div>
         ) : activePage === "master" ? (
-          <div className="max-w-6xl mx-auto space-y-8 p-4 sm:p-6 pb-32">
+          <div className="max-w-6xl mx-auto w-full space-y-8 p-4 sm:p-6 pb-32">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div>
                   <h2 className="text-3xl font-black text-purple-500 uppercase tracking-tighter">Painel do Mestre</h2>
@@ -5397,7 +5350,7 @@ function App() {
               )}
             </div>
         ) : activePage === "bestiary" ? (
-          <div className="max-w-6xl mx-auto p-4 sm:p-6 pb-32">
+          <div className="max-w-6xl mx-auto w-full p-4 sm:p-6 pb-32">
             <div className="mb-8">
               <h1 className="text-3xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
                 <Skull size={32} className="text-red-500" /> Bestiário de Demônios
@@ -5939,11 +5892,11 @@ const WeaponProperties = React.memo(({
         />
       </div>
 
-      <div className="bg-zinc-950/30 p-2 rounded-lg border border-zinc-800/50 space-y-2">
+      <div className="bg-zinc-950/30 p-2 rounded-lg border border-zinc-800/50 space-y-2 touch-pan-y">
         <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
           Escala
         </span>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 touch-pan-y">
           <div className="flex flex-col gap-1">
             <span className="text-[9px] text-zinc-600 font-bold uppercase">
               Nível
@@ -5978,7 +5931,7 @@ const WeaponProperties = React.memo(({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-2 touch-pan-y">
         <MiniInput
           label="Corte"
           value={item.corte || 0}
@@ -5998,7 +5951,7 @@ const WeaponProperties = React.memo(({
           onChange={(v) => onChange({ perfuracao: parseInt(v) || 0 })}
         />
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2 touch-pan-y">
         <MiniInput
           label="Resist."
           value={item.resistencia || 0}
@@ -6012,7 +5965,7 @@ const WeaponProperties = React.memo(({
           onChange={(v) => onChange({ durabilidade: parseInt(v) || 0 })}
         />
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2 touch-pan-y">
         <MiniInput
           label="Peso"
           value={item.peso || 0}
@@ -6048,7 +6001,7 @@ const CatalystProperties = React.memo(({
         <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
           Escala
         </span>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 touch-pan-y">
           <div className="flex flex-col gap-1">
             <span className="text-[9px] text-zinc-600 font-bold uppercase">
               Nível
@@ -6076,7 +6029,7 @@ const CatalystProperties = React.memo(({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2 touch-pan-y">
         <MiniInput
           label="Feitiço"
           value={item.feitico || 0}
@@ -6090,7 +6043,7 @@ const CatalystProperties = React.memo(({
           onChange={(v) => onChange({ elemental: parseInt(v) || 0 })}
         />
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2 touch-pan-y">
         <MiniInput
           label="Magia Negra"
           value={item.magiaNegra || 0}
@@ -6104,7 +6057,7 @@ const CatalystProperties = React.memo(({
           onChange={(v) => onChange({ potencial: parseInt(v) || 0 })}
         />
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-2 touch-pan-y">
         <MiniInput
           label="Durab."
           value={item.durabilidade || 0}
@@ -6351,6 +6304,7 @@ const MiniInput = React.memo(({
 
   return (
     <div
+      style={{ touchAction: 'pan-y' }}
       className={cn(
         "flex flex-col min-w-0 transition-opacity",
         disabled && "opacity-40 grayscale pointer-events-none",
