@@ -1,0 +1,23 @@
+{
+  "name": "Ficha RPG Demons Despair",
+  "short_name": "Demons Despair",
+  "description": "Ficha automatizada para jogar o RPG Demons Despair.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#f59e0b",
+  "icons": [
+    {
+      "src": "/d20.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/d20.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
