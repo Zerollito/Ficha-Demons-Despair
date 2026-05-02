@@ -53,19 +53,6 @@ button, a, select, input {
     height: 100%;
     margin: 0;
     padding: 0;
-    overscroll-behavior-y: auto;
-    position: relative;
-    overflow-x: hidden;
-  }
-
-  /* Impedir pull-to-refresh de forma mais agressiva */
-  * {
-    overscroll-behavior-y: inherit;
-  }
-
-  .custom-scrollbar {
-    overscroll-behavior-y: contain;
-    -webkit-overflow-scrolling: touch;
   }
 
   /* Quando o VTT está ativo, travamos o scroll do body apenas */

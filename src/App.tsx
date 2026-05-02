@@ -73,7 +73,7 @@ import {
 import { onAuthStateChanged, User } from "firebase/auth";
 
 import { Character, AppState, ArmorPiece, Campaign, TableToken, TableConfig, BestiaryMonster } from "./types";
-import { VTTBoard } from "./VTTBoard";
+import { VTTBoard } from "./components/VTTBoard";
 import { Bestiary } from "./components/Bestiary";
 import {
   Stats,
@@ -322,11 +322,6 @@ function AppWrapper() {
 export default AppWrapper;
 
 function App() {
-  // Efeito para bloquear o pull-to-refresh (recarregamento ao puxar para baixo)
-  useEffect(() => {
-    // Relying on CSS overscroll-behavior instead of JS prevention to avoid breaking scrolling
-  }, []);
-
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
@@ -429,25 +424,37 @@ function App() {
   useEffect(() => {
     console.log("Iniciando listener de autenticação...");
     
+    let isSubscribed = true;
+
     // Verificar se voltamos de um redirect de login
-    handleRedirectResult().then(user => {
-      if (user) {
-        console.log("Processado login via redirect para:", user.email);
-        setUser(user);
+    const checkRedirect = async () => {
+      const redirectedUser = await handleRedirectResult();
+      if (redirectedUser && isSubscribed) {
+        console.log("Usuário recuperado do redirect:", redirectedUser.email);
+        setUser(redirectedUser);
         setAuthLoading(false);
       }
-    });
+    };
+    
+    checkRedirect();
 
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      if (!isSubscribed) return;
+      
       console.log("Estado de autenticação alterado:", currentUser ? `Usuário: ${currentUser.email}` : "Nenhum usuário");
       setUser(currentUser);
       setAuthLoading(false);
     }, (error) => {
+      if (!isSubscribed) return;
       console.error("Erro no listener de autenticação:", error);
       setAuthError(error.message);
       setAuthLoading(false);
     });
-    return () => unsubscribe();
+
+    return () => {
+      isSubscribed = false;
+      unsubscribe();
+    };
   }, []);
 
   // Firebase Sync Effect
@@ -1261,13 +1268,11 @@ function App() {
 
   return (
     <div className={cn(
-      "h-screen w-full bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30 flex flex-col overflow-hidden",
+      "min-h-screen w-full bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30 flex flex-col",
+      activePage === "table" ? "h-screen fixed inset-0 overflow-hidden touch-none" : "overflow-x-hidden"
     )}>
       {/* Header */}
-      <header className={cn(
-        "flex-none bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between z-50",
-        activePage === "table" && "hidden"
-      )}>
+      <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="flex items-center bg-zinc-950/50 p-1.5 rounded-xl border border-zinc-800">
             <motion.button
@@ -1581,12 +1586,11 @@ function App() {
       </header>
 
       <main key={activeChar.id} className={cn(
-        "flex-1 overflow-y-auto custom-scrollbar overflow-x-hidden",
-        activePage === "table" ? "p-0 bg-black overflow-hidden" : "w-full"
+        "flex-1 overflow-y-auto custom-scrollbar overscroll-none flex flex-col",
+        activePage === "table" || activePage === "dice" || activePage === "master" ? "h-full w-full overflow-hidden p-0" : "max-w-7xl mx-auto w-full p-4 md:p-6 pb-20"
       )}>
         {activePage === "sheet" ? (
-          <div className="max-w-7xl mx-auto w-full p-4 md:p-6 pb-32">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Left Column: Basic Info & Stats */}
             <div className="lg:col-span-4 space-y-6">
               <Section title="Personagem" icon={<UserIcon size={18} />} collapsible>
@@ -4277,13 +4281,14 @@ function App() {
                   </div>
                 </div>
               </Section>
+
+
             </div>
           </div>
-        </div>
         ) : activePage === "dice" ? (
-          <div className="max-w-4xl mx-auto w-full flex flex-col bg-zinc-950 shadow-2xl border-x border-zinc-900">
+          <div className="flex flex-col h-full w-full max-w-5xl mx-auto bg-zinc-950">
             {/* Tabs Header */}
-            <div className="flex border-b border-zinc-800 bg-zinc-900/50">
+            <div className="flex border-b border-zinc-800 bg-zinc-900/10">
               <motion.button
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setDiceTab("mesa")}
@@ -4322,7 +4327,7 @@ function App() {
               </motion.button>
             </div>
 
-            <div className="p-4 sm:p-6 pb-24">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
               {diceTab === "mesa" ? (
                 <div className="space-y-8 pb-24">
                   {/* Armas do Personagem */}
@@ -4426,7 +4431,7 @@ function App() {
                   </SubSection>
 
                   {/* Dice Grid */}
-                  <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4 sm:gap-6">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
                     {[
                       { sides: 4, img: "d4.png" },
                       { sides: 6, img: "d6.png" },
@@ -4753,7 +4758,7 @@ function App() {
             {/* Bottom Controls Bar - REMOVED (Moved to top) */}
           </div>
         ) : activePage === "notes" ? (
-          <div className="space-y-6 max-w-4xl mx-auto w-full p-4 sm:p-6 pb-32">
+          <div className="space-y-6 max-w-4xl mx-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-amber-500 flex items-center gap-2">
                 <FileText size={24} /> Anotações
@@ -4866,7 +4871,8 @@ function App() {
             </div>
           </div>
         ) : activePage === "library" ? (
-          <div className="max-w-6xl mx-auto w-full space-y-8 p-4 sm:p-6 pb-32">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
+            <div className="max-w-6xl mx-auto space-y-8">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <h2 className="text-3xl font-black text-amber-500 uppercase tracking-tighter">
@@ -4937,8 +4943,8 @@ function App() {
                           <UserIcon size={64} className="text-zinc-500" />
                         </div>
                       )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/40 to-transparent pointer-events-none" />
-                      <div className="absolute bottom-4 left-4 right-4 pointer-events-none">
+                      <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/40 to-transparent" />
+                      <div className="absolute bottom-4 left-4 right-4">
                         <h3 className="text-xl font-black text-white uppercase tracking-tighter truncate font-mono">
                           {char.nome || "Sem Nome"}
                         </h3>
@@ -4974,7 +4980,7 @@ function App() {
                             setActivePage("sheet");
                           }}
                           className={cn(
-                            "flex-1 py-1 px-4 rounded-xl font-bold text-[10px] uppercase transition-all",
+                            "flex-1 py-2 px-4 rounded-xl font-bold text-xs uppercase transition-all",
                             state.activeCharacterId === char.id
                               ? "bg-amber-500 text-zinc-950"
                               : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
@@ -5057,8 +5063,10 @@ function App() {
                 </div>
               )}
             </div>
+          </div>
         ) : activePage === "gallery" ? (
-          <div className="max-w-4xl mx-auto w-full space-y-6 p-4 sm:p-6 pb-24">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
+            <div className="max-w-4xl mx-auto space-y-6">
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-black text-amber-500 uppercase tracking-tighter">
                   Galeria de Imagens
@@ -5146,8 +5154,10 @@ function App() {
                 </div>
               )}
             </div>
+          </div>
         ) : activePage === "master" ? (
-          <div className="max-w-6xl mx-auto w-full space-y-8 p-4 sm:p-6 pb-32">
+          <div className="w-full flex-1 overflow-y-auto custom-scrollbar overflow-x-hidden">
+            <div className="w-full max-w-6xl mx-auto p-4 md:p-8 space-y-8 pb-32">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div>
                   <h2 className="text-3xl font-black text-purple-500 uppercase tracking-tighter">Painel do Mestre</h2>
@@ -5155,7 +5165,7 @@ function App() {
                 </div>
                 
                 {!user ? (
-                  <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl text-center">
+                  <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl text-center w-full md:w-auto">
                     <Shield size={32} className="mx-auto text-zinc-700 mb-4" />
                     <p className="text-zinc-400 mb-4">Você precisa estar logado para usar o Modo Mestre.</p>
                     <button 
@@ -5166,14 +5176,14 @@ function App() {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex flex-wrap gap-3">
-                    <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full md:w-auto">
+                    <div className="flex gap-2 flex-1 sm:flex-none">
                        <input 
                          type="text" 
                          placeholder="Cód. Convite"
                          value={inviteCodeInput}
                          onChange={(e) => setInviteCodeInput(e.target.value)}
-                         className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                         className="flex-1 sm:w-32 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
                        />
                        <button 
                          onClick={async () => {
@@ -5189,19 +5199,19 @@ function App() {
                              showToast(err.message, "error");
                            }
                          }}
-                         className="px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors text-xs uppercase"
+                         className="whitespace-nowrap px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors text-xs uppercase"
                        >
-                         Vincular Ficha
+                         Vincular
                        </button>
                     </div>
                     
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-1 sm:flex-none">
                        <input 
                          type="text" 
                          placeholder="Nome da Nova Campanha"
                          value={newCampaignName}
                          onChange={(e) => setNewCampaignName(e.target.value)}
-                         className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                         className="flex-1 sm:w-48 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
                        />
                        <button 
                          onClick={async () => {
@@ -5212,9 +5222,9 @@ function App() {
                              setNewCampaignName("");
                            }
                          }}
-                         className="px-4 py-2 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-500 transition-colors text-xs uppercase"
+                         className="whitespace-nowrap px-4 py-2 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-500 transition-colors text-xs uppercase"
                        >
-                         Criar Campanha
+                         Criar
                        </button>
                     </div>
                   </div>
@@ -5238,7 +5248,7 @@ function App() {
                           )}
                           onClick={() => setActiveCampaignId(camp.id)}
                         >
-                          <span className="font-bold">{camp.name}</span>
+                          <span className="font-bold truncate pr-8">{camp.name}</span>
                           <span className="text-[10px] font-mono opacity-60">Cód: {camp.inviteCode}</span>
                           
                           <button
@@ -5260,7 +5270,7 @@ function App() {
                               }
                             }}
                             className={cn(
-                              "absolute top-4 right-4 p-2 rounded-lg transition-all z-10 flex items-center gap-2",
+                              "absolute top-1/2 -translate-y-1/2 right-2 p-2 rounded-lg transition-all z-10 flex items-center gap-2",
                               campaignToDelete === camp.id 
                                 ? "bg-red-600 text-white" 
                                 : "bg-zinc-950 text-zinc-600 hover:text-red-500 hover:bg-zinc-800"
@@ -5270,10 +5280,10 @@ function App() {
                             {campaignToDelete === camp.id ? (
                               <>
                                 <span className="text-[10px] font-bold uppercase">Confirmar?</span>
-                                <Trash2 size={16} />
+                                <Trash2 size={14} />
                               </>
                             ) : (
-                              <Trash2 size={16} />
+                              <Trash2 size={14} />
                             )}
                           </button>
                         </div>
@@ -5292,18 +5302,18 @@ function App() {
                         {campaignCharacters.map(char => (
                           <div 
                             key={char.id}
-                            className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex items-center justify-between group hover:border-purple-500/50 transition-all"
+                            className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex items-center justify-between group hover:border-purple-500/50 transition-all overflow-hidden"
                           >
-                            <div className="flex items-center gap-4">
-                              <div className="w-12 h-12 bg-zinc-800 rounded-lg overflow-hidden flex items-center justify-center">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="shrink-0 w-12 h-12 bg-zinc-800 rounded-lg overflow-hidden flex items-center justify-center">
                                 {char.imagem ? (
                                   <img src={char.imagem} className="w-full h-full object-cover" />
                                 ) : (
                                   <UserIcon size={24} className="text-zinc-600" />
                                 )}
                               </div>
-                              <div>
-                                <h4 className="font-bold text-white leading-none mb-1">{char.nome}</h4>
+                              <div className="min-w-0">
+                                <h4 className="font-bold text-white leading-none mb-1 truncate">{char.nome}</h4>
                                 <div className="flex gap-2">
                                   <span className="text-[10px] bg-red-500/10 text-red-400 px-1.5 rounded font-bold">PV: {char.vidaAtual}</span>
                                   <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 rounded font-bold">PM: {char.manaAtual}</span>
@@ -5327,7 +5337,7 @@ function App() {
                                 });
                                 setActivePage("sheet");
                               }}
-                              className="opacity-0 group-hover:opacity-100 p-2 bg-purple-600 text-white rounded-lg transition-all text-[10px] font-bold uppercase"
+                              className="shrink-0 opacity-0 group-hover:opacity-100 p-2 bg-purple-600 text-white rounded-lg transition-all text-[10px] font-bold uppercase whitespace-nowrap"
                             >
                               Ver/Editar
                             </button>
@@ -5349,8 +5359,9 @@ function App() {
                 </div>
               )}
             </div>
+          </div>
         ) : activePage === "bestiary" ? (
-          <div className="max-w-6xl mx-auto w-full p-4 sm:p-6 pb-32">
+          <div className="max-w-6xl mx-auto">
             <div className="mb-8">
               <h1 className="text-3xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
                 <Skull size={32} className="text-red-500" /> Bestiário de Demônios
@@ -5892,11 +5903,11 @@ const WeaponProperties = React.memo(({
         />
       </div>
 
-      <div className="bg-zinc-950/30 p-2 rounded-lg border border-zinc-800/50 space-y-2 touch-pan-y">
+      <div className="bg-zinc-950/30 p-2 rounded-lg border border-zinc-800/50 space-y-2">
         <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
           Escala
         </span>
-        <div className="grid grid-cols-2 gap-2 touch-pan-y">
+        <div className="grid grid-cols-2 gap-2">
           <div className="flex flex-col gap-1">
             <span className="text-[9px] text-zinc-600 font-bold uppercase">
               Nível
@@ -5931,7 +5942,7 @@ const WeaponProperties = React.memo(({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 touch-pan-y">
+      <div className="grid grid-cols-3 gap-2">
         <MiniInput
           label="Corte"
           value={item.corte || 0}
@@ -5951,7 +5962,7 @@ const WeaponProperties = React.memo(({
           onChange={(v) => onChange({ perfuracao: parseInt(v) || 0 })}
         />
       </div>
-      <div className="grid grid-cols-2 gap-2 touch-pan-y">
+      <div className="grid grid-cols-2 gap-2">
         <MiniInput
           label="Resist."
           value={item.resistencia || 0}
@@ -5965,7 +5976,7 @@ const WeaponProperties = React.memo(({
           onChange={(v) => onChange({ durabilidade: parseInt(v) || 0 })}
         />
       </div>
-      <div className="grid grid-cols-2 gap-2 touch-pan-y">
+      <div className="grid grid-cols-2 gap-2">
         <MiniInput
           label="Peso"
           value={item.peso || 0}
@@ -6001,7 +6012,7 @@ const CatalystProperties = React.memo(({
         <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
           Escala
         </span>
-        <div className="grid grid-cols-2 gap-2 touch-pan-y">
+        <div className="grid grid-cols-2 gap-2">
           <div className="flex flex-col gap-1">
             <span className="text-[9px] text-zinc-600 font-bold uppercase">
               Nível
@@ -6029,7 +6040,7 @@ const CatalystProperties = React.memo(({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 touch-pan-y">
+      <div className="grid grid-cols-2 gap-2">
         <MiniInput
           label="Feitiço"
           value={item.feitico || 0}
@@ -6043,7 +6054,7 @@ const CatalystProperties = React.memo(({
           onChange={(v) => onChange({ elemental: parseInt(v) || 0 })}
         />
       </div>
-      <div className="grid grid-cols-2 gap-2 touch-pan-y">
+      <div className="grid grid-cols-2 gap-2">
         <MiniInput
           label="Magia Negra"
           value={item.magiaNegra || 0}
@@ -6057,7 +6068,7 @@ const CatalystProperties = React.memo(({
           onChange={(v) => onChange({ potencial: parseInt(v) || 0 })}
         />
       </div>
-      <div className="grid grid-cols-3 gap-2 touch-pan-y">
+      <div className="grid grid-cols-3 gap-2">
         <MiniInput
           label="Durab."
           value={item.durabilidade || 0}
@@ -6215,22 +6226,18 @@ const NumericInput = React.memo(({
   max?: number;
   size?: "sm" | "md" | "lg";
 }) => {
-  const [innerValue, setInnerValue] = useState<string>(value?.toString() ?? "");
+  const [innerValue, setInnerValue] = useState(value?.toString() ?? "");
 
   useEffect(() => {
-    const valStr = value?.toString() ?? '0';
-    if (valStr !== innerValue) {
+    if (
+      value !== undefined &&
+      value !== null &&
+      value.toString() !== innerValue
+    ) {
       if (value === 0 && innerValue === "") return;
-      setInnerValue(valStr);
+      setInnerValue(value.toString());
     }
   }, [value]);
-
-  const handleBlur = () => {
-    if (innerValue === '' || innerValue === '-') {
-      setInnerValue('0');
-      onChange(0);
-    }
-  };
 
   return (
     <div className={cn("flex flex-col min-w-0", className)}>
@@ -6243,23 +6250,12 @@ const NumericInput = React.memo(({
         type="text"
         inputMode="numeric"
         value={innerValue}
-        onBlur={handleBlur}
-        onFocus={(e) => e.target.select()}
         onChange={(e) => {
           const val = e.target.value
             .replace(/[^0-9.,-]/g, "")
             .replace(",", ".");
-          
-          if ((val.match(/\./g) || []).length > 1) return;
-          if (val.lastIndexOf('-') > 0) return;
-
           setInnerValue(val);
-          const parsed = parseFloat(val);
-          if (!isNaN(parsed)) {
-            onChange(parsed);
-          } else if (val === '' || val === '-') {
-            onChange(0);
-          }
+          onChange(parseFloat(val) || 0);
         }}
         className={cn(
           "bg-black/40 border border-zinc-700/50 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-400 font-bold text-center w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none shadow-inner",
@@ -6285,26 +6281,21 @@ const MiniInput = React.memo(({
   onChange: (v: string) => void;
   disabled?: boolean;
 }) => {
-  const [innerValue, setInnerValue] = useState<string>(value?.toString() ?? "");
+  const [innerValue, setInnerValue] = useState(value?.toString() ?? "");
 
   useEffect(() => {
-    const valStr = value?.toString() ?? (type === "number" ? "0" : "");
-    if (valStr !== innerValue) {
-      if (type === "number" && value === 0 && innerValue === "") return;
-      setInnerValue(valStr);
+    if (
+      value !== undefined &&
+      value !== null &&
+      value.toString() !== innerValue
+    ) {
+      if (value === 0 && innerValue === "") return;
+      setInnerValue(value.toString());
     }
-  }, [value, type]);
-
-  const handleBlur = () => {
-    if (type === "number" && (innerValue === '' || innerValue === '-')) {
-      setInnerValue('0');
-      onChange('0');
-    }
-  };
+  }, [value]);
 
   return (
     <div
-      style={{ touchAction: 'pan-y' }}
       className={cn(
         "flex flex-col min-w-0 transition-opacity",
         disabled && "opacity-40 grayscale pointer-events-none",
@@ -6335,23 +6326,12 @@ const MiniInput = React.memo(({
           inputMode="numeric"
           value={innerValue}
           disabled={disabled}
-          onBlur={handleBlur}
-          onFocus={(e) => e.target.select()}
           onChange={(e) => {
             const val = e.target.value
               .replace(/[^0-9.,-]/g, "")
               .replace(",", ".");
-            
-            if ((val.match(/\./g) || []).length > 1) return;
-            if (val.lastIndexOf('-') > 0) return;
-
             setInnerValue(val);
-            const parsed = parseFloat(val);
-            if (!isNaN(parsed)) {
-              onChange(val);
-            } else if (val === '' || val === '-') {
-              onChange('0');
-            }
+            onChange(val);
           }}
           className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />

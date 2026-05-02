@@ -29,7 +29,6 @@ import {
 } from "../services/bestiaryService";
 import { compressImageDataUrl } from "../lib/imageUtils";
 import { cn } from "../lib/utils";
-import { NumericInput } from "./ui/NumericInput";
 
 interface BestiaryProps {
   onMonsterSelect?: (monster: BestiaryMonster) => void;
@@ -148,7 +147,7 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
   );
 
   return (
-    <div className="flex flex-col space-y-6">
+    <div className="flex flex-col h-full space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
@@ -243,14 +242,14 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
       {/* Edit Modal */}
       <AnimatePresence>
         {editingMonster && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md overflow-hidden">
             <motion.div
               initial={{ scale: 0.95, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="relative bg-zinc-950 border border-zinc-800 rounded-3xl w-full max-w-4xl max-h-[90vh] shadow-2xl flex flex-col overflow-hidden"
+              className="bg-zinc-950 border border-zinc-800 rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
             >
-              <div className="flex-none p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
+              <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
                 <h3 className="text-xl font-bold text-amber-500 uppercase tracking-widest flex items-center gap-3">
                   <Skull size={24} /> {isAdding ? "Nova Entidade" : `Ficha de ${editingMonster.name}`}
                 </h3>
@@ -292,10 +291,14 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
                         />
                     </div>
                     <div>
-                        <NumericInput 
-                            label="Vida (HP)"
+                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-2 mb-1 block flex items-center gap-1">
+                            <Heart size={10} /> Vida (HP)
+                        </label>
+                        <input 
+                            type="number" 
+                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none"
                             value={editingMonster.maxHp}
-                            onChange={(v) => setEditingMonster({ ...editingMonster, maxHp: v })}
+                            onChange={(e) => setEditingMonster({ ...editingMonster, maxHp: parseInt(e.target.value) || 0 })}
                         />
                     </div>
                     <div>
@@ -310,17 +313,25 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
                         />
                     </div>
                     <div>
-                        <NumericInput 
-                            label="Esquiva"
+                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-2 mb-1 block flex items-center gap-1">
+                            <Shield size={10} /> Esquiva
+                        </label>
+                        <input 
+                            type="number" 
+                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none"
                             value={editingMonster.esquiva}
-                            onChange={(v) => setEditingMonster({ ...editingMonster, esquiva: v })}
+                            onChange={(e) => setEditingMonster({ ...editingMonster, esquiva: parseInt(e.target.value) || 0 })}
                         />
                     </div>
                     <div>
-                        <NumericInput 
-                            label="Acurácia"
+                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-2 mb-1 block flex items-center gap-1">
+                            <Target size={10} /> Acurácia
+                        </label>
+                        <input 
+                            type="number" 
+                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none"
                             value={editingMonster.acuracia}
-                            onChange={(v) => setEditingMonster({ ...editingMonster, acuracia: v })}
+                            onChange={(e) => setEditingMonster({ ...editingMonster, acuracia: parseInt(e.target.value) || 0 })}
                         />
                     </div>
                   </div>
@@ -347,89 +358,41 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
                                 <tr>
                                     <td className="p-3 font-bold border-r border-zinc-800">Corte</td>
                                     <td className="p-1 border-r border-zinc-800">
-                                        <div className="flex justify-center">
-                                            <NumericInput 
-                                                value={editingMonster.ataque.corte} 
-                                                onChange={(v) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, corte: v}})} 
-                                                size="sm" 
-                                            />
-                                        </div>
+                                        <input type="number" value={editingMonster.ataque.corte} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, corte: parseInt(e.target.value) || 0}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
                                     </td>
                                     <td className="p-3 font-bold border-r border-zinc-800">Feitiço</td>
                                     <td className="p-1">
-                                        <div className="flex justify-center">
-                                            <NumericInput 
-                                                value={editingMonster.ataque.feitico} 
-                                                onChange={(v) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, feitico: v}})} 
-                                                size="sm"
-                                            />
-                                        </div>
+                                        <input type="number" value={editingMonster.ataque.feitico} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, feitico: parseInt(e.target.value) || 0}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
                                     </td>
                                 </tr>
                                 <tr>
                                     <td className="p-3 font-bold border-r border-zinc-800">Perfuração</td>
                                     <td className="p-1 border-r border-zinc-800">
-                                        <div className="flex justify-center">
-                                            <NumericInput 
-                                                value={editingMonster.ataque.perfuracao} 
-                                                onChange={(v) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, perfuracao: v}})} 
-                                                size="sm"
-                                            />
-                                        </div>
+                                        <input type="number" value={editingMonster.ataque.perfuracao} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, perfuracao: parseInt(e.target.value) || 0}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
                                     </td>
                                     <td className="p-3 font-bold border-r border-zinc-800">Elemental</td>
                                     <td className="p-1">
-                                        <div className="flex justify-center">
-                                            <NumericInput 
-                                                value={editingMonster.ataque.elemental} 
-                                                onChange={(v) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, elemental: v}})} 
-                                                size="sm"
-                                            />
-                                        </div>
+                                        <input type="number" value={editingMonster.ataque.elemental} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, elemental: parseInt(e.target.value) || 0}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
                                     </td>
                                 </tr>
                                 <tr>
                                     <td className="p-3 font-bold border-r border-zinc-800">Impacto</td>
                                     <td className="p-1 border-r border-zinc-800">
-                                        <div className="flex justify-center">
-                                            <NumericInput 
-                                                value={editingMonster.ataque.impacto} 
-                                                onChange={(v) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, impacto: v}})} 
-                                                size="sm"
-                                            />
-                                        </div>
+                                        <input type="number" value={editingMonster.ataque.impacto} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, impacto: parseInt(e.target.value) || 0}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
                                     </td>
                                     <td className="p-3 font-bold border-r border-zinc-800">Magia Negra</td>
                                     <td className="p-1">
-                                        <div className="flex justify-center">
-                                            <NumericInput 
-                                                value={editingMonster.ataque.magiaNegra} 
-                                                onChange={(v) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, magiaNegra: v}})} 
-                                                size="sm"
-                                            />
-                                        </div>
+                                        <input type="number" value={editingMonster.ataque.magiaNegra} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, magiaNegra: parseInt(e.target.value) || 0}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
                                     </td>
                                 </tr>
                                 <tr className="bg-amber-500/5">
                                     <td className="p-3 font-black text-amber-500 border-r border-zinc-800">Resistência</td>
                                     <td className="p-1 border-r border-zinc-800">
-                                        <div className="flex justify-center">
-                                            <NumericInput 
-                                                value={editingMonster.ataque.resistencia} 
-                                                onChange={(v) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, resistencia: v}})} 
-                                                size="sm"
-                                            />
-                                        </div>
+                                        <input type="number" value={editingMonster.ataque.resistencia} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, resistencia: parseInt(e.target.value) || 0}})} className="w-full bg-transparent p-2 text-center font-bold text-amber-500 focus:outline-none" />
                                     </td>
                                     <td className="p-3 font-black text-amber-500 border-r border-zinc-800">Potencial</td>
                                     <td className="p-1">
-                                        <div className="flex justify-center">
-                                            <NumericInput 
-                                                value={editingMonster.ataque.potencial} 
-                                                onChange={(v) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, potencial: v}})} 
-                                                size="sm"
-                                            />
-                                        </div>
+                                        <input type="number" value={editingMonster.ataque.potencial} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, potencial: parseInt(e.target.value) || 0}})} className="w-full bg-transparent p-2 text-center font-bold text-amber-500 focus:outline-none" />
                                     </td>
                                 </tr>
                             </tbody>
@@ -456,67 +419,31 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
                                 <tr>
                                     <td className="p-3 font-bold border-r border-zinc-800">Corte</td>
                                     <td className="p-1 border-r border-zinc-800">
-                                        <div className="flex justify-center">
-                                            <NumericInput 
-                                                value={editingMonster.defesa.corte} 
-                                                onChange={(v) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, corte: v}})} 
-                                                size="sm"
-                                            />
-                                        </div>
+                                        <input type="number" value={editingMonster.defesa.corte} onChange={(e) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, corte: parseInt(e.target.value) || 0}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
                                     </td>
                                     <td className="p-3 font-bold border-r border-zinc-800">Feitiço</td>
                                     <td className="p-1">
-                                        <div className="flex justify-center">
-                                            <NumericInput 
-                                                value={editingMonster.defesa.feitico} 
-                                                onChange={(v) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, feitico: v}})} 
-                                                size="sm"
-                                            />
-                                        </div>
+                                        <input type="number" value={editingMonster.defesa.feitico} onChange={(e) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, feitico: parseInt(e.target.value) || 0}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
                                     </td>
                                 </tr>
                                 <tr>
                                     <td className="p-3 font-bold border-r border-zinc-800">Perfuração</td>
                                     <td className="p-1 border-r border-zinc-800">
-                                        <div className="flex justify-center">
-                                            <NumericInput 
-                                                value={editingMonster.defesa.perfuracao} 
-                                                onChange={(v) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, perfuracao: v}})} 
-                                                size="sm"
-                                            />
-                                        </div>
+                                        <input type="number" value={editingMonster.defesa.perfuracao} onChange={(e) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, perfuracao: parseInt(e.target.value) || 0}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
                                     </td>
                                     <td className="p-3 font-bold border-r border-zinc-800">Elemental</td>
                                     <td className="p-1">
-                                        <div className="flex justify-center">
-                                            <NumericInput 
-                                                value={editingMonster.defesa.elemental} 
-                                                onChange={(v) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, elemental: v}})} 
-                                                size="sm"
-                                            />
-                                        </div>
+                                        <input type="number" value={editingMonster.defesa.elemental} onChange={(e) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, elemental: parseInt(e.target.value) || 0}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
                                     </td>
                                 </tr>
                                 <tr>
                                     <td className="p-3 font-bold border-r border-zinc-800">Impacto</td>
                                     <td className="p-1 border-r border-zinc-800">
-                                        <div className="flex justify-center">
-                                            <NumericInput 
-                                                value={editingMonster.defesa.impacto} 
-                                                onChange={(v) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, impacto: v}})} 
-                                                size="sm"
-                                            />
-                                        </div>
+                                        <input type="number" value={editingMonster.defesa.impacto} onChange={(e) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, impacto: parseInt(e.target.value) || 0}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
                                     </td>
                                     <td className="p-3 font-bold border-r border-zinc-800">Magia Negra</td>
                                     <td className="p-1">
-                                        <div className="flex justify-center">
-                                            <NumericInput 
-                                                value={editingMonster.defesa.magiaNegra} 
-                                                onChange={(v) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, magiaNegra: v}})} 
-                                                size="sm"
-                                            />
-                                        </div>
+                                        <input type="number" value={editingMonster.defesa.magiaNegra} onChange={(e) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, magiaNegra: parseInt(e.target.value) || 0}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
                                     </td>
                                 </tr>
                             </tbody>
@@ -643,11 +570,12 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
                                         />
                                     </div>
                                     <div className="w-20">
-                                        <NumericInput 
-                                            label="Acerto"
+                                        <label className="text-[9px] font-black text-zinc-600 uppercase mb-1 block">Acerto</label>
+                                        <input 
+                                            type="number"
                                             value={acao.acerto}
-                                            onChange={(v) => updateAction(acao.id, { acerto: v })}
-                                            size="sm"
+                                            onChange={(e) => updateAction(acao.id, { acerto: parseInt(e.target.value) || 0 })}
+                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white"
                                         />
                                     </div>
                                     <div className="w-24">

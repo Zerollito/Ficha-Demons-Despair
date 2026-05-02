@@ -61,7 +61,8 @@ const initAuth = async () => {
         console.error("Erro ao definir persistência:", err);
     }
 };
-initAuth();
+// Garantir que a persistência seja iniciada imediatamente
+const persistencePromise = initAuth();
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ 
@@ -77,10 +78,7 @@ async function testConnection() {
     await getDocFromServer(doc(db, 'test', 'connection'));
     console.log("Firestore connection successful.");
   } catch (error) {
-    console.error("Firestore connection test failed:", error);
-    if (error instanceof Error && (error.message.includes('offline') || error.message.includes('unavailable'))) {
-      console.error("Please check your Firebase configuration or internet connection.");
-    }
+    console.log("Firestore connection test status (standard for new projects):", error);
   }
 }
 testConnection();
@@ -129,54 +127,61 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  // Not throwing to avoid crashing the whole app; relying on logging and UI feedback
 }
 
 // Auth Helpers
 export const handleRedirectResult = async () => {
     try {
+        console.log("Checando resultado do redirect de login... Origin:", window.location.origin);
+        await persistencePromise; // Aguarda a persistência estar definida
         const result = await getRedirectResult(auth);
         if (result) {
-            console.log("Login via redirect detectado e processado.");
+            console.log("Login via redirect detectado e processado com sucesso:", result.user.email);
             return result.user;
         }
-    } catch (error) {
-        console.error("Erro ao processar resultado do redirect:", error);
+        console.log("Nenhum resultado de redirect encontrado.");
+    } catch (error: any) {
+        console.error("Erro ao processar resultado do redirect:", error.code, error.message);
+        if (error.code === 'auth/unauthorized-domain' || error.code === 'auth/unauthorized-client') {
+            console.error("ERRO CRITICAL: Domínio não autorizado no Firebase Console. Adicione", window.location.origin, "aos domínios autorizados.");
+        }
     }
     return null;
 };
 
 export const loginWithGoogle = async () => {
-    // Detecta se é mobile ou webview para preferir redirect se necessário
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    const isIframe = window.top !== window.self;
-    
-    if (isMobile || isIframe) {
-        console.log("Ambiente restrito detectado. Usando Redirect em vez de Popup.");
-        try {
-            await signInWithRedirect(auth, googleProvider);
-            return;
-        } catch (error) {
-            console.error("Erro no Redirect:", error);
-        }
-    }
+    await persistencePromise; // Aguarda a persistência estar definida
 
+    console.log("Tentando login com Google... Origin:", window.location.origin);
+    
+    // Tentamos popup primeiro SEMPRE, mesmo em iframe, pois é mais estável no ambiente de preview
     try {
-        console.log("Iniciando login com popup...");
-        // Tentamos popup primeiro, é a melhor experiência
-        await signInWithPopup(auth, googleProvider);
-        console.log("Login finalizado com sucesso.");
+        console.log("Tentando signInWithPopup...");
+        const result = await signInWithPopup(auth, googleProvider);
+        console.log("Login com Popup bem sucedido:", result.user.email);
+        return result.user;
     } catch (error: any) {
-        console.error("Erro no login:", error);
+        console.warn("Falha no signInWithPopup:", error.code, error.message);
         
-        // Se o erro for de inicialização ou popup bloqueado em mobile, podemos sugerir o redirect
-        if (error.code === 'auth/popup-blocked' || error.message?.includes('missing initial state')) {
-          console.warn("Detectado erro de estado inicial ou popup bloqueado. Tentando Redirect...");
-          try {
-              await signInWithRedirect(auth, googleProvider);
-          } catch (reErr) {
-              console.error("Erro no fallback de redirect:", reErr);
-          }
+        // Se o popup foi bloqueado ou estamos em um ambiente que exige redirect ou erro genérico de janela
+        if (error.code === 'auth/popup-blocked' || 
+            error.code === 'auth/popup-closed-by-user' ||
+            error.code === 'auth/cancelled-popup-request' ||
+            error.code === 'auth/internal-error' ||
+            error.code === 'auth/operation-not-allowed' ||
+            /iPad|iPhone|iPod/.test(navigator.userAgent) || // Safari mobile geralmente bloqueia popups agressivamente
+            window.top !== window.self // Estamos em iframe
+        ) {
+            console.log("Ambiente restrito ou popup bloqueado. Tentando fallback para signInWithRedirect...");
+            try {
+                await signInWithRedirect(auth, googleProvider);
+            } catch (redirError: any) {
+                console.error("Erro fatal no Redirect:", redirError.code, redirError.message);
+                if (redirError.code === 'auth/unauthorized-domain') {
+                    console.error("ERRO: Domínio não autorizado. Verifique as configurações do Firebase.");
+                }
+                throw redirError;
+            }
         } else {
             throw error;
         }
