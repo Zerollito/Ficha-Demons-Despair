@@ -91,7 +91,7 @@ export interface MonsterAction {
   name: string;
   type: 'Major' | 'Minor';
   categoria: 'Corte' | 'Perfuração' | 'Impacto' | 'Feitiço' | 'Elemental' | 'Magia Negra' | 'Efeito' | 'Outro';
-  acerto: number;
+  acerto: number | string;
   dano: string;
   description: string;
 }
@@ -100,32 +100,32 @@ export interface BestiaryMonster {
   id: string;
   name: string;
   imageUrl?: string;
-  maxHp: number;
-  esquiva: number;
-  acuracia: number;
+  maxHp: number | string;
+  esquiva: number | string;
+  acuracia: number | string;
   deslocamento: string;
   bonus: string;
   
   // Níveis de Ataque
   ataque: {
-    corte: number;
-    perfuracao: number;
-    impacto: number;
-    resistencia: number;
-    feitico: number;
-    elemental: number;
-    magiaNegra: number;
-    potencial: number;
+    corte: number | string;
+    perfuracao: number | string;
+    impacto: number | string;
+    resistencia: number | string;
+    feitico: number | string;
+    elemental: number | string;
+    magiaNegra: number | string;
+    potencial: number | string;
   };
 
   // Níveis de Defesa
   defesa: {
-    corte: number;
-    perfuracao: number;
-    impacto: number;
-    feitico: number;
-    elemental: number;
-    magiaNegra: number;
+    corte: number | string;
+    perfuracao: number | string;
+    impacto: number | string;
+    feitico: number | string;
+    elemental: number | string;
+    magiaNegra: number | string;
   };
 
   // Lore / Informações
