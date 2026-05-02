@@ -78,12 +78,12 @@ service cloud.firestore {
 
     match /bestiary/{monsterId} {
       allow read: if isSignedIn();
-      allow create: if isVerified() && isValidId(monsterId) && isValidMonster(incoming());
-      allow update: if isVerified() && 
+      allow create: if isSignedIn() && isValidId(monsterId) && isValidMonster(incoming());
+      allow update: if isSignedIn() && 
                        existing().masterId == request.auth.uid && 
                        isValidMonster(incoming()) &&
                        incoming().masterId == existing().masterId;
-      allow delete: if isVerified() && existing().masterId == request.auth.uid;
+      allow delete: if isSignedIn() && existing().masterId == request.auth.uid;
     }
 
     match /users/{userId} {

@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from "motion/react";
 import { Stage, Layer, Image as KonvaImage, Rect, Circle, Line, Text, Group, RegularPolygon, Shape } from 'react-konva';
 import useImage from 'use-image';
-import { TableToken, TableConfig, Character } from '../types';
+import Konva from 'konva';
+import { TableToken, TableConfig, Character, MonsterAction } from '../types';
 import { updateTokenPosition } from '../services/vttService';
 import { Shield, User, Trash2, Plus, Settings, ZoomIn, ZoomOut, Maximize, Eye, EyeOff, Upload, ChevronLeft, ChevronRight, Skull, Info, Heart, Minus, FileText, Zap } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -10,6 +11,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Bestiary } from './Bestiary';
 import { BestiaryMonster } from '../types';
+import { calculateProficiencyBonus } from '../rules/proficiencyRules';
 
 import { compressImageDataUrl } from '../lib/imageUtils';
 
@@ -22,6 +24,7 @@ interface VTTBoardProps {
   onAddToken?: (token: TableToken) => void;
   onRemoveToken?: (tokenId: string) => void;
   onUpdateConfig?: (config: Partial<TableConfig>) => void;
+  onRollResult?: (res: any) => void;
 }
 
 // Hex constants
@@ -50,6 +53,7 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
   const radius = (token.size * gridSize) / 2;
   const [dragDist, setDragDist] = useState(0);
   const lastPos = useRef({ x: token.x, y: token.y });
+  const isDead = token.hp !== undefined && token.hp <= 0;
 
   return (
     <Group
@@ -97,13 +101,27 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
             image={image}
             width={token.size * gridSize}
             height={token.size * gridSize}
+            filters={isDead ? [Konva.Filters.Grayscale] : []}
+            onBeforeRender={(e) => {
+               if (isDead) e.target.cache();
+            }}
           />
         ) : (
           <Rect
             width={token.size * gridSize}
             height={token.size * gridSize}
-            fill={token.color || (token.type === 'character' ? '#3b82f6' : '#ef4444')}
+            fill={isDead ? '#444' : (token.color || (token.type === 'character' ? '#3b82f6' : '#ef4444'))}
           />
+        )}
+
+        {isDead && (
+          <Group x={0} y={0}>
+             <Rect 
+               width={token.size * gridSize} 
+               height={token.size * gridSize} 
+               fill="rgba(239, 68, 68, 0.2)" 
+             />
+          </Group>
         )}
       </Group>
       
@@ -112,11 +130,26 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
         x={radius}
         y={radius}
         radius={radius}
-        stroke={token.type === 'character' ? '#3b82f6' : '#ef4444'}
+        stroke={isDead ? '#444' : (token.type === 'character' ? '#3b82f6' : '#ef4444')}
         strokeWidth={3}
         shadowBlur={10}
         shadowColor="black"
       />
+
+      {isDead && (
+        <Text
+          text="☠"
+          fontSize={radius * 1.2}
+          fill="#ef4444"
+          align="center"
+          width={token.size * gridSize}
+          x={0}
+          y={radius - radius * 0.6}
+          shadowColor="black"
+          shadowBlur={10}
+          opacity={0.9}
+        />
+      )}
 
       {dragDist > 0 && (
         <Text
@@ -125,12 +158,11 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
           fontStyle="bold"
           fill="#3b82f6"
           align="center"
-          width={token.size * gridSize}
-          x={0}
+          width={120}
+          x={radius - 60}
           y={-60}
           shadowColor="black"
           shadowBlur={4}
-          offsetX={radius}
         />
       )}
 
@@ -140,12 +172,12 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
         fontStyle="bold"
         fill="white"
         align="center"
-        width={token.size * gridSize}
-        x={0}
+        width={120}
+        x={radius - 60}
         y={(token.size * gridSize) + 12}
         shadowColor="black"
         shadowBlur={4}
-        offsetX={radius}
+        wrap="none"
       />
 
       {token.hp !== undefined && token.maxHp !== undefined && (
@@ -176,7 +208,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   availableCharacters,
   onAddToken,
   onRemoveToken,
-  onUpdateConfig
+  onUpdateConfig,
+  onRollResult
 }) => {
   const [mapImage, mapImageStatus] = useImage(config.mapUrl || '', 'anonymous');
   const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 0.7 });
@@ -197,7 +230,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const [inputCreatureName, setInputCreatureName] = useState('');
   const [inputCreatureIcon, setInputCreatureIcon] = useState('');
   const [inputCreatureHP, setInputCreatureHP] = useState('10');
-  const [inputCreatureSize, setInputCreatureSize] = useState('1');
+  const [inputCreatureSize, setInputCreatureSize] = useState(1);
+
+  const TOKEN_SIZES = [
+    { label: 'Pequeno', value: 0.5 },
+    { label: 'Médio', value: 1.0 },
+    { label: 'Grande', value: 2.0 },
+    { label: 'Gigante', value: 4.0 },
+  ];
 
   // Combat and Selection State
   const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null);
@@ -206,6 +246,21 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const [targetId, setTargetId] = useState<string | null>(null);
   const [weaponSelectTokenId, setWeaponSelectTokenId] = useState<string | null>(null);
   const [combatLog, setCombatLog] = useState<{msg: string, type: 'success' | 'error' | 'info'}[]>([]);
+
+  // Helper to map UI names to property keys
+  const getMapKey = (cat: string) => {
+    if (!cat) return 'corte';
+    const c = cat.toLowerCase();
+    
+    if (c.includes('corte')) return 'corte';
+    if (c.includes('perfu') || c.includes('perf')) return 'perfuracao';
+    if (c.includes('imp') || c.includes('impacto')) return 'impacto';
+    if (c.includes('feit') || c.includes('feitiço')) return 'feitico';
+    if (c.includes('elem') || c.includes('elemental')) return 'elemental';
+    if (c.includes('magia') || c.includes('negra')) return 'magiaNegra';
+    
+    return 'corte';
+  };
 
   const lastCenter = useRef<any>(null);
   const lastDist = useRef<number>(0);
@@ -266,20 +321,9 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   }, []); 
 
   const handleDragEnd = (id: string, x: number, y: number) => {
-    const gridSize = config.gridSize || 50;
-    const horizDist = gridSize;
-    const vertDist = gridSize * 0.866;
-
-    const r = Math.round(y / vertDist);
-    const offsetY = (r % 2 === 0) ? 0 : horizDist / 2;
-    const q = Math.round((x - offsetY) / horizDist);
-
-    const snapX = q * horizDist + offsetY;
-    const snapY = r * vertDist;
-
     const token = tokens.find(t => t.id === id);
     if (token) {
-      updateTokenPosition(campaignId, id, { x: snapX, y: snapY, prevX: token.x, prevY: token.y });
+      updateTokenPosition(campaignId, id, { x, y, prevX: token.x, prevY: token.y });
     }
   };
 
@@ -307,75 +351,386 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     setCombatLog([{ msg: "Selecione o alvo do ataque...", type: 'info' }]);
   };
 
-  const resolveCombat = async (weapon: any) => {
-    if (!attackerId || !targetId) return;
-    
-    const attacker = tokens.find(t => t.id === attackerId);
-    const target = tokens.find(t => t.id === targetId);
-    const attackerChar = availableCharacters.find(c => c.id === attacker?.characterId);
-    
-    if (!attacker || !target) return;
+  const resolveCombat = async (actionOrWeapon: any) => {
+    try {
+      if (!attackerId || !targetId) return;
+      
+      const attacker = tokens.find(t => t.id === attackerId);
+      const target = tokens.find(t => t.id === targetId);
+      const attackerChar = availableCharacters.find(c => c.id === attacker?.characterId);
+      
+      if (!attacker || !target) return;
 
-    // Roll d20 for attack
-    const d20 = Math.floor(Math.random() * 20) + 1;
-    const hitBonus = weapon.acerto || 0;
-    const totalHit = d20 + hitBonus;
+    // 1. Identify Attack Type, Level and Resistance/Potential
+    let attackType = 'Corte';
+    let attackLevel = 0;
+    let attackerResonance = 0; // Resistance or Potential
     
-    // Resolve target defense
-    let targetDefense = 10;
+    const isPhysical = (type: string) => ['Corte', 'Perfuração', 'Impacto'].includes(type);
+
+    if (attacker.type === 'creature' && attacker.stats) {
+      // Monster attacking
+      attackType = actionOrWeapon.categoria || 'Corte';
+      const key = getMapKey(attackType);
+      attackLevel = (attacker.stats.ataque as any)[key] || 0;
+      attackerResonance = isPhysical(attackType) 
+        ? (attacker.stats.ataque.resistencia || 0) 
+        : (attacker.stats.ataque.potencial || 0);
+    } else if (attacker.type === 'character' && attackerChar) {
+      // Character attacking
+      if (actionOrWeapon.escola) {
+        // It's a Spell? (from Magias list)
+        attackType = actionOrWeapon.escola;
+        const firstCatalyst = attackerChar.catalisadores[0];
+        const key = getMapKey(attackType);
+        attackLevel = firstCatalyst ? ((firstCatalyst as any)[key] || 0) : 0;
+        attackerResonance = firstCatalyst ? (firstCatalyst.potencial || 0) : 0;
+      } else if (attackerChar.catalisadores.some(c => c.id === actionOrWeapon.id)) {
+        // Catalyst used directly?
+        const catalyst = actionOrWeapon;
+        const key = getMapKey(catalyst.tipo);
+        attackType = catalyst.tipo;
+        attackLevel = (catalyst as any)[key] || 0;
+        attackerResonance = catalyst.potencial || 0;
+      } else {
+        // It's a Weapon
+        const v = {
+          Corte: actionOrWeapon.corte || 0,
+          Perfuração: actionOrWeapon.perfuracao || 0,
+          Impacto: actionOrWeapon.impacto || 0
+        };
+        const best = Object.entries(v).reduce((a, b) => a[1] > b[1] ? a : b);
+        attackType = best[0];
+        attackLevel = best[1];
+        attackerResonance = actionOrWeapon.resistencia || 0;
+      }
+    }
+
+    // 2. Identify Target Defense Level
+    let targetDefLevel = 0;
     if (target.type === 'character') {
       const char = availableCharacters.find(c => c.id === target.characterId);
-      if (char) targetDefense = (char.defesa.Torso || 10);
+      if (char) {
+        const key = getMapKey(attackType);
+        targetDefLevel = char.armaduras.reduce((max, arm) => Math.max(max, (arm as any)[key] || 0), 0);
+      }
+    } else if (target.type === 'creature' && target.stats) {
+      const key = getMapKey(attackType);
+      targetDefLevel = (target.stats.defesa as any)[key] || 0;
     }
 
-    const hitSucceeded = totalHit >= targetDefense;
+    // 3. Logic Check
+    const attackHasHigherLevel = attackLevel >= targetDefLevel;
+    const attackerTotalPower = attackLevel + attackerResonance;
+    const attackCanPierce = attackerTotalPower >= targetDefLevel;
     
-    if (hitSucceeded) {
-      let damage = 5;
-      try {
-        const fullDano = weapon.dano.toLowerCase();
-        if (fullDano.includes('d')) {
-          const parts = fullDano.split('+');
-          const dicePart = parts[0];
-          const flatBonus = parts[1] ? parseInt(parts[1]) : 0;
-          const [numStr, sidesStr] = dicePart.split('d');
-          const num = parseInt(numStr) || 1;
-          const sides = parseInt(sidesStr) || 4;
-          
-          damage = flatBonus;
-          for (let i = 0; i < num; i++) {
-            damage += Math.floor(Math.random() * sides) + 1;
-          }
-        } else {
-          damage = parseInt(fullDano) || 1;
-        }
-      } catch (e) { 
-        console.error("Dano parse error", e);
-        damage = 1;
-      }
+    // Durability reduces only if Attack Level < Defense Level
+    const losesDurability = attackLevel < targetDefLevel;
+    // Damage is caused if Attack Level >= Defense OR (Attack+Res >= Defense)
+    const canDamage = attackHasHigherLevel || attackCanPierce;
+    
+    // 4. Accuracy Check (3d8 + Acuracia - Esquiva >= Base Acerto)
+    let diceRolls: number[] = [];
+    let totalDice = 0;
+    let formula = "";
 
-      const newHp = Math.max(0, (target.hp || 0) - damage);
-      
-      const tokenRef = doc(db, 'campaigns', campaignId, 'tokens', target.id);
-      await updateDoc(tokenRef, { hp: newHp });
+    // Both Characters and Creatures use 3d8 for accuracy in this system
+    for (let i = 0; i < 3; i++) {
+      const r = Math.floor(Math.random() * 8) + 1;
+      diceRolls.push(r);
+      totalDice += r;
+    }
+    formula = `3d8 (${diceRolls.join('+')})`;
 
-      if (target.type === 'character' && target.characterId) {
-        const char = availableCharacters.find(c => c.id === target.characterId);
-        if (char) {
-          const charRef = doc(db, 'characters', char.id);
-          await updateDoc(charRef, { vidaAtual: newHp });
-        }
-      }
-
-      setCombatLog(prev => [{ msg: `Acerto! (${d20}+${hitBonus}=${totalHit} vs ${targetDefense}). Dano: ${damage}`, type: 'success' }, ...prev]);
-    } else {
-      setCombatLog(prev => [{ msg: `Errou! (${d20}+${hitBonus}=${totalHit} vs ${targetDefense})`, type: 'error' }, ...prev]);
+    const accuracyRoll = totalDice; 
+    
+    // Base Acerto from weapon/action
+    let baseAcerto = 10;
+    if (typeof actionOrWeapon.acerto === 'number') {
+      baseAcerto = actionOrWeapon.acerto;
+    } else if (typeof actionOrWeapon.acerto === 'string') {
+      baseAcerto = parseInt(actionOrWeapon.acerto) || 10;
     }
 
-    setIsAttackingMode(false);
-    setAttackerId(null);
-    setTargetId(null);
-    setWeaponSelectTokenId(null);
+    // Get stats for modifiers
+    let attackerAcuracia = 0;
+    let targetEsquiva = 0;
+
+    if (attacker.type === 'creature' && attacker.stats) {
+      attackerAcuracia = attacker.stats.acuracia || 0;
+    } else if (attacker.type === 'character' && attackerChar) {
+      const attackerClimateProf = calculateProficiencyBonus(
+        attackerChar.stats,
+        "Clima",
+        ["ADP"],
+        attackerChar.fome,
+        attackerChar.sede
+      );
+
+      attackerAcuracia = calculateProficiencyBonus(
+        attackerChar.stats,
+        "Acurácia",
+        ["FOR", "DEX"],
+        attackerChar.fome,
+        attackerChar.sede,
+        attackerChar.cansaco,
+        attackerChar.clima,
+        attackerClimateProf,
+        attackerChar.bonusProficiencias?.["Acurácia"] || 0
+      );
+    }
+
+    if (target.type === 'creature' && target.stats) {
+      targetEsquiva = target.stats.esquiva || 0;
+    } else if (target.type === 'character') {
+      const char = availableCharacters.find(c => c.id === target.characterId);
+      if (char) {
+        const targetClimateProf = calculateProficiencyBonus(
+          char.stats,
+          "Clima",
+          ["ADP"],
+          char.fome,
+          char.sede
+        );
+        
+        targetEsquiva = calculateProficiencyBonus(
+          char.stats,
+          "Esquiva",
+          ["DEX", "ADP"],
+          char.fome,
+          char.sede,
+          char.cansaco,
+          char.clima,
+          targetClimateProf,
+          char.bonusProficiencias?.["Esquiva"] || 0
+        );
+      }
+    }
+
+    const totalHitRoll = accuracyRoll + attackerAcuracia - targetEsquiva;
+    const hitSucceeded = totalHitRoll >= baseAcerto;
+
+    // 5. Apply Results
+    let damage = 0;
+    let damageDiceRolls: number[] = [];
+    let damageFormula = "";
+    let damageBonus = 0;
+    const HIT_LOCATIONS = ["Braço Esquerdo", "Braço Direito", "Perna Esquerda", "Perna Direita", "Tronco", "Cabeça"];
+    const locationIdx = Math.floor(Math.random() * 6);
+    const locationName = HIT_LOCATIONS[locationIdx];
+
+    if (hitSucceeded) {
+      if (canDamage) {
+        try {
+          const rawDano = actionOrWeapon.dano || "1d4";
+          // Use a robust parser logic similar to the App-wide utility
+          const danoStr = rawDano.toString().toLowerCase().replace(/\s+/g, "").replace(/-/g, "+-");
+          const parts = danoStr.split('+').filter(p => p.length > 0);
+          
+          damage = 0;
+          damageDiceRolls = [];
+          damageBonus = 0;
+          const formulaParts: string[] = [];
+
+          parts.forEach(part => {
+             const isNegative = part.startsWith('-');
+             const cleanPart = isNegative ? part.substring(1) : part;
+
+             if (cleanPart.includes('d')) {
+               const [dNumStr, dSidesStr] = cleanPart.split('d');
+               const dNum = Math.min(20, parseInt(dNumStr) || 1);
+               const dSides = parseInt(dSidesStr) || 6;
+               let partTotal = 0;
+               const rolls: number[] = [];
+               for (let i = 0; i < dNum; i++) {
+                 const r = Math.floor(Math.random() * dSides) + 1;
+                 rolls.push(r);
+                 partTotal += r;
+               }
+               
+               if (isNegative) {
+                 damage -= partTotal;
+                 damageDiceRolls.push(...rolls.map(r => -r));
+                 formulaParts.push(`-${dNum}d${dSides} (${rolls.map(r => -r).join('+')})`);
+               } else {
+                 damage += partTotal;
+                 damageDiceRolls.push(...rolls);
+                 formulaParts.push(`${dNum}d${dSides} (${rolls.join('+')})`);
+               }
+             } else {
+               const val = parseInt(part) || 0;
+               damage += val;
+               damageBonus += val;
+               if (val !== 0) {
+                 formulaParts.push(val > 0 ? `+${val}` : `${val}`);
+               }
+             }
+          });
+          
+          // Clean formula segments
+          if (formulaParts.length > 0 && formulaParts[0].startsWith('+')) {
+            formulaParts[0] = formulaParts[0].substring(1);
+          }
+          damageFormula = formulaParts.join(' ');
+
+          // Final data for the popup and history
+          if (onRollResult) {
+            onRollResult({
+              isCombat: true,
+              armaNome: actionOrWeapon.nome || actionOrWeapon.name || "Ataque",
+              hitResult: totalHitRoll,
+              totalHitBonus: attackerAcuracia - targetEsquiva,
+              hitFormula: `${formula}${attackerAcuracia > 0 ? ` + ${attackerAcuracia}` : ''}${targetEsquiva > 0 ? ` - ${targetEsquiva}` : ''}`,
+              hitRolls: diceRolls,
+              hitBonus: attackerAcuracia - targetEsquiva,
+              hitSucceeded: true,
+              dmgResult: damage,
+              dmgFormula: damageFormula,
+              dmgRolls: damageDiceRolls,
+              dmgBonus: damageBonus, 
+              hitLocation: locationName,
+              result: totalHitRoll,
+              formula: `Atq: ${accuracyRoll} vs ${baseAcerto} | Dano: ${damage}`
+            });
+          }
+
+        } catch (e) { 
+          console.error("Dano parse error:", e);
+          damage = 1;
+          if (onRollResult) {
+            onRollResult({
+              isCombat: true,
+              armaNome: actionOrWeapon.nome || actionOrWeapon.name || "Ataque",
+              hitResult: totalHitRoll,
+              hitSucceeded: true,
+              dmgResult: 1,
+              dmgFormula: "Fixo: 1",
+              dmgRolls: [],
+              dmgBonus: 0,
+              hitLocation: locationName,
+              result: totalHitRoll,
+              formula: `Atq: ${accuracyRoll} vs ${baseAcerto} | Dano: 1`
+            });
+          }
+        }
+
+        const newHp = Math.max(0, (target.hp || 0) - damage);
+        const tokenRef = doc(db, 'campaigns', campaignId, 'tokens', target.id);
+        await updateDoc(tokenRef, { hp: newHp });
+
+        if (target.type === 'character' && target.characterId) {
+          const char = availableCharacters.find(c => c.id === target.characterId);
+          if (char) {
+            const charRef = doc(db, 'characters', char.id);
+            await updateDoc(charRef, { vidaAtual: newHp });
+          }
+        }
+
+        const resLabel = isPhysical(attackType) ? 'Res' : 'Pot';
+        setCombatLog(prev => [{ 
+          msg: `${attackHasHigherLevel ? 'DANO DIRETO!' : 'DANO P/ RESISTÊNCIA!'} (${accuracyRoll} + ${attackerAcuracia} - ${targetEsquiva} = ${totalHitRoll} vs Mín: ${baseAcerto}). Lvl Atq ${attackLevel} ${!attackHasHigherLevel ? `(+ ${attackerResonance} ${resLabel})` : ''} vs Lvl Def ${targetDefLevel}. Dano: ${damage}`, 
+          type: attackHasHigherLevel ? 'success' : 'info'
+        }, ...prev]);
+      } else {
+        const resLabel = isPhysical(attackType) ? 'Resistencia' : 'Potencial';
+        setCombatLog(prev => [{ 
+          msg: `BLOQUEADO! Nível de Ataque (${attackLevel}) + ${resLabel} (${attackerResonance}) insuficiente contra Defesa (${targetDefLevel}). Perdeu Durabilidade. (Acerto: ${totalHitRoll} vs ${baseAcerto})`, 
+          type: 'error' 
+        }, ...prev]);
+
+        // Still show popup for blocked hits that "hit" but caused 0 damage
+        if (onRollResult) {
+          onRollResult({
+            isCombat: true,
+            armaNome: actionOrWeapon.nome || actionOrWeapon.name || "Ataque",
+            hitResult: totalHitRoll,
+            totalHitBonus: attackerAcuracia - targetEsquiva,
+            hitFormula: `${formula}${attackerAcuracia > 0 ? ` + ${attackerAcuracia}` : ''}${targetEsquiva > 0 ? ` - ${targetEsquiva}` : ''}`,
+            hitRolls: diceRolls,
+            hitBonus: attackerAcuracia - targetEsquiva,
+            hitSucceeded: true,
+            dmgResult: 0,
+            dmgFormula: "Bloqueado",
+            dmgRolls: [],
+            dmgBonus: 0, 
+            hitLocation: locationName,
+            result: totalHitRoll,
+            formula: `Atq: ${accuracyRoll} vs ${baseAcerto} | Bloqueado`
+          });
+        }
+      }
+    } else {
+      // ERROU case: still show result popup without damage/location
+      if (onRollResult) {
+        onRollResult({
+          isCombat: true,
+          armaNome: actionOrWeapon.nome || actionOrWeapon.name || "Ataque",
+          hitResult: totalHitRoll,
+          totalHitBonus: attackerAcuracia - targetEsquiva,
+          hitFormula: `${formula}${attackerAcuracia > 0 ? ` + ${attackerAcuracia}` : ''}${targetEsquiva > 0 ? ` - ${targetEsquiva}` : ''}`,
+          hitRolls: diceRolls,
+          hitBonus: attackerAcuracia - targetEsquiva,
+          hitSucceeded: false,
+          dmgResult: 0,
+          dmgFormula: "Errou",
+          dmgRolls: [],
+          dmgBonus: 0, 
+          hitLocation: undefined,
+          result: totalHitRoll,
+          formula: `Atq: ${accuracyRoll} vs ${baseAcerto} | ERROU`
+        });
+      }
+
+      setCombatLog(prev => [{ 
+        msg: `ERROU! O ataque não atingiu o alvo. (Resultado: ${accuracyRoll} + ${attackerAcuracia} - ${targetEsquiva} = ${totalHitRoll} vs Mínimo: ${baseAcerto}).`, 
+        type: 'error' 
+      }, ...prev]);
+    }
+
+    // 6. Handle Durability Loss (if attacker is character)
+    if (attacker.type === 'character' && attackerChar && losesDurability) {
+       // Find if it was a weapon
+       const isWeapon = attackerChar.armas.some(w => w.id === actionOrWeapon.id);
+       const isCatalyst = attackerChar.catalisadores.some(c => c.id === actionOrWeapon.id);
+       
+       if (isWeapon || isCatalyst) {
+          const charRef = doc(db, 'characters', attackerChar.id);
+          const updatedArmas = attackerChar.armas.map(w => {
+            if (w.id === actionOrWeapon.id) {
+               return { ...w, durabilidade: Math.max(0, w.durabilidade - 1) };
+            }
+            return w;
+          });
+          const updatedCatalisadores = attackerChar.catalisadores.map(c => {
+            if (c.id === actionOrWeapon.id) {
+               return { ...c, durabilidade: Math.max(0, c.durabilidade - 1) };
+            }
+            return c;
+          });
+          
+          await updateDoc(charRef, { 
+            armas: updatedArmas, 
+            catalisadores: updatedCatalisadores 
+          });
+          
+          if (isWeapon) {
+             const weapon = updatedArmas.find(w => w.id === actionOrWeapon.id);
+             if (weapon && weapon.durabilidade === 0) {
+                setCombatLog(prev => [{ msg: `ALERTA: Sua arma "${weapon.nome}" quebrou!`, type: 'error' }, ...prev]);
+             }
+          }
+       }
+    }
+
+    } catch (error) {
+      console.error("Combat resolution error:", error);
+      setCombatLog(prev => [{ msg: "Erro ao resolver combate. Verifique os dados da criatura/arma.", type: 'error' }, ...prev]);
+    } finally {
+      setIsAttackingMode(false);
+      setAttackerId(null);
+      setTargetId(null);
+      setWeaponSelectTokenId(null);
+    }
   };
 
   const getDistance = (p1: any, p2: any) => {
@@ -704,11 +1059,31 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       {isCharacterModalOpen && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl w-full max-w-md shadow-2xl space-y-6">
-            <h3 className="text-xl font-bold text-white flex items-center gap-2">
-              <User className="text-blue-500" /> Adicionar Personagem
-            </h3>
+            <div className="space-y-4">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <User className="text-blue-500" /> Adicionar Personagem
+              </h3>
+              
+              <div className="space-y-1.5 w-full max-w-xs">
+                <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider px-1">Tamanho do Token</label>
+                <div className="grid grid-cols-4 gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+                  {TOKEN_SIZES.map(size => (
+                    <button
+                      key={size.value}
+                      onClick={() => setInputCreatureSize(size.value)}
+                      className={cn(
+                        "py-2 rounded-lg text-[9px] font-black uppercase transition-all",
+                        inputCreatureSize === size.value ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" : "text-zinc-500 hover:text-zinc-300"
+                      )}
+                    >
+                      {size.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
             
-            <div className="space-y-4 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
+            <div className="space-y-4 max-h-60 overflow-y-auto pr-1">
               {availableCharacters.length > 0 ? (
                 availableCharacters.map(char => (
                   <button 
@@ -725,7 +1100,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                           imageUrl: char.imagem,
                           x: centerX,
                           y: centerY,
-                          size: 1,
+                          size: inputCreatureSize,
                           type: 'character',
                           characterId: char.id,
                           hp: char.vidaAtual,
@@ -902,16 +1277,33 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       {showCreatureModal && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 overflow-hidden">
           <div className="bg-zinc-950 border border-zinc-800 rounded-3xl w-full max-w-4xl max-h-[90vh] shadow-2xl flex flex-col">
-            <div className="p-6 border-b border-zinc-800 flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                  <Skull className="text-red-500" /> Invoque um Demônio
+            <div className="p-6 border-b border-zinc-800 flex items-center justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <h3 className="text-xl font-bold text-white flex items-center gap-2 mb-4">
+                  <Skull className="text-red-500" /> Bestiário
                 </h3>
-                <p className="text-zinc-500 text-xs mt-1">Selecione uma criatura do seu bestiário para colocar no mapa.</p>
+                
+                <div className="space-y-1.5 w-full max-w-xs">
+                  <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider px-1">Tamanho do Token</label>
+                  <div className="grid grid-cols-4 gap-1 bg-zinc-900/50 p-1 rounded-xl border border-zinc-800">
+                    {TOKEN_SIZES.map(size => (
+                      <button
+                        key={size.value}
+                        onClick={() => setInputCreatureSize(size.value)}
+                        className={cn(
+                          "py-1.5 rounded-lg text-[9px] font-black uppercase transition-all",
+                          inputCreatureSize === size.value ? "bg-red-600 text-white shadow-lg shadow-red-600/20" : "text-zinc-500 hover:text-zinc-300"
+                        )}
+                      >
+                        {size.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
               <button 
                 onClick={() => setShowCreatureModal(false)}
-                className="p-2 bg-zinc-900 text-zinc-500 hover:text-white rounded-xl transition-all"
+                className="shrink-0 p-2 bg-zinc-900 text-zinc-500 hover:text-white rounded-xl transition-all"
               >
                 <Plus className="rotate-45" size={24} />
               </button>
@@ -924,23 +1316,45 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                   if (onAddToken) {
                     const centerX = (dimensions.width / 2 - viewport.x) / viewport.scale;
                     const centerY = (dimensions.height / 2 - viewport.y) / viewport.scale;
+                    const parseNum = (val: any) => parseInt(val?.toString()) || 0;
                     
                     onAddToken({
                       id: Math.random().toString(36).substring(2, 11),
                       name: monster.name,
                       x: centerX,
                       y: centerY,
-                      size: 1,
+                      size: inputCreatureSize,
                       imageUrl: monster.imageUrl,
                       type: 'creature',
-                      hp: monster.maxHp,
-                      maxHp: monster.maxHp,
+                      hp: parseNum(monster.maxHp),
+                      maxHp: parseNum(monster.maxHp),
                       description: monster.informacoes,
                       stats: {
-                        ataque: monster.ataque,
-                        defesa: monster.defesa
+                        acuracia: parseNum(monster.acuracia),
+                        esquiva: parseNum(monster.esquiva),
+                        ataque: {
+                          corte: parseNum(monster.ataque.corte),
+                          perfuracao: parseNum(monster.ataque.perfuracao),
+                          impacto: parseNum(monster.ataque.impacto),
+                          resistencia: parseNum(monster.ataque.resistencia),
+                          feitico: parseNum(monster.ataque.feitico),
+                          elemental: parseNum(monster.ataque.elemental),
+                          magiaNegra: parseNum(monster.ataque.magiaNegra),
+                          potencial: parseNum(monster.ataque.potencial),
+                        },
+                        defesa: {
+                          corte: parseNum(monster.defesa.corte),
+                          perfuracao: parseNum(monster.defesa.perfuracao),
+                          impacto: parseNum(monster.defesa.impacto),
+                          feitico: parseNum(monster.defesa.feitico),
+                          elemental: parseNum(monster.defesa.elemental),
+                          magiaNegra: parseNum(monster.defesa.magiaNegra),
+                        }
                       },
-                      acoes: monster.acoes
+                      acoes: (monster.acoes || []).map(a => ({
+                        ...a,
+                        description: a.description || ''
+                      }))
                     });
                   }
                   setShowCreatureModal(false);
@@ -948,13 +1362,10 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               />
             </div>
 
-            <div className="p-6 border-t border-zinc-800 bg-zinc-900/50 flex gap-4">
-               <div className="flex-1 text-zinc-500 text-xs italic">
-                 Dica: Você pode criar novos monstros na aba "Bestiário" no menu principal.
-               </div>
+            <div className="p-4 border-t border-zinc-800 bg-zinc-900/50 flex justify-end">
                <button 
                 onClick={() => setShowCreatureModal(false)}
-                className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold uppercase tracking-widest transition-all"
+                className="px-6 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold uppercase tracking-widest transition-all"
               >
                 Cancelar
               </button>
@@ -1084,7 +1495,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       <Heart size={8} className="text-red-500" /> {token.hp} / {token.maxHp} HP
                     </div>
                   </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                  <div className="flex gap-1 transition-all">
                     <button 
                       onClick={() => setViewingCreatureId(token.id === viewingCreatureId ? null : token.id)}
                       className={cn("p-1.5 rounded transition-all", viewingCreatureId === token.id ? "bg-amber-500 text-zinc-950" : "hover:bg-amber-500/10 text-amber-500")}
@@ -1323,20 +1734,28 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               if (token?.acoes && token.acoes.length > 0) {
                 return (
                   <div className="mt-2 pt-2 border-t border-zinc-800 space-y-1">
-                    <span className="text-[8px] font-black text-red-500 uppercase tracking-widest pl-1">Ataques</span>
+                    <span className="text-[8px] font-black text-red-500 uppercase tracking-widest pl-1">Ações de Combate</span>
                     <div className="grid gap-1">
                       {token.acoes.map(action => (
-                        <div 
+                        <button 
                           key={action.id}
-                          className="bg-zinc-950/50 border border-zinc-800 rounded p-1.5"
+                          onClick={() => {
+                            if (isAttackingMode && targetId) {
+                               resolveCombat(action);
+                            } else {
+                               startAttack(selectedTokenId);
+                               // Note: We don't have a way to "save" the pre-selected action easily 
+                               // without adding more state, but starting the attack mode is better than nothing.
+                            }
+                          }}
+                          className="bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 hover:border-red-500/50 rounded p-1.5 transition-all text-left group"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-[9px] font-bold text-zinc-200">{action.name}</span>
+                            <span className="text-[9px] font-bold text-zinc-200 group-hover:text-red-400">{action.name}</span>
                             <span className="text-[7px] text-zinc-500 font-black uppercase opacity-50">{action.type}</span>
                           </div>
                           <div className="text-[8px] font-bold text-zinc-400">Acerto: +{action.acerto} | Dano: {action.dano}</div>
-                          <p className="text-[8px] text-zinc-500 italic mt-0.5 leading-tight">{action.description}</p>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -1378,6 +1797,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 const attacker = tokens.find(t => t.id === weaponSelectTokenId);
                 const attackerChar = availableCharacters.find(c => c.id === attacker?.characterId);
                 const weapons = attackerChar?.armas || [];
+                const catalysts = attackerChar?.catalisadores || [];
+                const spells = attackerChar?.magias || [];
                 const monsterActions = attacker?.acoes || [];
                 
                 return (
@@ -1389,12 +1810,60 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                         className="w-full flex items-center justify-between p-3 bg-zinc-950 border border-zinc-800 hover:border-blue-500/50 rounded-xl transition-all group"
                       >
                         <div className="text-left">
-                          <div className="text-xs font-bold text-white group-hover:text-blue-400">{weapon.nome}</div>
-                          <div className="text-[10px] text-zinc-500">Acerto: +{weapon.acerto} | Dano: {weapon.dano}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="text-xs font-bold text-white group-hover:text-blue-400">{weapon.nome}</div>
+                            <span className="text-[8px] font-black bg-blue-600/10 text-blue-500 px-1.5 py-0.5 rounded border border-blue-500/20 uppercase">
+                              Lvl {Math.max(weapon.corte || 0, weapon.perfuracao || 0, weapon.impacto || 0)} | Res {weapon.resistencia || 0}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-zinc-500">
+                             Acerto Mín: {weapon.acerto} | Dano: {weapon.dano} | Durab: {weapon.durabilidade}/{weapon.maxDurabilidade}
+                          </div>
                         </div>
-                        <div className="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center text-zinc-400 border border-zinc-800">
+                        <div className="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center text-zinc-400 border border-zinc-800 shrink-0">
                           <Shield size={14} />
                         </div>
+                      </button>
+                    ))}
+
+                    {catalysts.map(catalyst => (
+                      <button
+                        key={catalyst.id}
+                        onClick={() => resolveCombat(catalyst)}
+                        className="w-full flex items-center justify-between p-3 bg-zinc-950 border border-purple-900/30 hover:border-purple-500/50 rounded-xl transition-all group"
+                      >
+                        <div className="text-left">
+                          <div className="flex items-center gap-2">
+                            <div className="text-xs font-bold text-purple-400">{catalyst.nome}</div>
+                            <span className="text-[8px] font-black bg-purple-600/10 text-purple-500 px-1.5 py-0.5 rounded border border-purple-500/20 uppercase">
+                              Lvl {Math.max(catalyst.feitico || 0, catalyst.elemental || 0, catalyst.magiaNegra || 0)} | Pot {catalyst.potencial || 0}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-zinc-500">
+                             Tipo: {catalyst.tipo} | Durab: {catalyst.durabilidade}/{catalyst.maxDurabilidade}
+                          </div>
+                        </div>
+                        <div className="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center text-purple-400 border border-zinc-800 shrink-0">
+                          <Zap size={14} />
+                        </div>
+                      </button>
+                    ))}
+
+                    {spells.map(spell => (
+                      <button
+                        key={spell.id}
+                        onClick={() => resolveCombat({...spell, categoria: spell.escola})}
+                        className="w-full flex flex-col p-3 bg-zinc-950 border border-indigo-900/30 hover:border-indigo-500/50 rounded-xl transition-all group"
+                      >
+                         <div className="flex items-center justify-between w-full">
+                          <div className="text-xs font-bold text-indigo-400 flex items-center gap-1.5">
+                            <Zap size={10} /> {spell.nome}
+                          </div>
+                          <div className="text-[8px] font-black bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500 uppercase">
+                            {spell.escola} | Acerto Mín: {spell.acerto}
+                          </div>
+                        </div>
+                        <div className="text-[10px] text-zinc-400 mt-1">Dano: {spell.dano} | Mana: {spell.mana}</div>
                       </button>
                     ))}
 
@@ -1402,15 +1871,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     {monsterActions.map(action => (
                       <button
                         key={action.id}
-                        onClick={() => {
-                          resolveCombat({
-                            nome: action.name,
-                            acerto: action.acerto,
-                            dano: action.dano,
-                            category: action.categoria,
-                            isMonsterAction: true
-                          });
-                        }}
+                        onClick={() => resolveCombat(action)}
                         className="w-full flex flex-col p-3 bg-zinc-950 border border-red-900/30 hover:border-red-500/50 rounded-xl transition-all group"
                       >
                         <div className="flex items-center justify-between w-full">
@@ -1418,11 +1879,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                             <Zap size={10} /> {action.name}
                           </div>
                           <div className="text-[8px] font-black bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500 uppercase tracking-tighter">
-                            {action.type} | {action.categoria}
+                            {action.type} | {action.categoria} | Lvl {
+                              attacker?.stats?.ataque ? (attacker.stats.ataque as any)[getMapKey(action.categoria)] || 0 : 0
+                            } | {['Feitiço', 'Elemental', 'Magia Negra'].includes(action.categoria) ? 'Pot' : 'Res'} {
+                              attacker?.stats?.ataque ? (['Feitiço', 'Elemental', 'Magia Negra'].includes(action.categoria) ? attacker.stats.ataque.potencial : attacker.stats.ataque.resistencia) : 0
+                            } | Acerto: {action.acerto}
                           </div>
                         </div>
                         <div className="text-[10px] text-zinc-300 font-bold mt-1">
-                           Acerto: {action.acerto >= 0 ? '+' : ''}{action.acerto} | Dano: {action.dano}
+                           Acerto: {Number(action.acerto) >= 0 ? '+' : ''}{action.acerto} | Dano: {action.dano}
                         </div>
                         <div className="text-[9px] text-zinc-500 mt-0.5 italic leading-tight text-left">
                            {action.description}

@@ -123,6 +123,68 @@ const generateId = () => {
   );
 };
 
+// Utility for parsing and rolling complex dice formulas like 1d20+2d12+5
+const parseAndRollDice = (formula: string) => {
+  // Normalize formula: lowercase, remove spaces, keep minuses as +- for simple splitting
+  const danoStr = (formula || "1d6").toString().toLowerCase().replace(/\s+/g, "").replace(/-/g, "+-");
+  const parts = danoStr.split('+').filter(p => p.length > 0);
+  
+  let total = 0;
+  let rolls: number[] = [];
+  const formulaSegments: string[] = [];
+  let flatBonus = 0;
+
+  parts.forEach(part => {
+    // Match something like "2d12" or "d20" or "1d6"
+    // Also handles the negative sign from our earlier replace
+    const isNegative = part.startsWith('-');
+    const cleanPart = isNegative ? part.substring(1) : part;
+    
+    if (cleanPart.includes('d')) {
+      const [dNumStr, dSidesStr] = cleanPart.split('d');
+      const dNum = Math.min(20, parseInt(dNumStr) || 1);
+      const dSides = parseInt(dSidesStr) || 6;
+      
+      let partTotal = 0;
+      const partRolls: number[] = [];
+      for (let i = 0; i < dNum; i++) {
+        const r = Math.floor(Math.random() * dSides) + 1;
+        partRolls.push(r);
+        partTotal += r;
+      }
+      
+      if (isNegative) {
+        total -= partTotal;
+        rolls.push(...partRolls.map(r => -r));
+        formulaSegments.push(`-${dNum}d${dSides} (${partRolls.map(r => -r).join('+')})`);
+      } else {
+        total += partTotal;
+        rolls.push(...partRolls);
+        formulaSegments.push(`${dNum}d${dSides} (${partRolls.join('+')})`);
+      }
+    } else {
+      const val = parseInt(part) || 0;
+      total += val;
+      flatBonus += val;
+      if (val !== 0) {
+        formulaSegments.push(val > 0 ? `+${val}` : `${val}`);
+      }
+    }
+  });
+
+  // Clean formula segments (remove leading + if it's the first element)
+  if (formulaSegments.length > 0 && formulaSegments[0].startsWith('+')) {
+    formulaSegments[0] = formulaSegments[0].substring(1);
+  }
+
+  return { 
+    total, 
+    rolls, 
+    fullFormula: formulaSegments.join(' '),
+    flatBonus 
+  };
+};
+
 const createEmptyCharacter = (): Character => ({
   id: generateId(),
   userId: "",
@@ -560,7 +622,26 @@ function App() {
   const [diceQuantity, setDiceQuantity] = useState(1);
   const [diceBonus, setDiceBonus] = useState(0);
   const [diceHistory, setDiceHistory] = useState<
-    { id: string; result: number; formula: string; timestamp: number }[]
+    {
+      id: string;
+      result: number;
+      formula: string;
+      timestamp: number;
+      rolls?: number[];
+      bonus?: number;
+      isCombat?: boolean;
+      hitSucceeded?: boolean;
+      hitResult?: number;
+      dmgResult?: number;
+      hitRolls?: number[];
+      dmgRolls?: number[];
+      hitBonus?: number;
+      dmgBonus?: number;
+      armaNome?: string;
+      dmgFormula?: string;
+      hitFormula?: string;
+      hitLocation?: string;
+    }[]
   >([]);
 
   // Debounced sync to localStorage
@@ -577,6 +658,7 @@ function App() {
     rolls: number[];
     bonus: number;
     isCombat?: boolean;
+    hitSucceeded?: boolean;
     hitResult?: number;
     dmgResult?: number;
     hitRolls?: number[];
@@ -588,6 +670,20 @@ function App() {
     hitFormula?: string;
     hitLocation?: string;
   } | null>(null);
+
+  const handleRollResult = useCallback((res: any) => {
+    setLastRoll(res);
+    setDiceHistory((prev) =>
+      [
+        {
+          id: generateId(),
+          timestamp: Date.now(),
+          ...res,
+        },
+        ...prev,
+      ].slice(0, 50),
+    );
+  }, []);
 
   const rollDice = (
     sides: number,
@@ -740,71 +836,35 @@ function App() {
       calculateWeaponDamageBonus(arma as any, statValue) || 0;
     const totalDmgBonus = scalingBonus + (bonusManual || 0);
 
-    // 4. Roll Damage
-    const danoStr = (arma.dano || "1d6").toLowerCase().replace(/\s+/g, "");
-    const match = danoStr.match(/^(\d*)d(\d+)([+-]\d+)?$/);
-    let dmgTotal = 0;
-    let dmgRolls: number[] = [];
-    let dmgFullFormula = "";
-
-    if (match) {
-      const qty = parseInt(match[1]) || 1;
-      const sides = parseInt(match[2]);
-      const extra = parseInt(match[3]) || 0;
-      for (let i = 0; i < qty; i++) {
-        const r = Math.floor(Math.random() * sides) + 1;
-        dmgRolls.push(r);
-        dmgTotal += r;
-      }
-      const finalExtra = totalDmgBonus + extra;
-      dmgTotal += finalExtra;
-      dmgFullFormula = `${qty}d${sides}${finalExtra !== 0 ? (finalExtra > 0 ? "+" : "") + finalExtra : ""}`;
-    } else {
-      const fixedDano = parseInt(danoStr) || 0;
-      dmgTotal = fixedDano + totalDmgBonus;
-      dmgFullFormula = `${fixedDano}${totalDmgBonus !== 0 ? (totalDmgBonus > 0 ? "+" : "") + totalDmgBonus : ""}`;
+    // 4. Roll Damage using the robust utility
+    const rollData = parseAndRollDice(arma.dano || "1d6");
+    
+    // Add the scaling/manual bonus to the total
+    const finalDmgTotal = rollData.total + totalDmgBonus;
+    let finalDmgFormula = rollData.fullFormula;
+    if (totalDmgBonus !== 0) {
+      finalDmgFormula += ` ${totalDmgBonus > 0 ? '+' : ''}${totalDmgBonus}`;
     }
 
     // 4.5. Roll Hit Location (1d6)
     const locationIdx = Math.floor(Math.random() * 6);
     const locationName = HIT_LOCATIONS[locationIdx];
 
-    // 5. Update History & Last Roll
-    const combinedFormula = `${arma.nome}: ACERTO ${finalHit} | LOCAL: ${locationName} | DANO ${dmgTotal}`;
-    const detailedFormula = `${arma.nome}: Acerto ${finalHit} (${hitFormula}) | Local: ${locationName} | Dano ${dmgTotal} (${dmgFullFormula})`;
-
-    setDiceHistory((prev) =>
-      [
-        {
-          id: generateId(),
-          result: finalHit, // Use Hit as the primary number for the History icon
-          formula: detailedFormula,
-          timestamp: Date.now(),
-        },
-        ...prev,
-      ].slice(0, 50),
-    );
-
-    setLastRoll({
-      result: finalHit,
-      formula: combinedFormula,
-      rolls: [...hitRolls],
-      bonus: totalHitBonus,
+    // 5. Update via handleRollResult
+    handleRollResult({
       isCombat: true,
-      hitResult: finalHit,
-      dmgResult: dmgTotal,
-      hitRolls: hitRolls,
-      dmgRolls: dmgRolls,
-      hitBonus: totalHitBonus,
-      dmgBonus: totalDmgBonus,
+      hitSucceeded: true,
       armaNome: arma.nome,
+      hitResult: finalHit,
+      hitRolls: hitRolls,
       hitFormula: hitFormula,
-      dmgFormula: dmgFullFormula,
+      hitBonus: totalHitBonus,
+      dmgResult: finalDmgTotal,
+      dmgFormula: finalDmgFormula,
+      dmgRolls: rollData.rolls,
+      dmgBonus: totalDmgBonus + rollData.flatBonus,
       hitLocation: locationName,
     });
-
-    // Also show toast with complete result
-    // setToast({ message: combinedFormula, type: 'info' });
   };
 
   useEffect(() => {
@@ -3653,72 +3713,34 @@ function App() {
                                 activeChar.stats.INT,
                               );
 
-                              // 4. Roll Damage
-                              const danoStr = (m.dano || "1d6")
-                                .toLowerCase()
-                                .replace(/\s+/g, "");
-                              const match = danoStr.match(
-                                /^(\d*)d(\d+)([+-]\d+)?$/,
-                              );
-                              let dmgTotal = 0;
-                              let dmgRolls: number[] = [];
-                              let dmgFullFormula = "";
-
-                              if (match) {
-                                const qty = parseInt(match[1]) || 1;
-                                const sides = parseInt(match[2]);
-                                const extra = parseInt(match[3]) || 0;
-                                for (let i = 0; i < qty; i++) {
-                                  const r =
-                                    Math.floor(Math.random() * sides) + 1;
-                                  dmgRolls.push(r);
-                                  dmgTotal += r;
-                                }
-                                const finalExtra = scalingBonus + extra;
-                                dmgTotal += finalExtra;
-                                dmgFullFormula = `${qty}d${sides}${finalExtra !== 0 ? (finalExtra > 0 ? "+" : "") + finalExtra : ""}`;
-                              } else {
-                                const fixedDano = parseInt(danoStr) || 0;
-                                dmgTotal = fixedDano + scalingBonus;
-                                dmgFullFormula = `${fixedDano}${scalingBonus !== 0 ? (scalingBonus > 0 ? "+" : "") + scalingBonus : ""}`;
+                              // 4. Roll Damage using robust utility
+                              const rollData = parseAndRollDice(m.dano || "1d6");
+                              const finalDmgTotal = rollData.total + (scalingBonus || 0);
+                              let finalDmgFormula = rollData.fullFormula;
+                              if (scalingBonus) {
+                                finalDmgFormula += ` ${scalingBonus > 0 ? '+' : ''}${scalingBonus}`;
                               }
 
                               // 4.5. Roll Hit Location (1d6)
                               const locationIdx = Math.floor(Math.random() * 6);
                               const locationName = HIT_LOCATIONS[locationIdx];
 
-                              // 5. Update History & Last Roll
-                              const combinedFormula = `${m.nome}: ACERTO ${finalHit} (Dificuldade: ${m.acerto || 0}) | LOCAL: ${locationName} | DANO ${dmgTotal}`;
-                              const detailedFormula = `${m.nome}: Acerto ${finalHit} (Rolado: ${hitFormula} | Mín: ${m.acerto || 0}) | Local: ${locationName} | Dano ${dmgTotal} (${dmgFullFormula})`;
-
-                              setDiceHistory((prev) =>
-                                [
-                                  {
-                                    id: generateId(),
-                                    result: finalHit,
-                                    formula: detailedFormula,
-                                    timestamp: Date.now(),
-                                  },
-                                  ...prev,
-                                ].slice(0, 50),
-                              );
-
-                              setLastRoll({
-                                result: finalHit,
-                                formula: combinedFormula,
-                                rolls: [...hitRolls],
-                                bonus: totalHitBonus,
+                              // 5. Update via handleRollResult for consistency
+                              handleRollResult({
                                 isCombat: true,
-                                hitResult: finalHit,
-                                dmgResult: dmgTotal,
-                                hitRolls: hitRolls,
-                                dmgRolls: dmgRolls,
-                                hitBonus: totalHitBonus,
-                                dmgBonus: scalingBonus,
+                                hitSucceeded: true,
                                 armaNome: m.nome,
+                                hitResult: finalHit,
+                                hitRolls: hitRolls,
                                 hitFormula: hitFormula,
-                                dmgFormula: dmgFullFormula,
+                                hitBonus: totalHitBonus,
+                                dmgResult: finalDmgTotal,
+                                dmgFormula: finalDmgFormula,
+                                dmgRolls: rollData.rolls,
+                                dmgBonus: (scalingBonus || 0) + rollData.flatBonus,
                                 hitLocation: locationName,
+                                result: finalHit,
+                                formula: `${m.nome}: Acerto ${finalHit} | Dano ${finalDmgTotal}`
                               });
                             } else if (m.tipo === "Efeito") {
                               const acuraciaBonus = calculateProficiencyBonus(
@@ -4729,23 +4751,70 @@ function App() {
                           initial={{ opacity: 0, x: -10 }}
                           animate={{ opacity: 1, x: 0 }}
                           key={roll.id}
-                          className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-3 flex items-center justify-between group"
+                          className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-3 group space-y-2"
                         >
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-amber-500">
-                              {roll.result}
-                            </div>
-                            <div>
-                              <div className="text-[10px] font-bold text-zinc-300 uppercase">
-                                {roll.formula}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className={cn(
+                                "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold",
+                                roll.isCombat && roll.hitSucceeded === false ? "bg-zinc-800 text-zinc-500" : "bg-zinc-800 text-amber-500"
+                              )}>
+                                {roll.isCombat ? roll.hitResult : roll.result}
                               </div>
-                              <div className="text-[9px] text-zinc-600">
-                                {new Date(roll.timestamp).toLocaleTimeString(
-                                  [],
-                                  { hour: "2-digit", minute: "2-digit" },
+                              <div>
+                                <div className="text-[10px] font-bold text-zinc-300 uppercase">
+                                  {roll.isCombat ? roll.armaNome : (roll.formula || `d${roll.result}`)}
+                                </div>
+                                <div className="text-[9px] text-zinc-600">
+                                  {new Date(roll.timestamp).toLocaleTimeString(
+                                    [],
+                                    { hour: "2-digit", minute: "2-digit" },
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            {roll.isCombat && roll.hitSucceeded !== false && (
+                              <div className="bg-amber-500/10 px-2 py-1 rounded text-amber-500 text-[10px] font-black uppercase">
+                                {roll.dmgResult} Dano
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="text-[9px] text-zinc-400/80 leading-tight">
+                            {roll.isCombat ? (
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1 opacity-70">
+                                  <span className="font-bold">Acerto:</span>
+                                  <span>{roll.hitFormula}</span>
+                                  <span className="text-zinc-500">[{roll.hitRolls?.join(', ')}]</span>
+                                </div>
+                                {roll.hitSucceeded !== false && (
+                                  <>
+                                    <div className="flex items-center gap-1 opacity-70">
+                                      <span className="font-bold">Dano:</span>
+                                      <span>{roll.dmgFormula}</span>
+                                      <span className="text-zinc-500">[{roll.dmgRolls?.join(', ')}]</span>
+                                    </div>
+                                    {roll.hitLocation && (
+                                      <div className="flex items-center gap-1 opacity-70">
+                                        <span className="font-bold">Local:</span>
+                                        <span className="text-amber-500/80">{roll.hitLocation}</span>
+                                      </div>
+                                    )}
+                                  </>
                                 )}
                               </div>
-                            </div>
+                            ) : (
+                              <div className="flex items-center gap-1 opacity-70">
+                                <span>{roll.formula}</span>
+                                {roll.rolls && roll.rolls.length > 0 && (
+                                  <span className="text-zinc-500">[{roll.rolls.join(', ')}]</span>
+                                )}
+                                {roll.bonus !== 0 && (
+                                  <span className="text-amber-500/60">{roll.bonus! > 0 ? '+' : ''}{roll.bonus}</span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </motion.div>
                       ))
@@ -5384,6 +5453,7 @@ function App() {
                 onAddToken={(t) => addToken(activeCampaignId, t)}
                 onRemoveToken={(tid) => removeToken(activeCampaignId, tid)}
                 onUpdateConfig={(cfg) => updateTableConfig(activeCampaignId, cfg)}
+                onRollResult={handleRollResult}
               />
             ) : (
                 <div className="h-full flex items-center justify-center bg-zinc-950">
@@ -5415,42 +5485,53 @@ function App() {
             {lastRoll.isCombat ? (
               <div className="w-full">
                 {/* Combat Banner */}
-                <div className="bg-amber-500 p-2 flex items-center justify-center gap-2">
-                  <Sword size={16} className="text-zinc-950" />
-                  <span className="text-xs font-black text-zinc-950 uppercase tracking-widest">
-                    {lastRoll.armaNome}
+                <div className={cn(
+                  "p-2 flex items-center justify-center gap-2",
+                  lastRoll.hitSucceeded === false ? "bg-zinc-800" : "bg-amber-500"
+                )}>
+                  <Sword size={16} className={lastRoll.hitSucceeded === false ? "text-red-500" : "text-zinc-950"} />
+                  <span className={cn(
+                    "text-xs font-black uppercase tracking-widest",
+                    lastRoll.hitSucceeded === false ? "text-zinc-400" : "text-zinc-950"
+                  )}>
+                    {lastRoll.armaNome} {lastRoll.hitSucceeded === false ? "- FALHA" : ""}
                   </span>
                 </div>
 
                 <div className="p-4 space-y-4">
                   {/* Results Row */}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className={cn("grid gap-3", lastRoll.hitSucceeded === false ? "grid-cols-1" : "grid-cols-2")}>
                     <div className="flex flex-col items-center bg-zinc-950/50 p-3 rounded-xl border border-zinc-800">
                       <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-0.5">
                         Acerto
                       </span>
-                      <span className="text-3xl font-black text-amber-500">
+                      <span className={cn(
+                        "text-3xl font-black",
+                        lastRoll.hitSucceeded === false ? "text-zinc-400" : "text-amber-500"
+                      )}>
                         {lastRoll.hitResult}
                       </span>
                       <span className="text-[8px] font-bold text-zinc-600 uppercase">
                         {lastRoll.hitFormula}
                       </span>
                     </div>
-                    <div className="flex flex-col items-center bg-zinc-950/50 p-3 rounded-xl border border-zinc-800">
-                      <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-0.5">
-                        Dano
-                      </span>
-                      <span className="text-3xl font-black text-amber-500">
-                        {lastRoll.dmgResult}
-                      </span>
-                      <span className="text-[8px] font-bold text-zinc-600 uppercase">
-                        {lastRoll.dmgFormula}
-                      </span>
-                    </div>
+                    {lastRoll.hitSucceeded !== false && (
+                      <div className="flex flex-col items-center bg-zinc-950/50 p-3 rounded-xl border border-zinc-800">
+                        <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-0.5">
+                          Dano
+                        </span>
+                        <span className="text-3xl font-black text-amber-500">
+                          {lastRoll.dmgResult}
+                        </span>
+                        <span className="text-[8px] font-bold text-zinc-600 uppercase">
+                          {lastRoll.dmgFormula}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Hit Location Row */}
-                  {lastRoll.hitLocation && (
+                  {lastRoll.hitSucceeded !== false && lastRoll.hitLocation && (
                     <div className="bg-zinc-950/50 p-2.5 rounded-xl border border-amber-500/10 flex items-center justify-between px-4">
                       <div className="flex flex-col">
                         <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">
@@ -5467,7 +5548,10 @@ function App() {
                   )}
 
                   {/* Dice Results - Compact Side-by-Side */}
-                  <div className="grid grid-cols-2 gap-6 bg-zinc-950/30 p-3 rounded-xl border border-zinc-800/50">
+                  <div className={cn(
+                    "grid gap-6 bg-zinc-950/30 p-3 rounded-xl border border-zinc-800/50 px-6",
+                    lastRoll.hitSucceeded === false ? "grid-cols-1" : "grid-cols-2"
+                  )}>
                     <div className="space-y-2">
                       <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest block text-center">
                         Dados de Acerto
@@ -5488,32 +5572,34 @@ function App() {
                       </div>
                     </div>
 
-                    <div className="space-y-2 relative">
-                      <div className="absolute left-[-12px] top-0 bottom-0 w-px bg-zinc-800" />
-                      <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest block text-center">
-                        Dados de Dano
-                      </span>
-                      <div className="flex flex-wrap justify-center gap-1.5">
-                        {lastRoll.dmgRolls?.length === 0 ? (
-                          <span className="text-[8px] font-bold text-zinc-600 uppercase italic mt-2">
-                            Fixo
-                          </span>
-                        ) : (
-                          lastRoll.dmgRolls?.map((roll, idx) => (
-                            <div
-                              key={idx}
-                              className="w-7 h-7 bg-zinc-900 border border-zinc-800 rounded-lg flex items-center justify-center text-zinc-300 font-bold text-[10px] shadow-inner"
-                            >
-                              {roll}
-                            </div>
-                          ))
-                        )}
-                        <div className="w-7 h-7 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-center text-amber-500 font-black text-[10px]">
-                          {lastRoll.dmgBonus! >= 0 ? "+" : ""}
-                          {lastRoll.dmgBonus}
+                    {lastRoll.hitSucceeded !== false && (
+                      <div className="space-y-2 relative">
+                        <div className="absolute left-[-12px] top-0 bottom-0 w-px bg-zinc-800" />
+                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest block text-center">
+                          Dados de Dano
+                        </span>
+                        <div className="flex flex-wrap justify-center gap-1.5">
+                          {lastRoll.dmgRolls?.length === 0 ? (
+                            <span className="text-[8px] font-bold text-zinc-600 uppercase italic mt-2">
+                              Fixo
+                            </span>
+                          ) : (
+                            lastRoll.dmgRolls?.map((roll, idx) => (
+                              <div
+                                key={idx}
+                                className="w-7 h-7 bg-zinc-900 border border-zinc-800 rounded-lg flex items-center justify-center text-zinc-300 font-bold text-[10px] shadow-inner"
+                              >
+                                {roll}
+                              </div>
+                            ))
+                          )}
+                          <div className="w-7 h-7 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-center text-amber-500 font-black text-[10px]">
+                            {lastRoll.dmgBonus! >= 0 ? "+" : ""}
+                            {lastRoll.dmgBonus}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
                   </div>
 
                   <motion.button

@@ -18,7 +18,8 @@ import {
   Info,
   MapPin,
   Smile,
-  Ghost
+  Ghost,
+  Download
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BestiaryMonster, MonsterAction } from "../types";
@@ -27,8 +28,10 @@ import {
   deleteMonsterFromBestiary, 
   subscribeToBestiary 
 } from "../services/bestiaryService";
+import { DEFAULT_MONSTERS } from "../constants/defaultMonsters";
 import { compressImageDataUrl } from "../lib/imageUtils";
 import { cn } from "../lib/utils";
+import { auth } from "../lib/firebase";
 
 interface BestiaryProps {
   onMonsterSelect?: (monster: BestiaryMonster) => void;
@@ -40,9 +43,26 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
   const [editingMonster, setEditingMonster] = useState<BestiaryMonster | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [isAdding, setIsAdding] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = subscribeToBestiary(setMonsters);
+    const unsubscribe = subscribeToBestiary((monstersData) => {
+      setMonsters(monstersData);
+      
+      // Auto-seed if empty and user is logged in
+      if (monstersData.length === 0 && auth.currentUser) {
+        (async () => {
+          for (const monster of DEFAULT_MONSTERS) {
+            await saveMonsterToBestiary({
+              ...monster,
+              id: Math.random().toString(36).substring(2, 11),
+              masterId: auth.currentUser!.uid
+            } as BestiaryMonster);
+          }
+        })();
+      }
+    });
     return () => unsubscribe();
   }, []);
 
@@ -52,6 +72,7 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
     id: generateId(),
     name: "Novo Monstro",
     maxHp: 20,
+    size: 1,
     esquiva: 0,
     acuracia: 0,
     deslocamento: "5 metros",
@@ -74,9 +95,30 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
     habitos: ""
   });
 
+  const MONSTER_SIZES = [
+    { label: 'Pequeno', value: 0.5 },
+    { label: 'Médio', value: 1.0 },
+    { label: 'Grande', value: 2.0 },
+    { label: 'Gigante', value: 4.0 },
+  ];
+
   const handleCreate = () => {
     setEditingMonster(getInitialMonster());
     setIsAdding(true);
+  };
+
+  const seedDefaults = async () => {
+    if (!auth.currentUser) return;
+    for (const monster of DEFAULT_MONSTERS) {
+      if (!monsters.some(m => m.name === monster.name)) {
+        await saveMonsterToBestiary({
+          ...monster,
+          id: generateId(),
+          masterId: auth.currentUser.uid
+        } as BestiaryMonster);
+      }
+    }
+    alert("Monstros base sincronizados com sucesso!");
   };
 
   const handleSave = async () => {
@@ -106,8 +148,20 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm("Deseja realmente excluir este monstro?")) {
+    console.log("Iniciando exclusão do monstro:", id);
+    try {
       await deleteMonsterFromBestiary(id);
+      console.log("Exclusão concluída com sucesso");
+      setDeletingId(null);
+    } catch (err: any) {
+      console.error("Erro na exclusão:", err);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      if (errorMsg.includes("permission-denied")) {
+        setError("Você não tem permissão para excluir este monstro.");
+      } else {
+        setError("Erro ao excluir monstro. Tente novamente.");
+      }
+      setTimeout(() => setError(null), 5000);
     }
   };
 
@@ -178,15 +232,35 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
           />
         </div>
         {!isSelectionMode && (
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={handleCreate}
-            className="flex items-center gap-2 bg-amber-500 text-zinc-950 px-4 py-2 rounded-xl font-bold uppercase tracking-widest text-xs"
-          >
-            <Plus size={18} /> Novo Demônio
-          </motion.button>
+          <div className="flex gap-2">
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={seedDefaults}
+              className="flex items-center gap-2 bg-zinc-800 text-zinc-300 px-4 py-2 rounded-xl font-bold uppercase tracking-widest text-[10px] border border-zinc-700 hover:bg-zinc-700 transition-colors"
+              title="Importar Monstros do Sistema"
+            >
+              <Download size={16} /> Importar Base
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={handleCreate}
+              className="flex items-center gap-2 bg-amber-500 text-zinc-950 px-4 py-2 rounded-xl font-bold uppercase tracking-widest text-xs shadow-lg shadow-amber-500/20"
+            >
+              <Plus size={18} /> Novo Demônio
+            </motion.button>
+          </div>
         )}
       </div>
+
+      {error && (
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-2 rounded-xl text-xs font-bold text-center"
+        >
+          {error}
+        </motion.div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-20">
         {filteredMonsters.map(monster => (
@@ -239,18 +313,44 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
               </button>
             ) : (
               <div className="flex gap-2 mt-auto">
-                <button 
-                  onClick={() => setEditingMonster(monster)}
-                  className="flex-1 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-xs font-bold uppercase transition-all"
-                >
-                  Editar Ficha
-                </button>
-                <button 
-                  onClick={() => handleDelete(monster.id)}
-                  className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-all"
-                >
-                  <Trash2 size={18} />
-                </button>
+                {deletingId === monster.id ? (
+                  <div className="flex-1 flex gap-2">
+                    <button 
+                      onClick={() => {
+                        console.log("Confirmou exclusão de:", monster.id);
+                        handleDelete(monster.id);
+                      }}
+                      className="flex-1 py-2 bg-red-600 text-white rounded-xl text-[10px] font-black uppercase shadow-lg shadow-red-600/20"
+                    >
+                      Confirmar Exclusão
+                    </button>
+                    <button 
+                      onClick={() => setDeletingId(null)}
+                      className="px-4 py-2 bg-zinc-800 text-zinc-400 rounded-xl text-[10px] font-black uppercase hover:text-white"
+                    >
+                      Sair
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button 
+                      onClick={() => setEditingMonster(monster)}
+                      className="flex-1 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-xs font-bold uppercase transition-all"
+                    >
+                      Editar Ficha
+                    </button>
+                    <button 
+                      onClick={() => {
+                        console.log("Clicou no lixo para:", monster.id);
+                        setDeletingId(monster.id);
+                      }}
+                      className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-all"
+                      title="Excluir"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </motion.div>
@@ -351,6 +451,25 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
                             value={editingMonster.acuracia}
                             onChange={(e) => setEditingMonster({ ...editingMonster, acuracia: e.target.value === "" ? "" : parseInt(e.target.value) })}
                         />
+                    </div>
+                    <div className="col-span-2">
+                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-2 mb-1 block flex items-center gap-1">
+                            Escala / Tamanho do Token (Opcional)
+                        </label>
+                        <div className="grid grid-cols-4 gap-2 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
+                            {MONSTER_SIZES.map(s => (
+                                <button
+                                    key={s.value}
+                                    onClick={() => setEditingMonster({ ...editingMonster, size: s.value })}
+                                    className={cn(
+                                        "py-2 rounded-lg text-[10px] font-black uppercase transition-all",
+                                        (editingMonster.size || 1) === s.value ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" : "text-zinc-500 hover:text-zinc-300"
+                                    )}
+                                >
+                                    {s.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                   </div>
                 </div>

@@ -6,51 +6,11 @@
     <title>RPG: Demon's Despair - V9.0 Stable</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://apis.google.com/js/api.js"></script>
-    <script>
-      // SCRIPT DE VERSÃO - V9.0
-      (function() {
-        const VERSION = '9.0';
-        const lastInjected = localStorage.getItem('app_version_injected');
-        if (lastInjected !== VERSION) {
-          console.log("Atualizando para V9.0...");
-          localStorage.setItem('app_version_injected', VERSION);
-          if (typeof caches !== 'undefined') {
-            caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
-          }
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
-          }
-          setTimeout(() => window.location.reload(true), 100);
-        }
-      })();
-    </script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      // SCRIPT DE LIMPEZA DE EMERGÊNCIA (Anti-Cache/Anti-PWA)
-      console.log("Iniciando limpeza de cache V4.2...");
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(function(registrations) {
-          for(let registration of registrations) {
-            registration.unregister().then(() => {
-                console.log("Service Worker removido (V4.2).");
-            });
-          }
-        });
-      }
-      
-      // Limpa caches antigos se existirem
-      if (typeof caches !== 'undefined') {
-        caches.keys().then(function(names) {
-          for (let name of names) {
-              caches.delete(name);
-              console.log("Cache deletado:", name);
-          }
-        });
-      }
-      
       // Se houver parâmetro 'clear', limpa localStorage
       if (window.location.search.includes('clear=true')) {
           localStorage.clear();

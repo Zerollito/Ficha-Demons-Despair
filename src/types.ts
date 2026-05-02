@@ -66,6 +66,8 @@ export interface TableToken {
   description?: string;
   // Stats rápidos para monstros
   stats?: {
+    acuracia?: number;
+    esquiva?: number;
     ataque: { 
       corte: number; perfuracao: number; impacto: number; resistencia: number;
       feitico: number; elemental: number; magiaNegra: number; potencial: number;
@@ -101,6 +103,7 @@ export interface BestiaryMonster {
   name: string;
   imageUrl?: string;
   maxHp: number | string;
+  size?: number;
   esquiva: number | string;
   acuracia: number | string;
   deslocamento: string;
