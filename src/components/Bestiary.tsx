@@ -50,6 +50,29 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
     const unsubscribe = subscribeToBestiary((monstersData) => {
       setMonsters(monstersData);
       
+      // Auto-migration: If monsters exist but don't have images, and they match default names
+      if (monstersData.length > 0 && auth.currentUser) {
+        (async () => {
+          let updatedAny = false;
+          for (const m of monstersData) {
+            if (!m.imageUrl) {
+              const defaultMatch = DEFAULT_MONSTERS.find(dm => dm.name === m.name);
+              if (defaultMatch && defaultMatch.imageUrl) {
+                console.log(`Auto-updating image for ${m.name}`);
+                await saveMonsterToBestiary({
+                  ...m,
+                  imageUrl: defaultMatch.imageUrl
+                });
+                updatedAny = true;
+              }
+            }
+          }
+          if (updatedAny) {
+            console.log("Migration complete: Monster images updated.");
+          }
+        })();
+      }
+
       // Auto-seed if empty and user is logged in
       if (monstersData.length === 0 && auth.currentUser) {
         (async () => {

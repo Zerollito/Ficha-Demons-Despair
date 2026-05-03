@@ -3,6 +3,7 @@ import { BestiaryMonster } from "../types";
 export const DEFAULT_MONSTERS: Omit<BestiaryMonster, 'masterId' | 'id'>[] = [
   {
     name: "Basilisco",
+    imageUrl: "Basilisco.jpg",
     maxHp: 60,
     size: 6,
     esquiva: 0,
@@ -25,6 +26,7 @@ export const DEFAULT_MONSTERS: Omit<BestiaryMonster, 'masterId' | 'id'>[] = [
   },
   {
     name: "Demônio de Fogo (Ignis homo)",
+    imageUrl: "demonio de fogo.jpg",
     maxHp: 40,
     size: 1.7,
     esquiva: 1,
@@ -47,6 +49,7 @@ export const DEFAULT_MONSTERS: Omit<BestiaryMonster, 'masterId' | 'id'>[] = [
   },
   {
     name: "Jackalope",
+    imageUrl: "Jackalope.jpg",
     maxHp: 6,
     size: 0.4,
     esquiva: 3,
@@ -65,6 +68,7 @@ export const DEFAULT_MONSTERS: Omit<BestiaryMonster, 'masterId' | 'id'>[] = [
   },
   {
     name: "Noctua Luna",
+    imageUrl: "noctua luna.jpg",
     maxHp: 15,
     size: 1.7,
     esquiva: 3,
@@ -87,6 +91,7 @@ export const DEFAULT_MONSTERS: Omit<BestiaryMonster, 'masterId' | 'id'>[] = [
   },
   {
     name: "Rapinomônio (Borboleta Fantasma)",
+    imageUrl: "rapinomonio.jpg",
     maxHp: 30,
     size: 0.8,
     esquiva: 4,
@@ -108,6 +113,7 @@ export const DEFAULT_MONSTERS: Omit<BestiaryMonster, 'masterId' | 'id'>[] = [
   },
   {
     name: "Tobi Kadachi",
+    imageUrl: "Tobi Kadachi.jpg",
     maxHp: 30,
     size: 1.6,
     esquiva: 2,
@@ -130,6 +136,7 @@ export const DEFAULT_MONSTERS: Omit<BestiaryMonster, 'masterId' | 'id'>[] = [
   },
   {
     name: "Corredor",
+    imageUrl: "Corredor.jpg",
     maxHp: 25,
     size: 2.2,
     esquiva: 2,
@@ -150,6 +157,7 @@ export const DEFAULT_MONSTERS: Omit<BestiaryMonster, 'masterId' | 'id'>[] = [
   },
   {
     name: "Baku / Pã",
+    imageUrl: "Baku.jpg",
     maxHp: 20,
     size: 1,
     esquiva: 1,

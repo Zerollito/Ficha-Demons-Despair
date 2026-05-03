@@ -68,13 +68,15 @@ import {
   subscribeToTableConfig, 
   addToken, 
   removeToken, 
-  updateTableConfig 
+  updateTableConfig,
+  updateTokenPosition 
 } from "./services/vttService";
 import { onAuthStateChanged, User } from "firebase/auth";
 
 import { Character, AppState, ArmorPiece, Campaign, TableToken, TableConfig, BestiaryMonster } from "./types";
 import { VTTBoard } from "./components/VTTBoard";
 import { Bestiary } from "./components/Bestiary";
+import { DEFAULT_MONSTERS } from "./constants/defaultMonsters";
 import {
   Stats,
   PROFICIENCIES,
@@ -231,7 +233,13 @@ const createEmptyCharacter = (): Character => ({
 });
 
 const sanitizeCharacter = (char: any): Character => {
+  if (!char || typeof char !== "object") return createEmptyCharacter();
+  
   const def = createEmptyCharacter();
+  
+  // Helper to ensure we have an array
+  const ensureArray = (arr: any) => Array.isArray(arr) ? arr : [];
+
   return {
     ...def,
     ...char,
@@ -240,21 +248,27 @@ const sanitizeCharacter = (char: any): Character => {
     stats: { ...def.stats, ...(char.stats || {}) },
     statsXP: { ...def.statsXP, ...(char.statsXP || {}) },
     bonusProficiencias: char.bonusProficiencias || {},
-    compartimentos: (char.compartimentos || def.compartimentos).map((comp: any) => ({
+    compartimentos: ensureArray(char.compartimentos || def.compartimentos).map((comp: any) => ({
       ...comp,
-      itens: comp.itens || []
+      itens: ensureArray(comp.itens || [])
     })),
-    conhecimentos: char.conhecimentos || def.conhecimentos,
-    anotacoes: char.anotacoes || def.anotacoes,
-    magias: (char.magias || []).map((m: any) => ({
+    conhecimentos: ensureArray(char.conhecimentos || def.conhecimentos),
+    anotacoes: ensureArray(char.anotacoes || def.anotacoes),
+    magias: ensureArray(char.magias || []).map((m: any) => ({
       ...m,
-      tipo: m.tipo === "ataque" ? "Ataque" : m.tipo,
+      tipo: m.tipo === "ataque" ? "Ataque" : (m.tipo || "Ataque"),
     })),
+    armas: ensureArray(char.armas || []),
+    catalisadores: ensureArray(char.catalisadores || []),
+    habilidades: ensureArray(char.habilidades || []),
+    armaduras: ensureArray(char.armaduras || []),
+    acessorios: ensureArray(char.acessorios || []),
+    escalas: ensureArray(char.escalas || []),
+    dadosCustomizados: ensureArray(char.dadosCustomizados || []),
+    imagens: ensureArray(char.imagens || []),
+    efeitosNegativos: ensureArray(char.efeitosNegativos || []),
     // Ensure nested fields that migrated over time are present
     clima: typeof char.clima === "object" ? 0 : char.clima || 0,
-    escalas: char.escalas || [],
-    catalisadores: char.catalisadores || [],
-    acessorios: char.acessorios || [],
   };
 };
 
@@ -579,6 +593,23 @@ function App() {
     
     const unsubTokens = subscribeToTokens(activeCampaignId, (tks) => {
       setTokens(tks);
+      
+      // Auto-migration for tokens: update images for default monsters
+      if (tks.length > 0 && activeCampaignId) {
+        (async () => {
+          for (const t of tks) {
+            if (t.type === 'creature' && !t.imageUrl) {
+              const defaultMatch = DEFAULT_MONSTERS.find(dm => dm.name === t.name);
+              if (defaultMatch && defaultMatch.imageUrl) {
+                console.log(`Auto-updating token image for ${t.name} in campaign ${activeCampaignId}`);
+                await updateTokenPosition(activeCampaignId, t.id, { 
+                  imageUrl: defaultMatch.imageUrl 
+                });
+              }
+            }
+          }
+        })();
+      }
     });
 
     const unsubConfig = subscribeToTableConfig(activeCampaignId, (cfg) => {
@@ -1224,26 +1255,57 @@ function App() {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const char = sanitizeCharacter(JSON.parse(event.target?.result as string));
-        char.id = generateId(); // New ID for safety
+        const rawResult = event.target?.result as string;
+        const json = JSON.parse(rawResult);
         
-        // Mark as dirty so the Firestore listener doesn't overwrite it immediately
-        dirtyCharsRef.current.add(char.id);
+        let charsToImport: any[] = [];
+        
+        if (Array.isArray(json)) {
+          // If it's an array, assume it's an array of characters
+          charsToImport = json;
+        } else if (json.characters && Array.isArray(json.characters)) {
+          // If it's a full state object
+          charsToImport = json.characters;
+        } else if (json.nome || json.id) {
+          // If it's a single character object
+          charsToImport = [json];
+        } else {
+          throw new Error("Formato de arquivo não reconhecido.");
+        }
+
+        const sanitizedChars = charsToImport.map(c => {
+          const sanitized = sanitizeCharacter(c);
+          sanitized.id = generateId(); // New ID for safety
+          return sanitized;
+        });
+
+        if (sanitizedChars.length === 0) {
+          throw new Error("Nenhum personagem encontrado no arquivo.");
+        }
+
+        // Mark as dirty so the Firestore listener doesn't overwrite them immediately
+        sanitizedChars.forEach(c => dirtyCharsRef.current.add(c.id));
         
         setState((prev) => ({
           ...prev,
-          characters: [...prev.characters, char],
-          activeCharacterId: char.id,
+          characters: [...prev.characters, ...sanitizedChars],
+          activeCharacterId: sanitizedChars[sanitizedChars.length - 1].id,
         }));
         
         if (user) {
-          saveCharacterToFirestore(char);
-          lastSyncedRef.current[char.id] = JSON.stringify(char);
+          sanitizedChars.forEach(c => {
+            saveCharacterToFirestore(c);
+            lastSyncedRef.current[c.id] = JSON.stringify(c);
+          });
         }
         
-        showToast("Ficha importada com sucesso!", "success");
-      } catch (err) {
-        showToast("Erro ao importar ficha.", "error");
+        showToast(sanitizedChars.length === 1 ? "Ficha importada com sucesso!" : `${sanitizedChars.length} fichas importadas com sucesso!`, "success");
+      } catch (err: any) {
+        console.error("Erro ao importar JSON:", err);
+        showToast(err.message || "Erro ao importar ficha.", "error");
+      } finally {
+        // Reset the input value so the same file can be selected again
+        e.target.value = "";
       }
     };
     reader.readAsText(file);
