@@ -538,9 +538,12 @@ function App() {
     if (!user) return;
     
     const unsubscribe = subscribeToUserCharacters((fireChars) => {
+      // Filter out characters that were recently deleted locally
+      const validFireChars = fireChars.filter(fc => !deletedCharsRef.current.has(fc.id));
+      
       // Merge with local state, preserving local changes for "dirty" characters
       setState(prev => {
-        const mergedCharacters = fireChars.map(fChar => {
+        const mergedCharacters = validFireChars.map(fChar => {
           const charJson = JSON.stringify(fChar);
           
           // If we have unsaved local changes, prefer the local version
@@ -558,12 +561,16 @@ function App() {
         });
 
         // Add characters that exist locally but not yet in Firestore (newly created)
-        const localOnly = prev.characters.filter(lc => !fireChars.some(fc => fc.id === lc.id));
+        // Also ensure they haven't been deleted
+        const localOnly = prev.characters.filter(lc => 
+          !validFireChars.some(fc => fc.id === lc.id) && 
+          !deletedCharsRef.current.has(lc.id)
+        );
         
         return {
           ...prev,
           characters: [...mergedCharacters, ...localOnly],
-          activeCharacterId: prev.activeCharacterId || (fireChars.length > 0 ? fireChars[0].id : prev.activeCharacterId)
+          activeCharacterId: prev.activeCharacterId || (validFireChars.length > 0 ? validFireChars[0].id : prev.activeCharacterId)
         };
       });
     });
@@ -625,6 +632,7 @@ function App() {
 
   const menuRef = useRef<HTMLDivElement>(null);
   const dirtyCharsRef = useRef<Set<string>>(new Set());
+  const deletedCharsRef = useRef<Set<string>>(new Set());
 
   const activeChar = useMemo(() => {
     const char = state.characters.find((c) => c.id === state.activeCharacterId);
@@ -1352,6 +1360,11 @@ function App() {
     if (state.characters.length <= 1) return;
     const idToDelete = state.activeCharacterId;
     
+    if (idToDelete) {
+      deletedCharsRef.current.add(idToDelete);
+      dirtyCharsRef.current.delete(idToDelete);
+    }
+
     setState((prev) => {
       const remaining = prev.characters.filter(
         (c) => c.id !== idToDelete,
@@ -5147,6 +5160,9 @@ function App() {
                             onClick={(e) => {
                               e.stopPropagation();
                               if (confirm(`Excluir permanentemente "${char.nome}"?`)) {
+                                deletedCharsRef.current.add(char.id);
+                                dirtyCharsRef.current.delete(char.id);
+                                
                                 if (user) deleteCharacterFromFirestore(char.id);
                                 setState(prev => {
                                   const filtered = prev.characters.filter(c => c.id !== char.id);
