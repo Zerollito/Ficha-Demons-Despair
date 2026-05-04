@@ -48,6 +48,7 @@ import {
   Maximize,
   RefreshCw as RefreshCwIcon,
   Library,
+  Smartphone,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
@@ -59,6 +60,7 @@ import { subscribeToUserCharacters, saveCharacterToFirestore, deleteCharacterFro
 import { 
   createCampaign, 
   subscribeToMasterCampaigns, 
+  subscribeToCampaignsByIds,
   joinCampaign, 
   subscribeToCampaignCharacters,
   deleteCampaign 
@@ -426,7 +428,17 @@ function App() {
   const [activePage, setActivePage] = useState<
     "sheet" | "notes" | "dice" | "gallery" | "master" | "table" | "bestiary" | "library"
   >("sheet");
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [masterCampaigns, setMasterCampaigns] = useState<Campaign[]>([]);
+  const [joinedCampaigns, setJoinedCampaigns] = useState<Campaign[]>([]);
+  const campaigns = useMemo(() => {
+    const combined = [...masterCampaigns, ...joinedCampaigns];
+    const seen = new Set();
+    return combined.filter(c => {
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
+  }, [masterCampaigns, joinedCampaigns]);
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null);
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([]);
   const [tokens, setTokens] = useState<TableToken[]>([]);
@@ -435,6 +447,42 @@ function App() {
   const [newCampaignName, setNewCampaignName] = useState("");
   const [campaignToDelete, setCampaignToDelete] = useState<string | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    // Check if inside an iframe
+    const isIframe = window.self !== window.top;
+    if (isIframe) {
+      showToast("Abra o app em uma nova aba para poder instalá-lo!", "error");
+      return;
+    }
+
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === "accepted") {
+        setDeferredPrompt(null);
+      }
+    } else {
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS) {
+        showToast("No iOS: Toque em Compartilhar e 'Seguir para Tela de Início'", "info");
+      } else {
+        showToast("Use o menu do navegador e selecione 'Instalar Aplicativo'", "info");
+      }
+    }
+    setIsMenuOpen(false);
+  };
+
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -561,9 +609,11 @@ function App() {
         });
 
         // Add characters that exist locally but not yet in Firestore (newly created)
-        // Also ensure they haven't been deleted
+        // Only keep them if they are DIRTY (meaning we intentionally have them locally)
+        // AND not deleted
         const localOnly = prev.characters.filter(lc => 
           !validFireChars.some(fc => fc.id === lc.id) && 
+          dirtyCharsRef.current.has(lc.id) &&
           !deletedCharsRef.current.has(lc.id)
         );
         
@@ -578,14 +628,30 @@ function App() {
     return () => unsubscribe();
   }, [user]);
 
-  // Firebase Campaigns Effect
+  // Master Campaigns Effect
   useEffect(() => {
     if (!user) return;
     const unsubscribe = subscribeToMasterCampaigns((camps) => {
-      setCampaigns(camps);
+      setMasterCampaigns(camps);
     });
     return () => unsubscribe();
   }, [user]);
+
+  // Player Joined Campaigns Effect
+  const joinedCampaignIds = useMemo(() => {
+    return Array.from(new Set(state.characters.map(c => c.campaignId).filter(id => !!id)));
+  }, [state.characters]);
+
+  useEffect(() => {
+    if (!user || joinedCampaignIds.length === 0) {
+      setJoinedCampaigns([]);
+      return;
+    }
+    const unsubscribe = subscribeToCampaignsByIds(joinedCampaignIds as string[], (camps) => {
+      setJoinedCampaigns(camps);
+    });
+    return () => unsubscribe();
+  }, [user, joinedCampaignIds]);
 
   // Campaign Characters Effect
   useEffect(() => {
@@ -834,6 +900,75 @@ function App() {
     setLastRoll({ result: finalResult, formula, rolls, bonus });
   };
 
+  const rollSpell = (spell: any, bonusManual: number) => {
+    if (!activeChar) return;
+    
+    // 1. Calculate Hit Bonus (Acurácia)
+    const acuraciaBonus = calculateProficiencyBonus(
+      activeChar.stats,
+      "Acurácia",
+      ["FOR", "DEX"],
+      activeChar.fome,
+      activeChar.sede,
+      activeChar.cansaco,
+      activeChar.clima,
+      climateProficiency,
+      activeChar.bonusProficiencias?.["Acurácia"] || 0,
+    );
+    const totalHitBonus = (acuraciaBonus || 0) + (bonusManual || 0);
+
+    // 2. Roll Hit (3d8)
+    const hitRolls: number[] = [];
+    let hitTotal = 0;
+    for (let i = 0; i < 3; i++) {
+      const r = Math.floor(Math.random() * 8) + 1;
+      hitRolls.push(r);
+      hitTotal += r;
+    }
+    const finalHit = hitTotal + totalHitBonus;
+    const hitFormula = `3d8${totalHitBonus !== 0 ? (totalHitBonus > 0 ? "+" : "") + totalHitBonus : ""}`;
+
+    // 3. Calculate Damage Bonus from Catalyst
+    const catalyst = activeChar.catalisadores?.[0];
+    const catalystBonus = catalyst ? (calculateWeaponDamageBonus(catalyst as any, activeChar.stats.INT) || 0) : 0;
+    const totalDmgBonus = catalystBonus + (bonusManual || 0);
+
+    // 4. Roll Damage
+    const rollData = parseAndRollDice(spell.dano || "1d6");
+    const finalDmgTotal = rollData.total + totalDmgBonus;
+    let finalDmgFormula = rollData.fullFormula;
+    if (totalDmgBonus !== 0) {
+      finalDmgFormula += ` ${totalDmgBonus > 0 ? '+' : ''}${totalDmgBonus}`;
+    }
+
+    // 5. Roll Hit Location
+    const locationIdx = Math.floor(Math.random() * 6);
+    const locationName = HIT_LOCATIONS[locationIdx];
+
+    // 6. Handle result
+    handleRollResult({
+      isCombat: true,
+      hitSucceeded: true,
+      armaNome: spell.nome,
+      hitResult: finalHit,
+      hitRolls: hitRolls,
+      hitFormula: hitFormula,
+      hitBonus: totalHitBonus,
+      dmgResult: finalDmgTotal,
+      dmgFormula: finalDmgFormula,
+      dmgRolls: rollData.rolls,
+      dmgBonus: totalDmgBonus + rollData.flatBonus,
+      hitLocation: locationName,
+    });
+
+    // 7. Consume Mana
+    if (activeChar.manaAtual >= (spell.mana || 0)) {
+      updateChar({ manaAtual: activeChar.manaAtual - (spell.mana || 0) });
+    } else {
+      showToast("Mana insuficiente para rolar esta magia!", "error");
+    }
+  };
+
   const rollCombat = (arma: any, bonusManual: number) => {
     if (!activeChar) return;
     // 1. Calculate Hit Bonus (Acurácia)
@@ -1049,10 +1184,12 @@ function App() {
     const timers: NodeJS.Timeout[] = [];
     
     state.characters.forEach(char => {
-      const charJson = JSON.stringify(char);
-      if (lastSyncedRef.current[char.id] !== charJson) {
-        // Debounce each character sync individually
-        const timer = setTimeout(async () => {
+      // Only sync if dirty AND has changed from last synced version
+      if (dirtyCharsRef.current.has(char.id)) {
+        const charJson = JSON.stringify(char);
+        if (lastSyncedRef.current[char.id] !== charJson) {
+          // Debounce each character sync individually
+          const timer = setTimeout(async () => {
           try {
             // Before saving, verify we are still using the version that triggered this timer
             // or if a newer version exists, this timer might be stale (though clearTimeout handles most cases)
@@ -1077,11 +1214,19 @@ function App() {
           }
         }, 1500); // Increased debounce for stability
         timers.push(timer);
+        }
       }
     });
 
     return () => timers.forEach(t => clearTimeout(t));
   }, [state.characters, user]);
+
+  // Sync userEmail if missing
+  useEffect(() => {
+    if (user && activeChar && !activeChar.userEmail && activeChar.userId === user.uid) {
+      updateChar({ userEmail: user.email || "" });
+    }
+  }, [user, activeChar?.id, activeChar?.userEmail, activeChar?.userId, updateChar]);
 
   const showToast = useCallback(
     (message: string, type: "error" | "success" | "info" = "info") => {
@@ -1488,19 +1633,21 @@ function App() {
             >
               <Shield size={28} />
             </motion.button>
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setActivePage("bestiary")}
-              className={cn(
-                "p-2 sm:p-4 rounded-xl transition-all",
-                activePage === "bestiary"
-                  ? "bg-red-600 text-white shadow-lg shadow-red-600/20"
-                  : "text-zinc-500 hover:text-zinc-300",
-              )}
-              title="Bestiário de Demônios"
-            >
-              <Skull size={28} />
-            </motion.button>
+            {campaigns.some(c => c.masterId === user?.uid) && (
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setActivePage("bestiary")}
+                className={cn(
+                  "p-2 sm:p-4 rounded-xl transition-all",
+                  activePage === "bestiary"
+                    ? "bg-red-600 text-white shadow-lg shadow-red-600/20"
+                    : "text-zinc-500 hover:text-zinc-300",
+                )}
+                title="Bestiário de Demônios"
+              >
+                <Skull size={28} />
+              </motion.button>
+            )}
             {activeCampaignId && (
               <motion.button
                 whileTap={{ scale: 0.95 }}
@@ -1567,17 +1714,14 @@ function App() {
           >
             <div className="px-3 py-2 border-b border-zinc-800 mb-1">
               <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">
-                Biblioteca
+                Sistema
               </label>
               <motion.button
                 whileTap={{ scale: 0.95 }}
-                onClick={() => {
-                  setActivePage("library");
-                  setIsMenuOpen(false);
-                }}
-                className="w-full flex items-center gap-3 px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg transition-colors text-sm font-bold text-amber-500 border border-amber-500/20"
+                onClick={handleInstallClick}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm font-bold border bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border-amber-500/20"
               >
-                <Library size={18} /> Abrir "Drive" de Fichas
+                <Smartphone size={18} /> Instalar na Tela Inicial
               </motion.button>
             </div>
 
@@ -1691,7 +1835,7 @@ function App() {
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
-                className="bg-zinc-900 border border-zinc-800 p-6 rounded-xl max-w-sm w-full shadow-2xl"
+                className="bg-zinc-900 border border-zinc-800 p-6 rounded-xl max-w-sm w-full shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar"
               >
                 <h3 className="text-lg font-bold mb-2">Excluir Personagem?</h3>
                 <p className="text-zinc-400 text-sm mb-6">
@@ -1725,12 +1869,11 @@ function App() {
         activePage === "table" || activePage === "dice" || activePage === "master" ? "h-full w-full overflow-hidden p-0" : "max-w-7xl mx-auto w-full p-4 md:p-6 pb-20"
       )}>
         {activePage === "sheet" ? (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left Column: Basic Info & Stats */}
-            <div className="lg:col-span-4 space-y-6">
-              <Section title="Personagem" icon={<UserIcon size={18} />} collapsible>
+          <div className="max-w-4xl mx-auto w-full space-y-8 flex flex-col">
+            {/* All Sections Stacking Vertically */}
+            <Section title="Personagem" icon={<UserIcon size={18} />} collapsible defaultCollapsed={false}>
                 <div className="space-y-4">
-                  <div className="flex flex-col items-center gap-4 mb-4">
+                  <div className="flex flex-col items-center gap-2 mb-4">
                     <div className="w-32 h-32 bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden flex items-center justify-center relative group">
                       {activeChar.imagem ? (
                         <img
@@ -1752,6 +1895,12 @@ function App() {
                         />
                       </label>
                     </div>
+                    {activeChar.userEmail && (
+                      <div className="flex flex-col items-center">
+                        <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Dono</p>
+                        <p className="text-sm text-amber-500/80 font-medium">{activeChar.userEmail}</p>
+                      </div>
+                    )}
                     {activeChar.imagem && (
                       <motion.button
                         whileTap={{ scale: 0.95 }}
@@ -2302,10 +2451,7 @@ function App() {
                   })}
                 </div>
               </Section>
-            </div>
 
-            {/* Center Column: Proficiencies */}
-            <div className="lg:col-span-4 space-y-6">
               <Section
                 title="Proficiências"
                 icon={<Shield size={18} />}
@@ -2376,22 +2522,19 @@ function App() {
                   })}
                 </div>
               </Section>
-            </div>
 
-            {/* Right Column: Knowledge & Equipment */}
-            <div className="lg:col-span-4 space-y-6">
               <Section
                 title="Equipamentos"
                 icon={<Package size={18} />}
                 collapsible
-                defaultCollapsed={false}
+                defaultCollapsed={true}
               >
                 <div className="space-y-6">
                   {/* Armas Section */}
                   <SubSection
                     title="Armas"
                     icon={<Sword size={14} />}
-                    defaultCollapsed={false}
+                    defaultCollapsed={true}
                   >
                     <div className="flex justify-between items-center mb-2">
                       <h4 className="text-[10px] font-bold text-zinc-500 uppercase">
@@ -2876,7 +3019,7 @@ function App() {
                 title="Compartimentos"
                 icon={<Backpack size={18} />}
                 collapsible
-                defaultCollapsed={false}
+                defaultCollapsed={true}
               >
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -4381,8 +4524,7 @@ function App() {
 
 
             </div>
-          </div>
-        ) : activePage === "dice" ? (
+          ) : activePage === "dice" ? (
           <div className="flex flex-col h-full w-full max-w-5xl mx-auto bg-zinc-950">
             {/* Tabs Header */}
             <div className="flex border-b border-zinc-800 bg-zinc-900/10">
@@ -4519,11 +4661,88 @@ function App() {
                           </motion.button>
                         );
                       })}
-                      {!activeChar.armas?.length && (
+                      {!activeChar.armas?.length && !activeChar.magias?.length && (
                         <div className="col-span-full py-4 text-center text-zinc-600 text-[10px] font-bold uppercase italic border border-dashed border-zinc-800 rounded-xl">
-                          Nenhuma arma equipada na aba de equipamentos
+                          Nenhum ataque ou magia disponível
                         </div>
                       )}
+                      
+                      {/* Magias do Personagem */}
+                      {(activeChar.magias || []).map((spell, sIdx) => {
+                        const acuraciaBonus = calculateProficiencyBonus(
+                          activeChar.stats,
+                          "Acurácia",
+                          ["FOR", "DEX"],
+                          activeChar.fome,
+                          activeChar.sede,
+                          activeChar.cansaco,
+                          activeChar.clima,
+                          climateProficiency,
+                          activeChar.bonusProficiencias?.["Acurácia"] || 0,
+                        );
+
+                        const totalHit = (acuraciaBonus || 0);
+                        const spellAcerto = (spell.acerto || 0);
+                        const danoStr = (spell.dano || "1d6").toLowerCase().replace(/\s+/g, "");
+                        
+                        const catalyst = activeChar.catalisadores?.[0];
+                        const catalystBonus = catalyst ? (calculateWeaponDamageBonus(catalyst as any, activeChar.stats.INT) || 0) : 0;
+
+                        return (
+                          <motion.button
+                            key={`${spell.id}-${sIdx}`}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => rollSpell(spell, diceBonus)}
+                            className="flex flex-col gap-3 p-4 bg-indigo-900/10 border border-indigo-900/30 rounded-xl hover:border-indigo-500/50 transition-all text-left relative group overflow-hidden"
+                          >
+                            <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-100 transition-opacity">
+                              <Zap size={24} className="text-indigo-400" />
+                            </div>
+
+                            <div className="flex flex-col">
+                              <span className="text-xs font-black text-indigo-400 uppercase tracking-tighter truncate pr-8">
+                                {spell.nome}
+                              </span>
+                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
+                                <span className="text-[9px] text-zinc-500 font-bold uppercase">
+                                  {spell.escola} • Acerto Magia: {spellAcerto} • Mana: {spell.mana}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800/50">
+                              <div className="flex flex-col">
+                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">
+                                  Bônus Acerto
+                                </span>
+                                <span className="text-xs font-black text-indigo-400">
+                                  +{totalHit}
+                                </span>
+                                <span className="text-[7px] text-zinc-600 uppercase font-bold">
+                                  Acurácia +{acuraciaBonus}
+                                </span>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">
+                                  Dano
+                                </span>
+                                <span className="text-xs font-black text-zinc-300">
+                                  {danoStr}{catalystBonus > 0 ? `+${catalystBonus}` : catalystBonus < 0 ? catalystBonus : ""}
+                                </span>
+                                <span className="text-[7px] text-zinc-600 uppercase font-bold text-indigo-900/70">
+                                  Catalisador +{catalystBonus}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-zinc-800/50 flex items-center justify-between">
+                              <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-1">
+                                Conjurar <Zap size={10} />
+                              </span>
+                            </div>
+                          </motion.button>
+                        );
+                      })}
                     </div>
                   </SubSection>
 
@@ -5060,7 +5279,7 @@ function App() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {state.characters.map((char) => (
+                {state.characters.filter(char => !user || !char.userId || char.userId === user.uid).map((char) => (
                   <motion.div
                     key={char.id}
                     layoutId={char.id}
@@ -5379,70 +5598,106 @@ function App() {
               </div>
 
               {user && (
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                  {/* Minhas Campanhas */}
-                  <div className="lg:col-span-1 space-y-4">
-                    <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest px-1">Minhas Campanhas</h3>
-                    <div className="space-y-2">
-                      {campaigns.map(camp => (
-                        <div
-                          key={camp.id}
-                          className={cn(
-                            "group relative w-full p-4 rounded-xl border transition-all flex flex-col gap-1 cursor-pointer",
-                            activeCampaignId === camp.id
-                              ? "bg-purple-600/10 border-purple-500 text-purple-400"
-                              : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700"
-                          )}
-                          onClick={() => setActiveCampaignId(camp.id)}
-                        >
-                          <span className="font-bold truncate pr-8">{camp.name}</span>
-                          <span className="text-[10px] font-mono opacity-60">Cód: {camp.inviteCode}</span>
-                          
-                          <button
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              if (campaignToDelete === camp.id) {
-                                try {
-                                  await deleteCampaign(camp.id);
-                                  if (activeCampaignId === camp.id) setActiveCampaignId(null);
-                                  showToast("Campanha apagada.", "success");
-                                  setCampaignToDelete(null);
-                                } catch (err: any) {
-                                  showToast("Erro ao apagar campanha.", "error");
-                                }
-                              } else {
-                                setCampaignToDelete(camp.id);
-                                // Reset after 3 seconds
-                                setTimeout(() => setCampaignToDelete(null), 3000);
-                              }
-                            }}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  {/* Campanhas List */}
+                  <div className="lg:col-span-4 space-y-6">
+                    <div>
+                      <h3 className="text-[10px] font-black text-purple-500 uppercase tracking-[0.2em] mb-3 px-1 flex items-center gap-2">
+                        <Shield size={12} /> Campanhas que Mestro
+                      </h3>
+                      <div className="space-y-2">
+                        {masterCampaigns.map(camp => (
+                          <div
+                            key={camp.id}
                             className={cn(
-                              "absolute top-1/2 -translate-y-1/2 right-2 p-2 rounded-lg transition-all z-10 flex items-center gap-2",
-                              campaignToDelete === camp.id 
-                                ? "bg-red-600 text-white" 
-                                : "bg-zinc-950 text-zinc-600 hover:text-red-500 hover:bg-zinc-800"
+                              "group relative w-full p-4 rounded-2xl border transition-all flex flex-col gap-1 cursor-pointer",
+                              activeCampaignId === camp.id
+                                ? "bg-purple-600/10 border-purple-500 text-purple-400 shadow-[0_0_20px_rgba(147,51,234,0.1)]"
+                                : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700"
                             )}
-                            title={campaignToDelete === camp.id ? "Confirmar exclusão" : "Apagar Campanha"}
+                            onClick={() => setActiveCampaignId(camp.id)}
                           >
-                            {campaignToDelete === camp.id ? (
-                              <>
-                                <span className="text-[10px] font-bold uppercase">Confirmar?</span>
-                                <Trash2 size={14} />
-                              </>
-                            ) : (
+                            <span className="font-bold truncate pr-10 text-sm">{camp.name}</span>
+                            <div className="flex items-center gap-2 text-[10px] font-mono opacity-60">
+                               <div className="w-1 h-1 rounded-full bg-purple-500" />
+                               Cód: {camp.inviteCode}
+                            </div>
+                            
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (campaignToDelete === camp.id) {
+                                  try {
+                                    await deleteCampaign(camp.id);
+                                    if (activeCampaignId === camp.id) setActiveCampaignId(null);
+                                    showToast("Campanha apagada.", "success");
+                                    setCampaignToDelete(null);
+                                  } catch (err: any) {
+                                    showToast("Erro ao apagar campanha.", "error");
+                                  }
+                                } else {
+                                  setCampaignToDelete(camp.id);
+                                  setTimeout(() => setCampaignToDelete(null), 3000);
+                                }
+                              }}
+                              className={cn(
+                                "absolute top-4 right-4 p-2 rounded-xl transition-all z-10 flex items-center gap-2",
+                                campaignToDelete === camp.id 
+                                  ? "bg-red-600 text-white" 
+                                  : "bg-zinc-950 text-zinc-600 hover:text-red-500 hover:bg-zinc-800"
+                              )}
+                            >
                               <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))}
+                        {masterCampaigns.length === 0 && (
+                          <div className="text-center py-8 bg-zinc-900/50 border border-dashed border-zinc-800 rounded-2xl">
+                             <p className="text-[10px] text-zinc-600 font-bold uppercase">Nenhuma campanha criada</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mb-3 px-1 flex items-center gap-2">
+                        <UserIcon size={12} /> Campanhas que Participo
+                      </h3>
+                      <div className="space-y-2">
+                        {joinedCampaigns.map(camp => (
+                          <div
+                            key={camp.id}
+                            className={cn(
+                              "group relative w-full p-4 rounded-2xl border transition-all flex flex-col gap-1 cursor-pointer",
+                              activeCampaignId === camp.id
+                                ? "bg-blue-600/10 border-blue-500 text-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.1)]"
+                                : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700"
                             )}
-                          </button>
-                        </div>
-                      ))}
-                      {campaigns.length === 0 && (
-                        <p className="text-zinc-600 text-xs italic p-4 text-center">Nenhuma campanha criada.</p>
-                      )}
+                            onClick={() => setActiveCampaignId(camp.id)}
+                          >
+                            <span className="font-bold truncate text-sm">{camp.name}</span>
+                            <div className="flex items-center gap-2 text-[10px] font-medium opacity-60">
+                               <div className="w-1 h-1 rounded-full bg-blue-500" />
+                               Jogador
+                            </div>
+                            {activeCampaignId === camp.id && (
+                              <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                                 <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {joinedCampaigns.length === 0 && (
+                          <div className="text-center py-8 bg-zinc-900/50 border border-dashed border-zinc-800 rounded-2xl">
+                             <p className="text-[10px] text-zinc-600 font-bold uppercase">Nenhuma campanha vinculada</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
                   {/* Fichas na Campanha */}
-                  <div className="lg:col-span-3 space-y-4">
+                  <div className="lg:col-span-8">
                     <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest px-1">Fichas na Selecionada</h3>
                     {activeCampaignId ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -5461,6 +5716,9 @@ function App() {
                               </div>
                               <div className="min-w-0">
                                 <h4 className="font-bold text-white leading-none mb-1 truncate">{char.nome}</h4>
+                                {char.userEmail && (
+                                  <p className="text-[9px] text-zinc-500 font-medium truncate mb-1">{char.userEmail}</p>
+                                )}
                                 <div className="flex gap-2">
                                   <span className="text-[10px] bg-red-500/10 text-red-400 px-1.5 rounded font-bold">PV: {char.vidaAtual}</span>
                                   <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 rounded font-bold">PM: {char.manaAtual}</span>
@@ -5527,7 +5785,7 @@ function App() {
                 isMaster={campaigns.find(c => c.id === activeCampaignId)?.masterId === user?.uid}
                 tokens={tokens}
                 config={tableConfig}
-                availableCharacters={campaignCharacters}
+                availableCharacters={[...campaignCharacters, ...state.characters]}
                 onAddToken={(t) => addToken(activeCampaignId, t)}
                 onRemoveToken={(tid) => removeToken(activeCampaignId, tid)}
                 onUpdateConfig={(cfg) => updateTableConfig(activeCampaignId, cfg)}
@@ -5553,7 +5811,7 @@ function App() {
         >
           <div
             className={cn(
-              "bg-zinc-900 border-2 border-amber-500 rounded-3xl flex flex-col items-center pointer-events-auto shadow-2xl overflow-hidden",
+              "bg-zinc-900 border-2 border-amber-500 rounded-3xl flex flex-col items-center pointer-events-auto shadow-2xl overflow-y-auto max-h-full custom-scrollbar",
               lastRoll.isCombat
                 ? "max-w-md w-full"
                 : "max-w-[280px] w-full p-8 gap-4",

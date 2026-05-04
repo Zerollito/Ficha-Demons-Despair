@@ -62,6 +62,7 @@ export interface TableToken {
   characterId?: string;
   hp?: number;
   maxHp?: number;
+  initiative?: number;
   color?: string;
   description?: string;
   // Stats rápidos para monstros
@@ -150,6 +151,7 @@ export interface BestiaryMonster {
 export interface Character {
   id: string;
   userId: string;
+  userEmail?: string;
   campaignId?: string;
   nome: string;
   etnia: string;

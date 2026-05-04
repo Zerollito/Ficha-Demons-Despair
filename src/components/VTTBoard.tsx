@@ -5,7 +5,7 @@ import useImage from 'use-image';
 import Konva from 'konva';
 import { TableToken, TableConfig, Character, MonsterAction } from '../types';
 import { updateTokenPosition } from '../services/vttService';
-import { Shield, User, Trash2, Plus, Settings, ZoomIn, ZoomOut, Maximize, Eye, EyeOff, Upload, ChevronLeft, ChevronRight, Skull, Info, Heart, Minus, FileText, Zap } from 'lucide-react';
+import { Shield, User, Trash2, Plus, Settings, ZoomIn, ZoomOut, Maximize, Eye, EyeOff, Upload, ChevronLeft, ChevronRight, Skull, Info, Heart, Minus, FileText, Zap, Dices, Swords } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -41,13 +41,14 @@ const GRID_COLORS = [
   { name: 'Vermelho', value: '#ef4444' },
 ];
 
-const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isTarget }: { 
+const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isTarget, isMaster }: { 
   token: TableToken; 
   gridSize: number; 
   onDragEnd: (id: string, x: number, y: number) => void;
   onClick?: () => void;
   isAttacker?: boolean;
   isTarget?: boolean;
+  isMaster?: boolean;
 }) => {
   const [image] = useImage(token.imageUrl || '');
   const radius = (token.size * gridSize) / 2;
@@ -55,9 +56,13 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
   const lastPos = useRef({ x: token.x, y: token.y });
   const isDead = token.hp !== undefined && token.hp <= 0;
 
+  // Players can only move their own tokens (tokens with characterId)
+  // Creatures/Generic tokens (no characterId or monster type) can only be moved by master
+  const canMove = isMaster || (token.type === 'character');
+
   return (
     <Group
-      draggable
+      draggable={canMove}
       x={token.x}
       y={token.y}
       offsetX={radius}
@@ -218,9 +223,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const hasBeenCentered = useRef(false);
   
   // UI states
-  const [showUI, setShowUI] = useState(true);
+  const [showLeftSidebar, setShowLeftSidebar] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [showMapModal, setShowMapModal] = useState(false);
   const [showCreatureModal, setShowCreatureModal] = useState(false);
   const [isCharacterModalOpen, setIsCharacterModalOpen] = useState(false);
   const [viewingCreatureId, setViewingCreatureId] = useState<string | null>(null);
@@ -246,6 +250,43 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const [targetId, setTargetId] = useState<string | null>(null);
   const [weaponSelectTokenId, setWeaponSelectTokenId] = useState<string | null>(null);
   const [combatLog, setCombatLog] = useState<{msg: string, type: 'success' | 'error' | 'info'}[]>([]);
+  const [sidebarTab, setSidebarTab] = useState<'creatures' | 'combat' | 'initiative'>('creatures');
+
+  // Helper to calculate Esquiva bonus for any token
+  const calculateTokenEsquiva = (token: TableToken) => {
+    if (token.type === 'creature') {
+      return (token.stats?.esquiva || 0);
+    } else if (token.type === 'character') {
+      const char = availableCharacters.find(c => c.id === token.characterId);
+      if (char) {
+        const climateProf = calculateProficiencyBonus(char.stats, "Clima", ["ADP"], char.fome, char.sede);
+        return calculateProficiencyBonus(char.stats, "Esquiva", ["DEX", "ADP"], char.fome, char.sede, char.cansaco, char.clima, climateProf, char.bonusProficiencias?.["Esquiva"] || 0);
+      }
+    }
+    return 0;
+  };
+
+  const handleRollInitiative = async () => {
+    if (!isMaster) return;
+    setCombatLog(prev => [{ msg: "Iniciando rodada de iniciativa...", type: 'info' }, ...prev]);
+    const results: string[] = [];
+    for (const token of tokens) {
+      const bonus = calculateTokenEsquiva(token);
+      const roll = Math.floor(Math.random() * 20) + 1;
+      const total = roll + bonus;
+      updateTokenPosition(campaignId, token.id, { initiative: total } as any);
+      results.push(`${token.name}: ${total}`);
+    }
+    setCombatLog(prev => [{ msg: `Iniciativa concluída: ${results.join(' | ')}`, type: 'success' }, ...prev]);
+  };
+
+  const clearInitiative = async () => {
+    if (!isMaster) return;
+    for (const token of tokens) {
+      updateTokenPosition(campaignId, token.id, { initiative: null } as any);
+    }
+    setCombatLog(prev => [{ msg: "Iniciativa limpa.", type: 'info' }, ...prev]);
+  };
 
   // Helper to map UI names to property keys
   const getMapKey = (cat: string) => {
@@ -381,11 +422,24 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       if (actionOrWeapon.escola) {
         // It's a Spell? (from Magias list)
         attackType = actionOrWeapon.escola;
-        const firstCatalyst = attackerChar.catalisadores[0];
+        
+        // Find best catalyst (equipped or in inventory)
+        const inventoryItems = attackerChar.compartimentos?.flatMap(c => c.itens || []) || [];
+        const inventoryCatalysts = inventoryItems.filter(i => i.tipo === 'Catalisador' || i.feitico || i.elemental || i.magiaNegra);
+        const allCatalysts = [...attackerChar.catalisadores, ...inventoryCatalysts];
+        
         const key = getMapKey(attackType);
-        attackLevel = firstCatalyst ? ((firstCatalyst as any)[key] || 0) : 0;
-        attackerResonance = firstCatalyst ? (firstCatalyst.potencial || 0) : 0;
-      } else if (attackerChar.catalisadores.some(c => c.id === actionOrWeapon.id)) {
+        // Find the one with highest level for this school
+        const bestCatalyst = allCatalysts.reduce((best, curr) => {
+          if (!best) return curr;
+          const bestVal = (best as any)[key] || 0;
+          const currVal = (curr as any)[key] || 0;
+          return currVal > bestVal ? curr : best;
+        }, null as any);
+
+        attackLevel = bestCatalyst ? ((bestCatalyst as any)[key] || 0) : 0;
+        attackerResonance = bestCatalyst ? (bestCatalyst.potencial || 0) : 0;
+      } else if (attackerChar.catalisadores.some(c => c.id === actionOrWeapon.id) || (attackerChar.compartimentos?.some(comp => comp.itens.some(i => i.id === actionOrWeapon.id)))) {
         // Catalyst used directly?
         const catalyst = actionOrWeapon;
         const key = getMapKey(catalyst.tipo);
@@ -1011,48 +1065,172 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         </div>
       )}
 
-      {/* HUD Toggle */}
-      <button 
-        onClick={() => setShowUI(!showUI)}
-        className="absolute top-4 right-16 z-20 p-3 bg-zinc-900/90 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all shadow-xl"
-        title={showUI ? "Esconder Interface" : "Mostrar Interface"}
-      >
-        {showUI ? <Eye size={20} /> : <EyeOff size={20} />}
-      </button>
+      {/* Left Sidebar Toggle (Master Only) */}
+      {isMaster && (
+        <button 
+          onClick={() => setShowLeftSidebar(!showLeftSidebar)}
+          className={cn(
+            "absolute top-4 z-50 p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all shadow-xl duration-300 flex items-center justify-center",
+            showLeftSidebar ? "left-[260px]" : "left-4"
+          )}
+          title={showLeftSidebar ? "Fechar Configurações" : "Configurações da Mesa"}
+        >
+          {showLeftSidebar ? <ChevronLeft size={20} /> : <Settings size={20} />}
+        </button>
+      )}
 
-      {/* Controls Overlay */}
-      {showUI && (
-        <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
-          <div className="bg-zinc-900/90 backdrop-blur border border-zinc-800 p-2 rounded-xl flex items-center gap-2 shadow-2xl">
-            <button onClick={() => setViewport(v => ({ ...v, scale: v.scale * 1.1 }))} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors" title="Zoom In"><ZoomIn size={18} /></button>
-            <button onClick={() => setViewport(v => ({ ...v, scale: v.scale / 1.1 }))} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors" title="Zoom Out"><ZoomOut size={18} /></button>
-            <div className="w-px h-4 bg-zinc-800 mx-1" />
-            <button onClick={() => setViewport({ scale: 1, x: 0, y: 0 })} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors" title="Reset Camera"><Maximize size={18} /></button>
+      {/* Left Sidebar Content (Master Only) */}
+      {isMaster && (
+        <aside className={cn(
+          "absolute top-0 left-0 h-full w-[250px] bg-zinc-900/95 backdrop-blur-xl border-r border-zinc-800 z-40 transition-transform duration-300 ease-in-out flex flex-col shadow-2xl",
+          showLeftSidebar ? "translate-x-0" : "-translate-x-full"
+        )}>
+        <div className="flex-1 flex flex-col overflow-y-auto p-4 pb-24 gap-6 custom-scrollbar scroll-smooth">
+          {/* Header */}
+          <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
+            <Settings size={16} className="text-blue-500" />
+            <span className="text-[10px] font-black text-white uppercase tracking-widest">Configurações da Mesa</span>
           </div>
 
-          {isMaster && (
-            <div className="bg-zinc-900/90 backdrop-blur border border-zinc-800 p-2 rounded-xl flex flex-col gap-2 shadow-2xl">
-              <button 
-                onClick={() => setShowMapModal(true)} 
-                className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 flex items-center gap-2 text-[10px] font-black uppercase tracking-wider"
-              >
-                <Settings size={18} className="text-zinc-500" /> Configurar Mesa
-              </button>
-              <button 
-                onClick={() => setShowCreatureModal(true)} 
-                className="p-2 hover:bg-zinc-800 rounded-lg text-amber-500 flex items-center gap-2 text-[10px] font-black uppercase tracking-wider transition-colors"
-              >
-                <Plus size={18} /> Add Criatura
-              </button>
-              <button 
-                onClick={() => setIsCharacterModalOpen(true)} 
-                className="p-2 hover:bg-zinc-800 rounded-lg text-blue-500 flex items-center gap-2 text-[10px] font-black uppercase tracking-wider transition-colors"
-              >
-                <User size={18} /> Add Personagem
-              </button>
+          {/* Camera Controls */}
+          <div className="space-y-3">
+            <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest px-1">Câmera e Visualização</span>
+            <div className="bg-zinc-950 p-2 rounded-xl border border-zinc-800 flex items-center justify-between gap-2 shadow-inner">
+               <div className="flex items-center gap-1">
+                  <button onClick={() => setViewport(v => ({ ...v, scale: v.scale * 1.1 }))} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors" title="Zoom In"><ZoomIn size={16} /></button>
+                  <button onClick={() => setViewport(v => ({ ...v, scale: v.scale / 1.1 }))} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors" title="Zoom Out"><ZoomOut size={16} /></button>
+               </div>
+               <button onClick={() => setViewport({ scale: 1, x: 0, y: 0 })} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors" title="Reset Camera"><Maximize size={16} /></button>
             </div>
+          </div>
+
+          {/* Master Settings */}
+          {isMaster && (
+            <>
+              {/* Token Tools Section */}
+              <div className="space-y-3">
+                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest px-1">Gestão de Tokens</span>
+                <div className="flex flex-col gap-2">
+                  <button 
+                    onClick={() => setIsCharacterModalOpen(true)}
+                    className="w-full flex items-center gap-2 p-3 bg-blue-600/10 border border-blue-500/30 hover:bg-blue-600/20 text-blue-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                  >
+                    <User size={14} /> Add Personagem
+                  </button>
+                  <button 
+                    onClick={() => setShowCreatureModal(true)}
+                    className="w-full flex items-center gap-2 p-3 bg-amber-600/10 border border-amber-500/30 hover:bg-amber-600/20 text-amber-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                  >
+                    <Skull size={14} /> Add Criatura
+                  </button>
+                </div>
+              </div>
+
+              {/* Map Image Section */}
+              <div className="space-y-3">
+                <span className="text-[8px] font-black text-blue-500 uppercase tracking-widest px-1">Mapa de Fundo</span>
+                <div className="space-y-2">
+                  <div className="relative group">
+                    <input 
+                      type="file" 
+                      onChange={handleFileUpload}
+                      className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                      accept="image/*"
+                    />
+                    <div className="w-full bg-zinc-950 border border-dashed border-zinc-800 rounded-xl p-4 text-center group-hover:border-blue-500 transition-colors">
+                      <Upload size={20} className="mx-auto text-zinc-600 mb-1 group-hover:text-blue-500" />
+                      <span className="block text-[8px] font-bold text-zinc-500 uppercase">Upload Imagem</span>
+                    </div>
+                  </div>
+                  <input 
+                    value={inputMapUrl ?? ""}
+                    onChange={(e) => setInputMapUrl(e.target.value)}
+                    placeholder="OU URL do Mapa..."
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-2.5 text-[10px] text-white focus:outline-none focus:border-blue-500"
+                  />
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => {
+                        if (onUpdateConfig) onUpdateConfig({ mapUrl: inputMapUrl });
+                      }}
+                      className="flex-1 p-2 bg-blue-600/10 hover:bg-blue-600/20 border border-blue-500/30 text-blue-500 rounded-lg text-[8px] font-black uppercase transition-all"
+                    >
+                      Aplicar URL
+                    </button>
+                    {config.mapUrl && (
+                      <button 
+                        onClick={() => {
+                          onUpdateConfig?.({ mapUrl: "" });
+                          setInputMapUrl("");
+                        }}
+                        className="p-2 bg-red-600/10 hover:bg-red-600/20 border border-red-500/30 text-red-500 rounded-lg transition-all"
+                        title="Remover Mapa"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Grid Settings Section */}
+              <div className="space-y-3">
+                <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest px-1">Sistema de Grade</span>
+                <div className="space-y-3 bg-zinc-950 p-3 rounded-2xl border border-zinc-800 shadow-inner">
+                  {/* Grid Toggle and Size */}
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => onUpdateConfig?.({ showGrid: !config.showGrid })}
+                      className={cn(
+                        "flex-1 p-2 rounded-xl text-[8px] font-black transition-all border",
+                        config.showGrid ? "bg-amber-600/10 border-amber-500 text-amber-400" : "bg-zinc-900 border-zinc-800 text-zinc-600"
+                      )}
+                    >
+                      GRADE: {config.showGrid ? "ON" : "OFF"}
+                    </button>
+                    <div className="w-16">
+                      <input 
+                        type="text"
+                        inputMode="numeric"
+                        value={inputGridSize}
+                        onChange={(e) => setInputGridSize(e.target.value.replace(/[^0-9]/g, ''))}
+                        onBlur={() => {
+                          const num = parseInt(inputGridSize) || 50;
+                          onUpdateConfig?.({ gridSize: num });
+                          setInputGridSize(num.toString());
+                        }}
+                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2 text-[10px] text-center text-white focus:outline-none focus:border-amber-500"
+                        title="Tamanho da Grade"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Grid Color */}
+                  <div className="grid grid-cols-4 gap-1.5 pt-1">
+                    {GRID_COLORS.map(color => (
+                      <button
+                        key={color.value}
+                        onClick={() => onUpdateConfig?.({ gridColor: color.value })}
+                        className={cn(
+                          "h-6 rounded-md border flex items-center justify-center transition-all",
+                          (config.gridColor || '#ffffff') === color.value 
+                            ? "border-white scale-110 shadow-lg" 
+                            : "border-transparent opacity-60 hover:opacity-100"
+                        )}
+                        style={{ backgroundColor: color.value }}
+                      >
+                        {(config.gridColor || '#ffffff') === color.value && (
+                          <div className={cn("w-1 h-1 rounded-full", color.value === '#ffffff' ? 'bg-black' : 'bg-white')} />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
           )}
         </div>
+      </aside>
       )}
 
       {/* Character Modal */}
@@ -1083,7 +1261,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               </div>
             </div>
             
-            <div className="space-y-4 max-h-60 overflow-y-auto pr-1">
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
               {availableCharacters.length > 0 ? (
                 availableCharacters.map(char => (
                   <button 
@@ -1121,6 +1299,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-white truncate">{char.nome}</p>
+                      {char.userEmail && <p className="text-[9px] text-amber-500/60 font-medium truncate">{char.userEmail}</p>}
                       <p className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">{char.etnia}</p>
                     </div>
                     <Plus size={16} className="text-zinc-600 group-hover:text-blue-500" />
@@ -1139,134 +1318,6 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 className="flex-1 p-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl font-bold transition-colors"
               >
                 Voltar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Map Modal */}
-      {showMapModal && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl w-full max-w-md shadow-2xl space-y-6">
-            <h3 className="text-xl font-bold text-white flex items-center gap-2">
-              <Settings className="text-blue-500" /> Configurações da Mesa
-            </h3>
-            
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Imagem do Mapa</label>
-                <div className="grid grid-cols-1 gap-2">
-                  <div className="relative group">
-                    <input 
-                      type="file" 
-                      onChange={handleFileUpload}
-                      className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                      accept="image/*"
-                    />
-                    <div className="w-full bg-zinc-950 border-2 border-dashed border-zinc-800 rounded-xl p-6 text-center group-hover:border-blue-500 transition-colors">
-                      <Upload size={24} className="mx-auto text-zinc-600 mb-2 group-hover:text-blue-500" />
-                      <span className="text-xs font-bold text-zinc-500">Clique ou arraste um arquivo</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="h-px flex-1 bg-zinc-800" />
-                    <span className="text-[10px] text-zinc-600 font-bold">OU URL</span>
-                    <div className="h-px flex-1 bg-zinc-800" />
-                  </div>
-                  <input 
-                    value={inputMapUrl ?? ""}
-                    onChange={(e) => setInputMapUrl(e.target.value)}
-                    placeholder="https://exemplo.com/mapa.jpg"
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-blue-500"
-                  />
-                  {config.mapUrl && (
-                    <button 
-                      onClick={() => {
-                        onUpdateConfig?.({ mapUrl: "" });
-                        setInputMapUrl("");
-                      }}
-                      className="flex items-center justify-center gap-2 p-2 mt-1 transition-all border text-red-500 bg-red-950/30 border-red-900/50 hover:bg-red-900/50 rounded-xl text-[10px] font-black uppercase tracking-wider"
-                    >
-                      <Trash2 size={14} /> Apagar Mapa
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Cor da Grade</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {GRID_COLORS.map(color => (
-                    <button
-                      key={color.value}
-                      onClick={() => onUpdateConfig?.({ gridColor: color.value })}
-                      className={cn(
-                        "h-8 rounded-lg border-2 flex items-center justify-center transition-all",
-                        (config.gridColor || '#ffffff') === color.value 
-                          ? "border-blue-500 scale-105" 
-                          : "border-transparent hover:border-zinc-700"
-                      )}
-                      style={{ backgroundColor: color.value }}
-                      title={color.name}
-                    >
-                      {(config.gridColor || '#ffffff') === color.value && (
-                        <div className={cn("w-1.5 h-1.5 rounded-full", color.value === '#ffffff' ? 'bg-black' : 'bg-white')} />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Tamanho Grade</label>
-                  <input 
-                    type="text"
-                    inputMode="numeric"
-                    value={inputGridSize}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/[^0-9]/g, '');
-                      setInputGridSize(val);
-                    }}
-                    onBlur={() => {
-                      const num = parseInt(inputGridSize) || 50;
-                      onUpdateConfig?.({ gridSize: num });
-                      setInputGridSize(num.toString());
-                    }}
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Grade (Hex)</label>
-                  <button 
-                    onClick={() => onUpdateConfig?.({ showGrid: !config.showGrid })}
-                    className={cn(
-                      "w-full p-3 rounded-xl font-bold transition-all border text-sm",
-                      config.showGrid ? "bg-blue-600/10 border-blue-500 text-blue-400 shadow-[0_0_15px_-5px_rgba(59,130,246,0.5)]" : "bg-zinc-950 border-zinc-800 text-zinc-500"
-                    )}
-                  >
-                    {config.showGrid ? "ATIVO" : "INATIVO"}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button 
-                onClick={() => setShowMapModal(false)}
-                className="flex-1 p-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl font-bold transition-colors"
-              >
-                Fechar
-              </button>
-              <button 
-                onClick={() => {
-                  if (onUpdateConfig) onUpdateConfig({ mapUrl: inputMapUrl });
-                  setShowMapModal(false);
-                }}
-                className="flex-1 p-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold transition-colors shadow-lg shadow-blue-600/20"
-              >
-                Aplicar Mapa
               </button>
             </div>
           </div>
@@ -1445,267 +1496,305 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 onClick={() => handleTokenClick(token.id)}
                 isAttacker={attackerId === token.id}
                 isTarget={targetId === token.id}
+                isMaster={isMaster}
               />
             ))}
           </Layer>
         </Stage>
       </div>
 
-      {/* Retractable Sidebar Toggle */}
-      <button 
-        onClick={() => setShowSidebar(!showSidebar)}
-        className={cn(
-          "absolute top-4 z-50 p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all shadow-xl duration-300 flex items-center justify-center",
-          showSidebar ? "right-[260px]" : "right-2"
-        )}
-        title={showSidebar ? "Fechar Painel" : "Abrir Painel"}
-      >
-        {showSidebar ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
-      </button>
+      {/* Retractable Sidebar Toggle (Master Only) */}
+      {isMaster && (
+        <button 
+          onClick={() => setShowSidebar(!showSidebar)}
+          className={cn(
+            "absolute top-4 z-50 p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all shadow-xl duration-300 flex items-center justify-center",
+            showSidebar ? "right-[260px]" : "right-2"
+          )}
+          title={showSidebar ? "Fechar Painel" : "Abrir Painel"}
+        >
+          {showSidebar ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
+        </button>
+      )}
 
-      {/* Sidebar Content */}
-      <aside className={cn(
-        "absolute top-0 right-0 h-full w-[250px] bg-zinc-900/95 backdrop-blur-xl border-l border-zinc-800 z-40 transition-transform duration-300 ease-in-out p-4 flex flex-col gap-6 shadow-2xl",
-        showSidebar ? "translate-x-0" : "translate-x-full"
-      )}>
-        <div className="flex flex-col gap-4 overflow-hidden h-full">
-          {/* Info Panel Title */}
-          <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
-            <Shield size={16} className="text-blue-500" />
-            <span className="text-[10px] font-black text-white uppercase tracking-widest">Painel de Criaturas</span>
-          </div>
-          
-          {/* Creatures List */}
-          <div className="flex-1 overflow-y-auto space-y-3 pr-1 py-2">
-             {tokens.filter(t => t.type === 'creature').map(token => (
-              <div key={token.id} className="bg-zinc-950/80 border border-zinc-800 rounded-2xl p-4 flex flex-col gap-3 group hover:border-red-500/30 transition-all shadow-lg">
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <div className="w-10 h-10 rounded-xl overflow-hidden border border-zinc-800 flex items-center justify-center bg-zinc-900">
-                      {token.imageUrl ? (
-                        <img src={token.imageUrl} alt={token.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <User size={16} className="text-zinc-600" />
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[10px] font-black text-white truncate uppercase tracking-widest">{token.name}</div>
-                    <div className="flex items-center gap-1.5 mt-1 text-[8px] font-bold text-zinc-500 uppercase tracking-tighter">
-                      <Heart size={8} className="text-red-500" /> {token.hp} / {token.maxHp} HP
-                    </div>
-                  </div>
-                  <div className="flex gap-1 transition-all">
-                    <button 
-                      onClick={() => setViewingCreatureId(token.id === viewingCreatureId ? null : token.id)}
-                      className={cn("p-1.5 rounded transition-all", viewingCreatureId === token.id ? "bg-amber-500 text-zinc-950" : "hover:bg-amber-500/10 text-amber-500")}
-                    >
-                      <Info size={12} />
-                    </button>
-                    <button 
-                      onClick={() => onRemoveToken?.(token.id)}
-                      className="p-1.5 hover:bg-red-500/10 hover:text-red-500 text-zinc-600 rounded transition-all"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                </div>
+      {isMaster && (
+        <aside className={cn(
+          "absolute top-0 right-0 h-full w-[250px] bg-zinc-900/95 backdrop-blur-xl border-l border-zinc-800 z-40 transition-transform duration-300 ease-in-out flex flex-col shadow-2xl",
+          showSidebar ? "translate-x-0" : "translate-x-full"
+        )}>
+        {/* Sidebar Tabs Selector */}
+        <div className="flex bg-zinc-950 p-1 border-b border-zinc-800">
+          <button 
+            onClick={() => setSidebarTab('creatures')}
+            className={cn(
+              "flex-1 flex flex-col items-center justify-center p-2 rounded-lg transition-all",
+              sidebarTab === 'creatures' ? "bg-zinc-900 text-blue-500 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
+            )}
+            title="Criaturas"
+          >
+            <Skull size={18} />
+            <span className="text-[8px] font-black uppercase mt-1">Criaturas</span>
+          </button>
+          <button 
+            onClick={() => setSidebarTab('initiative')}
+            className={cn(
+              "flex-1 flex flex-col items-center justify-center p-2 rounded-lg transition-all",
+              sidebarTab === 'initiative' ? "bg-zinc-900 text-amber-500 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
+            )}
+            title="Iniciativa"
+          >
+            <Zap size={18} />
+            <span className="text-[8px] font-black uppercase mt-1">Iniciativa</span>
+          </button>
+          <button 
+            onClick={() => setSidebarTab('combat')}
+            className={cn(
+              "flex-1 flex flex-col items-center justify-center p-2 rounded-lg transition-all",
+              sidebarTab === 'combat' ? "bg-zinc-900 text-red-500 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
+            )}
+            title="Combate"
+          >
+            <FileText size={18} />
+            <span className="text-[8px] font-black uppercase mt-1">Combate</span>
+          </button>
+        </div>
 
-                {/* HP Controls */}
-                <div className="flex items-center gap-2 bg-zinc-900/50 p-1.5 rounded-xl border border-zinc-800">
-                  <button 
-                    onClick={() => {
-                      const newHp = Math.max(0, (token.hp || 0) - 1);
-                      updateTokenPosition(campaignId, token.id, { hp: newHp });
-                    }}
-                    className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-red-500 rounded-lg transition-colors border border-transparent hover:border-zinc-700"
-                  >
-                    <Minus size={12} />
-                  </button>
-                  <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-red-500 transition-all shadow-[0_0_8px_rgba(239,68,68,0.3)]" 
-                      style={{ width: `${((token.hp || 0) / (token.maxHp || 1)) * 100}%` }}
-                    />
-                  </div>
-                  <button 
-                    onClick={() => {
-                      const newHp = Math.min(token.maxHp || 100, (token.hp || 0) + 1);
-                      updateTokenPosition(campaignId, token.id, { hp: newHp });
-                    }}
-                    className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-green-500 rounded-lg transition-colors border border-transparent hover:border-zinc-700"
-                  >
-                    <Plus size={12} />
-                  </button>
-                </div>
-
-                {/* Quick HP Direct Input */}
-                <input 
-                  type="number"
-                  value={token.hp}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value);
-                    if (!isNaN(val)) {
-                      updateTokenPosition(campaignId, token.id, { hp: Math.min(token.maxHp || 999, Math.max(0, val)) });
-                    }
-                  }}
-                  className="w-full bg-zinc-950 border border-zinc-800/50 rounded-lg py-1 px-2 text-[10px] text-center text-zinc-400 focus:outline-none focus:border-red-500/50"
-                />
-
-                {/* Monster description expand */}
-                <AnimatePresence>
-                  {viewingCreatureId === token.id && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 mt-2 space-y-4 shadow-inner">
-                        <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-                           <div className="text-[10px] font-black text-amber-500 uppercase tracking-widest flex items-center gap-1.5">
-                             <FileText size={10} /> Ficha Técnica
-                           </div>
-                           <div className="text-[8px] font-bold text-zinc-500 bg-zinc-950 px-2 py-0.5 rounded-full border border-zinc-800">
-                             Size: {token.size}x{token.size}
-                           </div>
-                        </div>
-
-                        {/* Ataque Summary */}
-                        <div className="space-y-1">
-                           <span className="text-[8px] font-black text-red-500/80 uppercase">Ataque Físico (C/P/I/R)</span>
-                           <div className="grid grid-cols-4 gap-1">
-                              <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white">
-                                 {token.stats?.ataque.corte ?? 0}
-                              </div>
-                              <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white">
-                                 {token.stats?.ataque.perfuracao ?? 0}
-                              </div>
-                              <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white">
-                                 {token.stats?.ataque.impacto ?? 0}
-                              </div>
-                              <div className="bg-amber-500/10 border border-amber-500/30 rounded p-1 text-center text-[9px] font-black text-amber-500">
-                                 {token.stats?.ataque.resistencia ?? 0}
-                              </div>
-                           </div>
-                        </div>
-
-                        <div className="space-y-1">
-                           <span className="text-[8px] font-black text-purple-500/80 uppercase">Ataque Mágico (F/E/MN/P)</span>
-                           <div className="grid grid-cols-4 gap-1">
-                              <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white">
-                                 {token.stats?.ataque.feitico ?? 0}
-                              </div>
-                              <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white">
-                                 {token.stats?.ataque.elemental ?? 0}
-                              </div>
-                              <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white">
-                                 {token.stats?.ataque.magiaNegra ?? 0}
-                              </div>
-                              <div className="bg-amber-500/10 border border-amber-500/30 rounded p-1 text-center text-[9px] font-black text-amber-500">
-                                 {token.stats?.ataque.potencial ?? 0}
-                              </div>
-                           </div>
-                        </div>
-
-                        {/* Defesa Summary */}
-                        <div className="grid grid-cols-2 gap-3">
-                           <div className="space-y-1">
-                              <span className="text-[8px] font-black text-blue-500/80 uppercase">Defesa Física</span>
-                              <div className="grid grid-cols-3 gap-1">
-                                 <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white" title="Corte">
-                                    {token.stats?.defesa.corte ?? 0}
-                                 </div>
-                                 <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white" title="Perfuração">
-                                    {token.stats?.defesa.perfuracao ?? 0}
-                                 </div>
-                                 <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white" title="Impacto">
-                                    {token.stats?.defesa.impacto ?? 0}
-                                 </div>
-                              </div>
-                           </div>
-                           <div className="space-y-1">
-                              <span className="text-[8px] font-black text-indigo-500/80 uppercase">Defesa Mágica</span>
-                              <div className="grid grid-cols-3 gap-1">
-                                 <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white" title="Feitiço">
-                                    {token.stats?.defesa.feitico ?? 0}
-                                 </div>
-                                 <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white" title="Elemental">
-                                    {token.stats?.defesa.elemental ?? 0}
-                                 </div>
-                                 <div className="bg-zinc-950 border border-zinc-800 rounded p-1 text-center text-[9px] font-bold text-white" title="Magia Negra">
-                                    {token.stats?.defesa.magiaNegra ?? 0}
-                                 </div>
-                              </div>
-                           </div>
-                        </div>
-
-                        {token.description && (
-                          <div className="space-y-1">
-                            <span className="text-[8px] font-black text-zinc-600 uppercase">Informações</span>
-                            <p className="text-[10px] text-zinc-400 leading-relaxed italic whitespace-pre-wrap bg-zinc-950/30 p-2 rounded-xl border border-zinc-800/50">
-                              {token.description}
-                            </p>
-                          </div>
-                        )}
-                        <div className="text-[8px] text-zinc-500 italic text-center pt-1">
-                          Consulte o Bestiário para ver a ficha completa e habilidades.
+        <div className="flex-1 flex flex-col overflow-hidden p-4 gap-4">
+          {sidebarTab === 'creatures' && (
+            <>
+              {/* Info Panel Title */}
+              <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
+                <Shield size={16} className="text-blue-500" />
+                <span className="text-[10px] font-black text-white uppercase tracking-widest">Painel de Criaturas</span>
+              </div>
+              
+              {/* Creatures List */}
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1 py-1 custom-scrollbar scroll-smooth text-left">
+                {tokens.filter(t => t.type === 'creature').map(token => (
+                  <div key={token.id} className="bg-zinc-950/80 border border-zinc-800 rounded-2xl p-4 flex flex-col gap-3 group hover:border-red-500/30 transition-all shadow-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <div className="w-10 h-10 rounded-xl overflow-hidden border border-zinc-800 flex items-center justify-center bg-zinc-900">
+                          {token.imageUrl ? (
+                            <img src={token.imageUrl} alt={token.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <User size={16} className="text-zinc-600" />
+                          )}
                         </div>
                       </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[10px] font-black text-white truncate uppercase tracking-widest">{token.name}</div>
+                        <div className="flex items-center gap-1.5 mt-1 text-[8px] font-bold text-zinc-500 uppercase tracking-tighter">
+                          <Heart size={8} className="text-red-500" /> {token.hp} / {token.maxHp} HP
+                        </div>
+                      </div>
+                      <div className="flex gap-1 transition-all">
+                        <button 
+                          onClick={() => setViewingCreatureId(token.id === viewingCreatureId ? null : token.id)}
+                          className={cn("p-1.5 rounded transition-all", viewingCreatureId === token.id ? "bg-amber-500 text-zinc-950" : "hover:bg-amber-500/10 text-amber-500")}
+                        >
+                          <Info size={12} />
+                        </button>
+                        <button 
+                          onClick={() => onRemoveToken?.(token.id)}
+                          className="p-1.5 hover:bg-red-500/10 hover:text-red-500 text-zinc-600 rounded transition-all"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* HP Controls */}
+                    <div className="flex items-center gap-2 bg-zinc-900/50 p-1.5 rounded-xl border border-zinc-800">
+                      <button 
+                        onClick={() => {
+                          const newHp = Math.max(0, (token.hp || 0) - 1);
+                          updateTokenPosition(campaignId, token.id, { hp: newHp });
+                        }}
+                        className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-red-500 rounded-lg transition-colors border border-transparent hover:border-zinc-700"
+                      >
+                        <Minus size={12} />
+                      </button>
+                      <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-red-500 transition-all shadow-[0_0_8px_rgba(239,68,68,0.3)]" 
+                          style={{ width: `${((token.hp || 0) / (token.maxHp || 1)) * 100}%` }}
+                        />
+                      </div>
+                      <button 
+                        onClick={() => {
+                          const newHp = Math.min(token.maxHp || 100, (token.hp || 0) + 1);
+                          updateTokenPosition(campaignId, token.id, { hp: newHp });
+                        }}
+                        className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-green-500 rounded-lg transition-colors border border-transparent hover:border-zinc-700"
+                      >
+                        <Plus size={12} />
+                      </button>
+                    </div>
+
+                    {/* Monster description expand */}
+                    <AnimatePresence>
+                      {viewingCreatureId === token.id && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 mt-2 space-y-4 shadow-inner">
+                            <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                               <div className="text-[10px] font-black text-amber-500 uppercase tracking-widest flex items-center gap-1.5">
+                                 <FileText size={10} /> Ficha Técnica
+                               </div>
+                               <div className="text-[8px] font-bold text-zinc-500 bg-zinc-950 px-2 py-0.5 rounded-full border border-zinc-800">
+                                 Size: {token.size}x{token.size}
+                               </div>
+                            </div>
+
+                            {/* Stats Summaries... */}
+                            {token.description && (
+                              <div className="space-y-1">
+                                <span className="text-[8px] font-black text-zinc-600 uppercase">Informações</span>
+                                <p className="text-[10px] text-zinc-400 leading-relaxed italic whitespace-pre-wrap bg-zinc-950/30 p-2 rounded-xl border border-zinc-800/50">
+                                  {token.description}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                ))}
+                {tokens.filter(t => t.type === 'creature').length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-6 px-4 bg-zinc-950/30 border border-dashed border-zinc-800 rounded-2xl">
+                    <Skull size={24} className="text-zinc-800 mb-2" />
+                    <div className="text-[10px] text-zinc-600 italic text-center">Nenhum demônio invocado</div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {sidebarTab === 'initiative' && (
+            <>
+              {/* Initiative Title */}
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                <div className="flex items-center gap-2">
+                  <Zap size={16} className="text-amber-500" />
+                  <span className="text-[10px] font-black text-white uppercase tracking-widest">Iniciativa</span>
+                </div>
+                {isMaster && (
+                   <button 
+                    onClick={clearInitiative}
+                    className="text-[8px] font-black text-zinc-500 hover:text-red-400 uppercase tracking-tighter"
+                   >
+                     Limpar
+                   </button>
+                )}
+              </div>
+
+              {/* Master Controls */}
+              {isMaster && (
+                <button 
+                  onClick={handleRollInitiative}
+                  className="w-full flex items-center justify-center gap-2 py-3 bg-amber-600/20 border border-amber-500/30 hover:bg-amber-600/30 text-amber-500 rounded-xl transition-all group"
+                >
+                  <Dices size={16} className="group-hover:rotate-12 transition-transform" />
+                  <span className="text-xs font-black uppercase tracking-widest">Rolar Iniciativa</span>
+                </button>
+              )}
+
+              {/* Initiative List */}
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1 py-1 custom-scrollbar">
+                {[...tokens]
+                  .filter(t => t.initiative !== undefined && t.initiative !== null)
+                  .sort((a, b) => (b.initiative || 0) - (a.initiative || 0))
+                  .map((token, idx) => (
+                    <motion.div 
+                      key={token.id}
+                      initial={{ x: 20, opacity: 0 }}
+                      animate={{ x: 0, opacity: 1 }}
+                      transition={{ delay: idx * 0.05 }}
+                      className={cn(
+                        "flex items-center gap-3 p-3 bg-zinc-950 border border-zinc-800 rounded-2xl relative overflow-hidden",
+                        idx === 0 && "border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.1)]"
+                      )}
+                    >
+                      <div className="w-8 h-8 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 shrink-0">
+                        {token.imageUrl ? (
+                          <img src={token.imageUrl} alt={token.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-zinc-600">
+                            <User size={12} />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[10px] font-black text-white truncate uppercase tracking-tighter text-left">{token.name}</div>
+                        <div className="text-[8px] font-bold text-zinc-500 uppercase text-left">{token.type === 'character' ? 'Jogador' : 'Inimigo'}</div>
+                      </div>
+                      <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+                        <span className="text-xs font-black text-amber-500">{token.initiative}</span>
+                      </div>
                     </motion.div>
-                  )}
-                </AnimatePresence>
+                  ))}
 
+                {tokens.every(t => t.initiative === undefined || t.initiative === null) && (
+                   <div className="flex flex-col items-center justify-center py-12 text-center opacity-30">
+                     <Dices size={32} className="mb-2" />
+                     <p className="text-[10px] font-black uppercase tracking-widest leading-relaxed">
+                       Iniciativa ainda<br/>não rolada
+                     </p>
+                   </div>
+                )}
               </div>
-            ))}
-            {tokens.filter(t => t.type === 'creature').length === 0 && (
-              <div className="flex flex-col items-center justify-center py-6 px-4 bg-zinc-950/30 border border-dashed border-zinc-800 rounded-2xl">
-                <Skull size={24} className="text-zinc-800 mb-2" />
-                <div className="text-[10px] text-zinc-600 italic text-center">Nenhum demônio invocado</div>
-              </div>
-            )}
-          </div>
+            </>
+          )}
 
-          {/* Combat Log Title */}
-          <div className="flex items-center gap-2 border-b border-zinc-800 pb-2 mt-4">
-            <Maximize size={16} className="text-red-500" />
-            <span className="text-[10px] font-black text-white uppercase tracking-widest">Log de Combate</span>
-          </div>
-
-          {/* Combat Log List */}
-          <div className="h-48 overflow-y-auto space-y-2 pr-1">
-            {isAttackingMode && (
-              <button 
-                onClick={() => {
-                  setIsAttackingMode(false);
-                  setAttackerId(null);
-                  setTargetId(null);
-                  setWeaponSelectTokenId(null);
-                  setCombatLog(prev => [{ msg: "Ataque cancelado", type: 'info' }, ...prev]);
-                }}
-                className="w-full py-2 bg-red-600 hover:bg-red-500 text-white text-[10px] uppercase font-black rounded-lg transition-colors border border-red-400/20"
-              >
-                Cancelar Ataque
-              </button>
-            )}
-            {combatLog.map((log, i) => (
-              <div key={i} className={cn(
-                "text-[10px] px-2 py-1.5 rounded-lg border",
-                log.type === 'success' ? "bg-green-500/10 border-green-500/30 text-green-400" :
-                log.type === 'error' ? "bg-red-500/10 border-red-500/30 text-red-400" :
-                "bg-blue-500/10 border-blue-500/30 text-blue-400"
-              )}>
-                {log.msg}
+          {sidebarTab === 'combat' && (
+            <>
+              {/* Combat Log Title */}
+              <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
+                <FileText size={16} className="text-red-500" />
+                <span className="text-[10px] font-black text-white uppercase tracking-widest">Log de Combate</span>
               </div>
-            ))}
-            {combatLog.length === 0 && (
-              <div className="text-[10px] text-zinc-600 italic text-center py-4">Sem registros de combate</div>
-            )}
-          </div>
+
+              {/* Combat Log List */}
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1 pb-10 custom-scrollbar">
+                {isAttackingMode && (
+                  <button 
+                    onClick={() => {
+                      setIsAttackingMode(false);
+                      setAttackerId(null);
+                      setTargetId(null);
+                      setWeaponSelectTokenId(null);
+                      setCombatLog(prev => [{ msg: "Ataque cancelado", type: 'info' }, ...prev]);
+                    }}
+                    className="w-full py-2 bg-red-600 hover:bg-red-500 text-white text-[10px] uppercase font-black rounded-lg transition-colors border border-red-400/20"
+                  >
+                    Cancelar Ataque
+                  </button>
+                )}
+                {combatLog.map((log, i) => (
+                  <div key={i} className={cn(
+                    "text-[10px] px-2 py-1.5 rounded-lg border text-left",
+                    log.type === 'success' ? "bg-green-500/10 border-green-500/30 text-green-400" :
+                    log.type === 'error' ? "bg-red-500/10 border-red-500/30 text-red-400" :
+                    "bg-blue-500/10 border-blue-500/30 text-blue-400"
+                  )}>
+                    {log.msg}
+                  </div>
+                ))}
+                {combatLog.length === 0 && (
+                  <div className="text-[10px] text-zinc-600 italic text-center py-4">Sem registros de combate</div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </aside>
-
-      {/* Token Context Menu */}
+      )}
       {selectedTokenId && !isAttackingMode && (
         <div className="absolute top-1/2 right-4 -translate-y-1/2 z-20 w-48 bg-zinc-900/90 backdrop-blur-xl border border-zinc-800 p-3 rounded-2xl shadow-2xl space-y-3">
           <div className="flex items-center justify-between">
@@ -1728,15 +1817,108 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               <Maximize className="rotate-45" size={14} /> Refazer Movimento
             </button>
 
-            {/* Specialized Monster Actions Quick List */}
+            {/* Specialized Actions / Spells / Weapons Quick List */}
             {(() => {
               const token = tokens.find(t => t.id === selectedTokenId);
-              if (token?.acoes && token.acoes.length > 0) {
+              const char = token?.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
+              
+              const hasMonsterActions = token?.acoes && token.acoes.length > 0;
+              const hasSpells = char?.magias && char.magias.length > 0;
+              const hasWeapons = char?.armas && char.armas.length > 0;
+              const inventoryItems = char?.compartimentos?.flatMap(c => c.itens || []) || [];
+              const inventoryWeapons = inventoryItems.filter(i => i.tipo === 'Arma' || i.corte || i.perfuracao || i.impacto);
+              const inventoryCatalysts = inventoryItems.filter(i => i.tipo === 'Catalisador' || i.feitico || i.elemental || i.magiaNegra);
+
+              if (hasMonsterActions || hasSpells || hasWeapons || inventoryWeapons.length > 0 || inventoryCatalysts.length > 0) {
                 return (
-                  <div className="mt-2 pt-2 border-t border-zinc-800 space-y-1">
-                    <span className="text-[8px] font-black text-red-500 uppercase tracking-widest pl-1">Ações de Combate</span>
-                    <div className="grid gap-1">
-                      {token.acoes.map(action => (
+                  <div className="mt-2 pt-2 border-t border-zinc-800 space-y-2">
+                    <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest pl-1">Ações Rápidas</span>
+                    <div className="grid gap-1 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                      {/* Character Weapons (Equipped) */}
+                      {char?.armas?.map(weapon => (
+                        <button 
+                          key={weapon.id}
+                          onClick={() => {
+                            if (isAttackingMode && targetId) {
+                               resolveCombat(weapon);
+                            } else {
+                               startAttack(selectedTokenId);
+                            }
+                          }}
+                          className="bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 hover:border-blue-500/50 rounded p-1.5 transition-all text-left group"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-bold text-zinc-200 group-hover:text-blue-400 truncate">{weapon.nome}</span>
+                            <span className="text-[7px] text-zinc-500 font-black uppercase opacity-50 shrink-0">Arma</span>
+                          </div>
+                          <div className="text-[8px] font-bold text-zinc-400">Dano: {weapon.dano}</div>
+                        </button>
+                      ))}
+
+                      {/* Inventory Weapons */}
+                      {inventoryWeapons.map(weapon => (
+                        <button 
+                          key={weapon.id}
+                          onClick={() => {
+                            if (isAttackingMode && targetId) {
+                               resolveCombat(weapon);
+                            } else {
+                               startAttack(selectedTokenId);
+                            }
+                          }}
+                          className="bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 border-dashed hover:border-blue-500/50 rounded p-1.5 transition-all text-left group"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-bold text-zinc-400 group-hover:text-blue-300 truncate">{weapon.nome}</span>
+                            <span className="text-[7px] text-zinc-600 font-black uppercase opacity-50 shrink-0">Inv.</span>
+                          </div>
+                          <div className="text-[8px] font-bold text-zinc-500">Dano: {weapon.dano}</div>
+                        </button>
+                      ))}
+
+                      {/* Character Spells */}
+                      {char?.magias?.map(spell => (
+                        <button 
+                          key={spell.id}
+                          onClick={() => {
+                            if (isAttackingMode && targetId) {
+                               resolveCombat({...spell, categoria: spell.escola});
+                            } else {
+                               startAttack(selectedTokenId);
+                            }
+                          }}
+                          className="bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 hover:border-indigo-500/50 rounded p-1.5 transition-all text-left group"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-bold text-zinc-200 group-hover:text-indigo-400 truncate">{spell.nome}</span>
+                            <span className="text-[7px] text-zinc-500 font-black uppercase opacity-50 shrink-0">Magia</span>
+                          </div>
+                          <div className="text-[8px] font-bold text-zinc-400">Dano: {spell.dano} | Mana: {spell.mana}</div>
+                        </button>
+                      ))}
+
+                      {/* Catalysts in Inventory */}
+                      {inventoryCatalysts.map(catalyst => (
+                        <button 
+                          key={catalyst.id}
+                          onClick={() => {
+                            if (isAttackingMode && targetId) {
+                               resolveCombat(catalyst);
+                            } else {
+                               startAttack(selectedTokenId);
+                            }
+                          }}
+                          className="bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 border-dashed hover:border-purple-500/50 rounded p-1.5 transition-all text-left group"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-bold text-zinc-400 group-hover:text-purple-300 truncate">{catalyst.nome}</span>
+                            <span className="text-[7px] text-zinc-600 font-black uppercase opacity-50 shrink-0">Cat.</span>
+                          </div>
+                        </button>
+                      ))}
+
+                      {/* Monster Actions */}
+                      {token?.acoes?.map(action => (
                         <button 
                           key={action.id}
                           onClick={() => {
@@ -1744,17 +1926,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                                resolveCombat(action);
                             } else {
                                startAttack(selectedTokenId);
-                               // Note: We don't have a way to "save" the pre-selected action easily 
-                               // without adding more state, but starting the attack mode is better than nothing.
                             }
                           }}
                           className="bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 hover:border-red-500/50 rounded p-1.5 transition-all text-left group"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-[9px] font-bold text-zinc-200 group-hover:text-red-400">{action.name}</span>
-                            <span className="text-[7px] text-zinc-500 font-black uppercase opacity-50">{action.type}</span>
+                            <span className="text-[9px] font-bold text-zinc-200 group-hover:text-red-400 truncate">{action.name}</span>
+                            <span className="text-[7px] text-zinc-500 font-black uppercase opacity-50 shrink-0">{action.type}</span>
                           </div>
-                          <div className="text-[8px] font-bold text-zinc-400">Acerto: +{action.acerto} | Dano: {action.dano}</div>
+                          <div className="text-[8px] font-bold text-zinc-400">Acento: +{action.acerto} | Dano: {action.dano}</div>
                         </button>
                       ))}
                     </div>
@@ -1792,7 +1972,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 <Plus className="rotate-45" size={20} />
               </button>
             </div>
-            <div className="p-4 max-h-64 overflow-y-auto space-y-2">
+            <div className="p-4 max-h-[70vh] overflow-y-auto space-y-2 custom-scrollbar">
               {(() => {
                 const attacker = tokens.find(t => t.id === weaponSelectTokenId);
                 const attackerChar = availableCharacters.find(c => c.id === attacker?.characterId);
@@ -1801,11 +1981,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 const spells = attackerChar?.magias || [];
                 const monsterActions = attacker?.acoes || [];
                 
+                const inventoryItems = attackerChar?.compartimentos?.flatMap(c => c.itens || []) || [];
+                const inventoryWeapons = inventoryItems.filter(i => i.tipo === 'Arma' || i.corte || i.perfuracao || i.impacto);
+                const inventoryCatalysts = inventoryItems.filter(i => i.tipo === 'Catalisador' || i.feitico || i.elemental || i.magiaNegra);
+                
                 return (
                   <>
-                    {weapons.map(weapon => (
+                    {[...weapons, ...inventoryWeapons].map((weapon, idx) => (
                       <button
-                        key={weapon.id}
+                        key={`${weapon.id}-${idx}`}
                         onClick={() => resolveCombat(weapon)}
                         className="w-full flex items-center justify-between p-3 bg-zinc-950 border border-zinc-800 hover:border-blue-500/50 rounded-xl transition-all group"
                       >
@@ -1826,9 +2010,9 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       </button>
                     ))}
 
-                    {catalysts.map(catalyst => (
+                    {[...catalysts, ...inventoryCatalysts].map((catalyst, idx) => (
                       <button
-                        key={catalyst.id}
+                        key={`${catalyst.id}-${idx}`}
                         onClick={() => resolveCombat(catalyst)}
                         className="w-full flex items-center justify-between p-3 bg-zinc-950 border border-purple-900/30 hover:border-purple-500/50 rounded-xl transition-all group"
                       >

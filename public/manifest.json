@@ -1,0 +1,39 @@
+{
+  "id": "demons-despair-rpg-v1",
+  "name": "Demon's Despair RPG",
+  "short_name": "Demon's Despair",
+  "description": "Ficha de Personagem e VTT para Demon's Despair RPG",
+  "lang": "pt-BR",
+  "start_url": "/?utm_source=pwa",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#f59e0b",
+  "orientation": "any",
+  "categories": ["games", "utilities"],
+  "icons": [
+    {
+      "src": "/d20.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/d20.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/d20.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/d20.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

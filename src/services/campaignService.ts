@@ -66,7 +66,11 @@ export const joinCampaign = async (characterId: string, inviteCode: string) => {
 
   try {
     const charRef = doc(db, CHARACTERS_COLLECTION, characterId);
-    await updateDoc(charRef, { campaignId, updatedAt: serverTimestamp() });
+    await updateDoc(charRef, { 
+      campaignId, 
+      userEmail: auth.currentUser?.email || null,
+      updatedAt: serverTimestamp() 
+    });
     return campaignId;
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `${CHARACTERS_COLLECTION}/${characterId}`);
@@ -81,6 +85,27 @@ export const deleteCampaign = async (campaignId: string) => {
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `${CAMPAIGNS_COLLECTION}/${campaignId}`);
   }
+};
+
+export const subscribeToCampaignsByIds = (campaignIds: string[], onUpdate: (campaigns: Campaign[]) => void) => {
+  if (campaignIds.length === 0) {
+    onUpdate([]);
+    return () => {};
+  }
+
+  // Firestore "in" query limited to 10 elements. 
+  // If more than 10, we'd need to chunk it, but usually a player isn't in 10+ campaigns at once.
+  const q = query(
+    collection(db, CAMPAIGNS_COLLECTION),
+    where('__name__', 'in', campaignIds.slice(0, 10))
+  );
+
+  return onSnapshot(q, (snapshot) => {
+    const campaigns = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Campaign));
+    onUpdate(campaigns);
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, CAMPAIGNS_COLLECTION);
+  });
 };
 
 export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (characters: Character[]) => void) => {

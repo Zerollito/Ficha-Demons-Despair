@@ -21,7 +21,9 @@ export const saveCharacterToFirestore = async (character: Character) => {
   const charRef = doc(db, CHARACTERS_COLLECTION, character.id);
   const data = {
     ...character,
-    userId: auth.currentUser.uid,
+    // Only set owner if it's missing (new character)
+    userId: character.userId || auth.currentUser.uid,
+    userEmail: character.userEmail || auth.currentUser.email,
     updatedAt: serverTimestamp(),
   };
 
@@ -73,6 +75,7 @@ export const subscribeToUserCharacters = (onUpdate: (characters: Character[]) =>
         stats: { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 },
         statsXP: { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 },
         bonusProficiencias: {},
+        userEmail: "",
         joias: [],
         armas: [],
         catalisadores: [],

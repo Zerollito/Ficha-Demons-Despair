@@ -61,7 +61,7 @@ service cloud.firestore {
                        incoming().masterId == existing().masterId &&
                        incoming().createdAt == existing().createdAt &&
                        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'inviteCode']);
-      allow delete: if isVerified() && existing().masterId == request.auth.uid;
+      allow delete: if isSignedIn() && existing().masterId == request.auth.uid;
 
       // VTT Tokens
       match /tokens/{tokenId} {
@@ -107,9 +107,9 @@ service cloud.firestore {
 
       allow update: if isVerified() && 
                        (existing().get('userId', '') == request.auth.uid || existing().get('userId', '') == "" || isMasterOfCampaign(existing())) &&
-                       incoming().userId == request.auth.uid;
+                       (incoming().userId == existing().userId || (existing().get('userId', '') == "" && incoming().userId == request.auth.uid));
 
-      allow delete: if isVerified() && (existing().userId == request.auth.uid || isMasterOfCampaign(existing()));
+      allow delete: if isSignedIn() && (existing().userId == request.auth.uid || isMasterOfCampaign(existing()));
     }
   }
 }
