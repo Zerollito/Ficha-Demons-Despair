@@ -1,5 +1,6 @@
-import { CONFIG } from './statusRules';
+import { CONFIG, getNegativeEffectPenalties } from './statusRules';
 import { getSurvivalPenalties } from './survivalRules';
+import { NegativeEffect } from '../types';
 
 export interface Stats {
   CON: number;
@@ -22,16 +23,57 @@ export const calculateProficiencyBonus = (
   fatigue?: number,
   climate?: number,
   climateProficiency?: number,
-  manualBonus: number = 0
+  manualBonus: number = 0,
+  effects: NegativeEffect[] = []
 ) => {
   let penalty = 0;
   
   // Negative effects should not affect Fome and Clima
+  let baseBonus = 0;
+  if (name === 'Fome') {
+    // Every 1 point in BOTH RES and ADP = +1
+    baseBonus = Math.min(stats.RES, stats.ADP);
+  } else if (name === 'Resistência') {
+    // Every 2 points = +1
+    baseBonus = Math.floor(stats.RES / 2);
+  } else if (name === 'Adaptabilidade') {
+    // Every 2 points = +1
+    baseBonus = Math.floor(stats.ADP / 2);
+  } else if (name === 'Clima') {
+    // 10 points = 1
+    baseBonus = Math.floor(stats.ADP / 10);
+  } else if (statKeys.length === 1) {
+    // Scaling: 10 points = +1
+    baseBonus = Math.floor(stats[statKeys[0]] / (CONFIG.bonuses.proficiencySingleThreshold || 10));
+  } else if (statKeys.length === 2) {
+    // Scaling: 5 points in one AND 5 in other = +1
+    baseBonus = Math.min(
+      Math.floor(stats[statKeys[0]] / (CONFIG.bonuses.proficiencyDualThreshold || 5)), 
+      Math.floor(stats[statKeys[1]] / (CONFIG.bonuses.proficiencyDualThreshold || 5))
+    );
+  }
+
   if (name !== 'Fome' && name !== 'Clima') {
     // Survival penalties (Hunger/Thirst)
     if (hunger !== undefined && thirst !== undefined) {
       const penalties = getSurvivalPenalties(hunger, thirst);
       penalty += penalties.proficiency;
+      
+      // Specifically for Mentalidade (Sanity), apply the sanity penalty
+      if (name === 'Mentalidade') {
+        penalty += penalties.sanity;
+      }
+    }
+
+    // Negative effect penalties (Hemorragia etc)
+    if (effects) {
+      const effectPenalties = getNegativeEffectPenalties(effects);
+      if (name === 'Acurácia') {
+        baseBonus = Math.floor(baseBonus * effectPenalties.accuracyPenaltyMult);
+      }
+      if (name === 'Esquiva') {
+        baseBonus = Math.floor(baseBonus * effectPenalties.dodgePenaltyMult);
+      }
     }
 
     // Fatigue penalties
@@ -56,25 +98,6 @@ export const calculateProficiencyBonus = (
         }
       }
     }
-  }
-
-  // Special cases and general scaling logic
-  let baseBonus = 0;
-  if (name === 'Fome') {
-    // 2+2 rule for dual stat
-    baseBonus = Math.min(Math.floor(stats.RES / 2), Math.floor(stats.ADP / 2));
-  } else if (name === 'Clima') {
-    // 10 points = 1
-    baseBonus = Math.floor(stats.ADP / 10);
-  } else if (statKeys.length === 1) {
-    // Scaling: 10 points = +1
-    baseBonus = Math.floor(stats[statKeys[0]] / (CONFIG.bonuses.proficiencySingleThreshold || 10));
-  } else if (statKeys.length === 2) {
-    // Scaling: 5 points in one AND 5 in other = +1
-    baseBonus = Math.min(
-      Math.floor(stats[statKeys[0]] / (CONFIG.bonuses.proficiencyDualThreshold || 5)), 
-      Math.floor(stats[statKeys[1]] / (CONFIG.bonuses.proficiencyDualThreshold || 5))
-    );
   }
 
   return Math.max(0, baseBonus + penalty + manualBonus);

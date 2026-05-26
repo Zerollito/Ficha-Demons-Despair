@@ -32,23 +32,29 @@ const app = initializeApp(firebaseConfig);
 
 // Inicializar Firestore com configurações otimizadas para o ambiente de preview
 export const db = initializeFirestore(app, {
-    experimentalForceLongPolling: true, // Frequentemente necessário em ambientes de proxy/sandboxed
+    experimentalForceLongPolling: true, // Forçar long polling pode ser mais estável em iframes do AI Studio
 }, firebaseConfig.firestoreDatabaseId || '(default)');
 
-// Habilitar persistência offline
+// Informar sobre o estado do computador
+if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => console.log("Conexão com a Internet restaurada."));
+    window.addEventListener('offline', () => console.warn("Conexão com a Internet perdida. Operando em modo offline."));
+}
+
+// Desativando persistência local temporariamente para resolver o problema de escritas presas (pendingWrites: true)
+/*
 try {
     enableIndexedDbPersistence(db).catch((err) => {
         if (err.code === 'failed-precondition') {
-            // Provavelmente múltiplas abas abertas
             console.warn("Persistência do Firestore: múltipla abas abertas.");
         } else if (err.code === 'unimplemented') {
-            // O navegador não suporta
             console.warn("Persistência do Firestore: navegador não suportado.");
         }
     });
 } catch (e) {
     console.error("Erro ao habilitar persistência:", e);
 }
+*/
 
 export const auth = getAuth(app);
 
@@ -191,3 +197,18 @@ export const loginWithGoogle = async () => {
 };
 
 export const logout = () => auth.signOut();
+
+/**
+ * Limpa o cache local do Firestore. Útil se a sincronização ficar travada.
+ */
+export async function clearFirestoreCache() {
+  const { terminate, clearIndexedDbPersistence } = await import('firebase/firestore');
+  try {
+    await terminate(db);
+    await clearIndexedDbPersistence(db);
+    console.log("Cache do Firestore limpo com sucesso. Recarregando...");
+    window.location.reload();
+  } catch (error) {
+    console.error("Erro ao limpar cache do Firestore:", error);
+  }
+}

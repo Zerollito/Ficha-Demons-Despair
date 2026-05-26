@@ -4,7 +4,9 @@
     "vidaPerCon": 2,
     "baseMana": 0,
     "manaPerApr": 2,
-    "baseCarga": 200,
+    "baseSanidade": 0,
+    "sanidadePerMen": 2,
+    "baseCarga": 300,
     "cargaPerRes": 5,
     "baseDeslocamento": 3,
     "dexPerDeslocamento": 3

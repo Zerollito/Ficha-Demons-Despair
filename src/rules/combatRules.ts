@@ -8,6 +8,7 @@ export interface Weapon {
   dano: string;
   acerto: number;
   tipo: string;
+  categoria?: 'Arma Branca' | 'Arma de Fogo' | 'Arco';
   escala: Scale;
   atributoBase: 'Força' | 'Destreza' | 'Inteligência' | 'Ritual';
   peso: number;
@@ -19,6 +20,12 @@ export interface Weapon {
   perfuracao: number;
   resistencia: number;
   efeito?: string;
+  quantidade?: number;
+  municaoTotal?: number;
+  municaoCarregada?: number;
+  bulletId?: string;
+  magazineAmmo?: any[];
+  durabilidadeMaxUtil?: number;
 }
 
 export interface Catalyst {

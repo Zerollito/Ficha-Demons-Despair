@@ -149,6 +149,26 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "name", "masterId", "ataque", "defesa"]
+    },
+    "Material": {
+      "title": "Material",
+      "description": "Crafting materials for weapons and armor",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nome": { "type": "string" },
+        "corte": { "type": "object" },
+        "impacto": { "type": "object" },
+        "perfuracao": { "type": "object" },
+        "resistencia": { "type": "object" },
+        "durabilidade": { "type": "string" },
+        "efeitos": { "type": "array" },
+        "isPesado": { "type": "boolean" },
+        "isLeve": { "type": "boolean" },
+        "masterId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "nome", "masterId"]
     }
   },
   "firestore": {
@@ -159,6 +179,10 @@
     "bestiary/{monsterId}": {
       "schema": "BestiaryMonster",
       "description": "Templates for monsters created by Game Masters"
+    },
+    "materials/{materialId}": {
+      "schema": "Material",
+      "description": "Custom crafting materials created by Game Masters"
     },
     "campaigns/{campaignId}": {
       "schema": "Campaign",

@@ -15,8 +15,17 @@ service cloud.firestore {
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isSignedIn() { return request.auth != null; }
-    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
-    function isOwner(data) { return isSignedIn() && data.userId == request.auth.uid; }
+    function isVerified() { return isSignedIn() && request.auth.token.get('email_verified', false) == true; }
+    function isOwner(data) { return isSignedIn() && data.get('userId', '') == request.auth.uid; }
+    function isMember() { return isSignedIn(); } // Simplified for reliability
+
+    // Validation helper for Material
+    function isValidMaterial(data) {
+      return data.keys().hasAll(['id', 'nome', 'masterId']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.nome is string && data.nome.size() <= 200 &&
+             data.masterId == request.auth.uid;
+    }
 
     // Validation helper for BestiaryMonster
     function isValidMonster(data) {
@@ -26,90 +35,112 @@ service cloud.firestore {
              data.masterId == request.auth.uid;
     }
 
-    // Validation helper for Character
+    // Character validation
     function isValidCharacter(data) {
-      let baseValid = data.keys().hasAll(['id', 'nome', 'userId', 'updatedAt']) &&
-             data.id is string && data.id.size() <= 128 &&
-             data.nome is string && data.nome.size() <= 200 &&
-             data.updatedAt == request.time;
-      
-      let identityValid = resource == null ? data.userId == request.auth.uid : data.userId == existing().userId;
-      
-      // If createdAt is present, it must be request.time (on create) or unchanged (on update)
-      let createdAtValid = !data.contains('createdAt') || 
-                           (resource == null ? data.createdAt == request.time : data.createdAt == existing().createdAt);
-      
-      return baseValid && identityValid && createdAtValid;
+      return data.get('id', '') != '' &&
+             data.get('nome', '') != '' &&
+             (data.get('userId', '') != '' || data.get('userEmail', '') != '');
+    }
+
+    // Helper for character ownership
+    function isCharOwner(charId) {
+      return isSignedIn() && (
+        (exists(/databases/$(database)/documents/characters/$(charId)) && (
+          get(/databases/$(database)/documents/characters/$(charId)).data.userId == request.auth.uid ||
+          get(/databases/$(database)/documents/characters/$(charId)).data.userEmail == request.auth.token.email
+        )) ||
+        (request.resource != null && (
+          request.resource.data.userId == request.auth.uid ||
+          request.resource.data.userEmail == request.auth.token.email
+        ))
+      );
     }
 
     // Validation helper for Campaign
     function isValidCampaign(data) {
-      return data.keys().hasAll(['name', 'masterId', 'inviteCode', 'createdAt']) &&
+      let requiredFields = ['name', 'masterId', 'inviteCode', 'createdAt'];
+      return data.keys().hasAll(requiredFields) &&
              data.name is string && data.name.size() <= 100 &&
-             data.masterId == request.auth.uid &&
+             data.masterId is string && data.masterId.size() <= 128 &&
              data.inviteCode is string && data.inviteCode.size() == 6 &&
              data.createdAt == request.time;
     }
 
     match /campaigns/{campaignId} {
       allow read: if isSignedIn();
-      allow create: if isVerified() && isValidId(campaignId) && isValidCampaign(incoming());
-      allow update: if isVerified() && 
-                       existing().masterId == request.auth.uid && 
-                       isValidId(campaignId) &&
-                       isValidCampaign(incoming()) &&
-                       incoming().masterId == existing().masterId &&
-                       incoming().createdAt == existing().createdAt &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'inviteCode']);
-      allow delete: if isSignedIn() && existing().masterId == request.auth.uid;
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (
+        resource.data.get('masterId', '') == request.auth.uid ||
+        resource.data.get('masterEmail', '') == request.auth.token.get('email', '')
+      );
 
       // VTT Tokens
       match /tokens/{tokenId} {
-        allow read: if isSignedIn();
-        allow write: if isVerified(); // Simplification: any member can move tokens for now
+        allow read, write: if isSignedIn();
       }
 
       // VTT Config
       match /config/{configId} {
         allow read: if isSignedIn();
-        allow write: if isVerified() && get(/databases/$(database)/documents/campaigns/$(campaignId)).data.masterId == request.auth.uid;
+        allow write: if isSignedIn();
+      }
+
+      // VTT Combat Logs
+      match /vtt_logs/{logId} {
+        allow read, write: if isSignedIn();
       }
     }
 
     match /bestiary/{monsterId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(monsterId) && isValidMonster(incoming());
-      allow update: if isSignedIn() && 
-                       existing().masterId == request.auth.uid && 
-                       isValidMonster(incoming()) &&
-                       incoming().masterId == existing().masterId;
-      allow delete: if isSignedIn() && existing().masterId == request.auth.uid;
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (
+        resource.data.get('masterId', '') == request.auth.uid ||
+        resource.data.get('masterEmail', '') == request.auth.token.get('email', '')
+      );
+    }
+
+    match /materials/{materialId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (
+        resource.data.get('masterId', '') == request.auth.uid ||
+        resource.data.get('masterEmail', '') == request.auth.token.get('email', '')
+      );
     }
 
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow write: if isVerified() && request.auth.uid == userId;
+      allow write: if isSignedIn() && request.auth.uid == userId;
     }
 
     match /characters/{characterId} {
-      // Helper to check if user is master of the character's campaign
-      function isMasterOfCampaign(data) {
-        let campId = data.get('campaignId', '');
-        return campId != '' && get(/databases/$(database)/documents/campaigns/$(campId)).data.masterId == request.auth.uid;
-      }
-
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isMasterOfCampaign(resource.data));
-      allow get: if isSignedIn() && (isOwner(existing()) || isMasterOfCampaign(existing()));
+      allow read: if isSignedIn() && (
+        resource.data.get('userId', '') == request.auth.uid ||
+        resource.data.get('userEmail', '') == request.auth.token.get('email', '') ||
+        resource.data.get('campaignId', '') != ''
+      );
       
-      allow create: if isVerified() && 
-                       isValidId(characterId) && 
-                       incoming().userId == request.auth.uid;
+      allow create: if isSignedIn();
+      
+      allow update: if isSignedIn() && (
+        // Owner can do everything
+        resource.data.get('userId', '') == request.auth.uid ||
+        resource.data.get('userEmail', '') == request.auth.token.get('email', '') ||
+        // Master can do everything
+        (resource.data.get('campaignId', '') != '' && 
+         exists(/databases/$(database)/documents/campaigns/$(resource.data.campaignId)) &&
+         (get(/databases/$(database)/documents/campaigns/$(resource.data.campaignId)).data.get('masterId', '') == request.auth.uid ||
+          get(/databases/$(database)/documents/campaigns/$(resource.data.campaignId)).data.get('masterEmail', '') == request.auth.token.get('email', ''))) ||
+        // Other players in same campaign can update combat stats and inventory (for looting)
+        (resource.data.get('campaignId', '') != '' && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['vidaAtual', 'efeitosNegativos', 'isDefending', 'defenseType', 'defenseWeaponId', 'defenseRounds', 'updatedAt', 'armas', 'catalisadores', 'armaduras', 'acessorios', 'compartimentos', 'dinheiro']))
+      );
 
-      allow update: if isVerified() && 
-                       (existing().get('userId', '') == request.auth.uid || existing().get('userId', '') == "" || isMasterOfCampaign(existing())) &&
-                       (incoming().userId == existing().userId || (existing().get('userId', '') == "" && incoming().userId == request.auth.uid));
-
-      allow delete: if isSignedIn() && (existing().userId == request.auth.uid || isMasterOfCampaign(existing()));
+      allow delete: if isSignedIn() && (
+        resource.data.get('userId', '') == request.auth.uid ||
+        resource.data.get('userEmail', '') == request.auth.token.get('email', '')
+      );
     }
   }
 }

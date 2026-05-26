@@ -7,7 +7,9 @@ import {
   onSnapshot, 
   query, 
   where, 
+  or,
   serverTimestamp,
+  getDocs,
   Timestamp
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
@@ -15,25 +17,59 @@ import { Character } from '../types';
 
 const CHARACTERS_COLLECTION = 'characters';
 
-export const saveCharacterToFirestore = async (character: Character) => {
-  if (!auth.currentUser) return;
+const deepClean = (obj: any): any => {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(deepClean);
+  
+  // Only recurse into plain objects to avoid breaking Firestore-specific types (Timestamp, FieldValue, etc.)
+  const proto = Object.getPrototypeOf(obj);
+  if (proto !== null && proto !== Object.prototype) return obj;
 
+  return Object.fromEntries(
+    Object.entries(obj)
+      .filter(([_, v]) => v !== undefined)
+      .map(([k, v]) => [k, deepClean(v)])
+  );
+};
+
+export const saveCharacterToFirestore = async (character: Character) => {
+  if (!auth.currentUser) {
+    console.warn("⚠️ [Firestore] Tentativa de salvar sem usuário logado.");
+    return;
+  }
+
+  // Se o personagem tem o mesmo e-mail do usuário atual, forçamos o vínculo com o UID atual.
+  // Isso resolve casos de migração de sessão ou mudança de UID (ex: trocar de provedor de login).
+  const isOwnEmail = character.userEmail === auth.currentUser.email;
+  const targetUserId = isOwnEmail ? auth.currentUser.uid : (character.userId || auth.currentUser.uid);
+  const targetUserEmail = character.userEmail || auth.currentUser.email || "";
+
+  console.log(`💾 [Firestore] Salvando ficha: ${character.nome} (${character.id}) para UID: ${targetUserId} e Email: ${targetUserEmail}`);
   const charRef = doc(db, CHARACTERS_COLLECTION, character.id);
+  
   const data = {
     ...character,
-    // Only set owner if it's missing (new character)
-    userId: character.userId || auth.currentUser.uid,
-    userEmail: character.userEmail || auth.currentUser.email,
+    userId: targetUserId,
+    userEmail: targetUserEmail,
     updatedAt: serverTimestamp(),
   };
 
   try {
-    // Clean undefined values
-    const cleanData = Object.fromEntries(
-      Object.entries(data).filter(([_, v]) => v !== undefined)
+    const cleanData = deepClean(data);
+    const dataSize = JSON.stringify(cleanData).length;
+    console.log(`⏳ [Firestore] Pushing ${character.nome} (${dataSize} bytes) to server...`);
+    
+    // Usando uma promessa com timeout para detectar se o Firestore ficar "engatado"
+    // Sem persistência, setDoc deve retornar apenas quando o servidor confirmar.
+    const savePromise = setDoc(charRef, cleanData, { merge: true });
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error(`Timeout ao salvar ${character.nome}: Servidor não respondeu em 20s.`)), 20000)
     );
-    await setDoc(charRef, cleanData, { merge: true });
+
+    await Promise.race([savePromise, timeoutPromise]);
+    console.log(`✅ [Firestore] Ficha ${character.nome} CONFIRMADA pelo servidor.`);
   } catch (error) {
+    console.error(`❌ [Firestore] Erro ao salvar ${character.nome}:`, error);
     handleFirestoreError(error, OperationType.WRITE, `${CHARACTERS_COLLECTION}/${character.id}`);
   }
 };
@@ -50,50 +86,25 @@ export const deleteCharacterFromFirestore = async (characterId: string) => {
   }
 };
 
-export const subscribeToUserCharacters = (onUpdate: (characters: Character[]) => void) => {
+export const subscribeToUserCharacters = (onUpdate: (characters: Character[], metadata: { hasPendingWrites: boolean, fromCache: boolean }) => void) => {
   if (!auth.currentUser) return () => {};
 
+  // Busca tanto por UID quanto por Email para garantir sincronização entre dispositivos
   const q = query(
     collection(db, CHARACTERS_COLLECTION),
-    where('userId', '==', auth.currentUser.uid)
+    or(
+      where("userId", "==", auth.currentUser.uid),
+      where("userEmail", "==", auth.currentUser.email)
+    )
   );
 
-  return onSnapshot(q, (snapshot) => {
-    const characters = snapshot.docs.map(doc => {
-      const data = doc.data();
-      // Basic sanitization to ensure essential structures exist before reaching the UI
-      return {
-        nome: "Personagem sem nome",
-        etnia: "",
-        dinheiro: { C: 0, B: 0, P: 0, O: 0 },
-        vidaAtual: 0,
-        manaAtual: 0,
-        fome: 100,
-        sede: 100,
-        cansaco: 8,
-        defesa: { Cabeça: 0, Torso: 0, Braços: 0, Pernas: 0 },
-        stats: { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 },
-        statsXP: { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 },
-        bonusProficiencias: {},
-        userEmail: "",
-        joias: [],
-        armas: [],
-        catalisadores: [],
-        habilidades: [],
-        magias: [],
-        armaduras: [],
-        acessorios: [],
-        compartimentos: [],
-        conhecimentos: [],
-        escalas: [],
-        efeitosNegativos: [],
-        anotacoes: [],
-        dadosCustomizados: [],
-        imagens: [],
-        ...data
-      } as Character;
+  return onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
+    const characters = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Character));
+    console.log(`📡 [Sync] Snapshot: ${snapshot.docs.length} docs, fromCache: ${snapshot.metadata.fromCache}, pendingWrites: ${snapshot.metadata.hasPendingWrites}`);
+    onUpdate(characters, { 
+      hasPendingWrites: snapshot.metadata.hasPendingWrites, 
+      fromCache: snapshot.metadata.fromCache 
     });
-    onUpdate(characters);
   }, (error) => {
     handleFirestoreError(error, OperationType.LIST, CHARACTERS_COLLECTION);
   });

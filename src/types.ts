@@ -3,6 +3,8 @@ import { Item, Compartment } from './rules/inventoryRules';
 import { Weapon, Catalyst } from './rules/combatRules';
 import { Knowledge } from './rules/knowledgeRules';
 
+export type { Stats, Weapon, Catalyst, Item, Compartment };
+
 export interface ArmorPiece {
   id: string;
   nome: string;
@@ -60,6 +62,7 @@ export interface TableToken {
   imageUrl?: string;
   type: 'character' | 'creature';
   characterId?: string;
+  userId?: string;
   hp?: number;
   maxHp?: number;
   initiative?: number;
@@ -79,6 +82,23 @@ export interface TableToken {
     };
   };
   acoes?: MonsterAction[];
+  efeitosNegativos?: NegativeEffect[];
+  deslocamento?: number;
+  isDefending?: boolean;
+  defenseType?: 'Shield' | 'Weapon';
+  defenseWeaponId?: string;
+  defendedAt?: number; // Timestamp or turn count
+  defenseRounds?: number;
+}
+
+export interface CalendarEvent {
+  id: string;
+  day: number;
+  month: number;
+  year?: number;
+  title: string;
+  description?: string;
+  color?: string;
 }
 
 export interface TableConfig {
@@ -87,6 +107,17 @@ export interface TableConfig {
   showGrid: boolean;
   masterFog: boolean;
   gridColor?: string;
+  date?: {
+    day: number;
+    month: number;
+    year: number;
+  };
+  time?: {
+    hour: number;
+    minute: number;
+  };
+  weather?: string;
+  events?: CalendarEvent[];
 }
 
 export interface MonsterAction {
@@ -148,6 +179,18 @@ export interface BestiaryMonster {
   updatedAt?: string;
 }
 
+export interface NegativeEffect {
+  id: string;
+  type: 'Ossos Quebrados' | 'Sangramento' | 'Hemorragia' | 'Caído' | 'Tonto' | 'Preso Parcialmente';
+  location: string; 
+  stacks: number; // For Sangramento (up to 3), or hit counter for permanent damage
+  daysRemaining: number;
+  treated: boolean;
+  depth?: number; // For Sangramento (extra days)
+  isIncurable?: boolean;
+  isUnusable?: boolean;
+}
+
 export interface Character {
   id: string;
   userId: string;
@@ -164,15 +207,17 @@ export interface Character {
   
   vidaAtual: number;
   manaAtual: number;
+  sanidadeAtual: number;
   fome: number;
   sede: number;
   cansaco: number;
   
   defesa: {
-    Cabeça: number;
-    Torso: number;
-    Braços: number;
-    Pernas: number;
+    "Cabeça": number;
+    "Tronco": number;
+    "Braço Esquerdo": number;
+    "Braço Direito": number;
+    "Pernas": number;
   };
   
   clima: number;
@@ -192,11 +237,15 @@ export interface Character {
   acessorios: ArmorPiece[];
   compartimentos: Compartment[];
   conhecimentos: Knowledge[];
-  efeitosNegativos: string[];
+  efeitosNegativos: NegativeEffect[];
   anotacoes: { id: string; titulo: string; conteudo: string }[];
   escalas: Escala[];
   dadosCustomizados: { id: string; lados: number; nome: string }[];
   imagens: { id: string; url: string; titulo: string }[];
+  itens: Item[];
+  isDefending?: boolean;
+  defenseType?: 'Shield' | 'Weapon';
+  defenseWeaponId?: string;
 }
 
 export interface Escala {
@@ -213,4 +262,5 @@ export interface AppState {
   userProfile?: UserProfile | null;
   activeCampaignId?: string | null;
   campaigns?: Campaign[];
+  dirtyCharacterIds?: string[]; // IDs with unsaved changes
 }

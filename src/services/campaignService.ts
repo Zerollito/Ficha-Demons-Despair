@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Campaign, Character } from '../types';
+import { generateInviteCode } from '../lib/random';
 
 const CAMPAIGNS_COLLECTION = 'campaigns';
 const CHARACTERS_COLLECTION = 'characters';
@@ -20,10 +21,11 @@ const CHARACTERS_COLLECTION = 'characters';
 export const createCampaign = async (name: string) => {
   if (!auth.currentUser) return null;
 
-  const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+  const inviteCode = generateInviteCode();
   const campaignData = {
     name,
     masterId: auth.currentUser.uid,
+    masterEmail: auth.currentUser.email,
     inviteCode,
     createdAt: serverTimestamp()
   };
@@ -40,16 +42,29 @@ export const createCampaign = async (name: string) => {
 export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => void) => {
   if (!auth.currentUser) return () => {};
 
+  // Em cenários de mudança de UID, permitimos busca por ID ou Email
   const q = query(
     collection(db, CAMPAIGNS_COLLECTION),
-    where('masterId', '==', auth.currentUser.uid)
+    where('masterEmail', '==', auth.currentUser.email)
   );
 
   return onSnapshot(q, (snapshot) => {
     const campaigns = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Campaign));
     onUpdate(campaigns);
   }, (error) => {
-    handleFirestoreError(error, OperationType.LIST, CAMPAIGNS_COLLECTION);
+    // Fallback para masterId se masterEmail falhar ou não retornar nada (campanhas antigas)
+    if (auth.currentUser) {
+      const qFallback = query(
+        collection(db, CAMPAIGNS_COLLECTION),
+        where('masterId', '==', auth.currentUser.uid)
+      );
+      return onSnapshot(qFallback, (snapshot) => {
+        const campaigns = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Campaign));
+        onUpdate(campaigns);
+      }, (err) => {
+        handleFirestoreError(err, OperationType.LIST, CAMPAIGNS_COLLECTION);
+      });
+    }
   });
 };
 
@@ -115,7 +130,7 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
   );
 
   return onSnapshot(q, (snapshot) => {
-    const characters = snapshot.docs.map(doc => ({ ...doc.data() } as Character));
+    const characters = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Character));
     onUpdate(characters);
   }, (error) => {
     handleFirestoreError(error, OperationType.LIST, CHARACTERS_COLLECTION);

@@ -34,6 +34,7 @@ export interface Compartment {
   nome: string;
   volumeMax: number;
   itens: Item[];
+  externo?: boolean;
 }
 
 export const calculateInventoryTotals = (compartments: Compartment[] = []) => {
@@ -42,7 +43,10 @@ export const calculateInventoryTotals = (compartments: Compartment[] = []) => {
   
   (compartments || []).forEach(comp => {
     (comp.itens || []).forEach(item => {
-      totalPeso += (item.peso || 0) * (item.quantidade || 0);
+      // Containers marked as external don't count towards the character's weight
+      if (!comp.externo) {
+        totalPeso += (item.peso || 0) * (item.quantidade || 0);
+      }
       totalVolume += (item.volume || 0) * (item.quantidade || 0);
     });
   });

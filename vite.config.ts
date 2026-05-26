@@ -13,25 +13,42 @@ export default defineConfig(({mode}) => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+        includeAssets: ['icon.png'],
+        workbox: {
+          maximumFileSizeToCacheInBytes: 5000000,
+        },
         manifest: {
-          name: 'Ficha RPG Demons Despair',
-          short_name: 'Demons Despair',
-          description: 'Ficha automatizada para jogar o RPG Demons Despair.',
-          theme_color: '#18181b',
-          background_color: '#18181b',
+          name: "Demon's Despair RPG",
+          short_name: "Demon's Despair",
+          description: "Ficha de Personagem e VTT para Demon's Despair RPG",
+          theme_color: '#f59e0b',
+          background_color: '#09090b',
           display: 'standalone',
           icons: [
             {
-              src: 'icone.png',
+              src: 'icon.png',
               sizes: '192x192',
               type: 'image/png',
+              purpose: 'any'
             },
             {
-              src: 'icone.png',
+              src: 'icon.png',
               sizes: '512x512',
               type: 'image/png',
+              purpose: 'any'
             },
+            {
+              src: 'icon.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'maskable'
+            },
+            {
+              src: 'icon.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable'
+            }
           ],
         },
       }),
