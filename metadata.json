@@ -1,5 +1,6 @@
 {
   "name": "Ficha RPG Demons Despair",
   "description": "Ficha automatizada para jogar o RPG Demons Despair.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

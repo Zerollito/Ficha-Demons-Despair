@@ -21,6 +21,7 @@ export function ArmorProperties({ item, onChange }: ArmorPropertiesProps) {
         <MiniInput label="Vol" value={item.volume || 0} type="number" onChange={v => onChange({ volume: parseFloat(v) || 0 })} />
         <MiniInput label="Redução de Dano" value={item.reducaoDano || 0} type="number" onChange={v => onChange({ reducaoDano: parseInt(v) || 0 })} />
       </div>
+
       <TextArea label="Descrição" value={item.descricao || item.efeito || ''} onChange={v => onChange({ descricao: v, efeito: v })} />
     </div>
   );

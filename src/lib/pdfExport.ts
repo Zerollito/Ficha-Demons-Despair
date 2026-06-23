@@ -8,7 +8,7 @@ export const exportPDF = (activeChar: Character) => {
   const stats = activeChar.stats;
   const vidaMax = getVidaMaxima(stats.CON);
   const manaMax = getManaMaxima(stats.APR);
-  const cargaMax = getCargaMaxima(stats.RES);
+  const cargaMax = getCargaMaxima(stats.RES) + ((activeChar.bonusCarga || 0) * 10);
   const { peso: pesoTotal } = calculateInventoryTotals(activeChar.compartimentos);
   const penalties = getLoadPenalties(pesoTotal, cargaMax);
   const deslocamentoBase = getDeslocamentoBase(stats.DEX);

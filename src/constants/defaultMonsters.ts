@@ -178,5 +178,31 @@ export const DEFAULT_MONSTERS: Omit<BestiaryMonster, 'masterId' | 'id'>[] = [
       { id: "baku_3", name: "Mordida", type: "Minor", categoria: "Perfuração", acerto: 12, dano: "1d6", description: "Putrefação -50, sangramento -60" },
       { id: "baku_4", name: "Alarte ascendare", type: "Major", categoria: "Feitiço", acerto: 10, dano: "1d4-3d4", description: "Arremessa o alvo para longe 4m-6m (d6)" }
     ]
+  },
+  {
+    name: "Skinwalker",
+    imageUrl: "skinwalker.jpg",
+    maxHp: 30,
+    size: 1.5,
+    esquiva: 3,
+    acuracia: 2,
+    deslocamento: "7 metros",
+    bonus: "Percepção +3, força +2",
+    ataque: { corte: 3, perfuracao: 4, impacto: 2, resistencia: 1, feitico: 8, elemental: 8, magiaNegra: 6, potencial: 2 },
+    defesa: { corte: 3, perfuracao: 2, impacto: 3, feitico: 6, elemental: 5, magiaNegra: 7 },
+    local: "Toda Mauer.",
+    personalidade: "???",
+    partesUteis: "Núcleo do coração.",
+    informacoes: "Uma criatura medonha e extremamente ágil que usa magia negra, feitiços e ataques físicos brutais. Habita em Toda Mauer.",
+    acoes: [
+      { id: "skin_1", name: "[1-3] Mordida desesperada", type: "Minor", categoria: "Perfuração", acerto: 8, dano: "d4", description: "Ataca 5 vezes. Sangramento -70" },
+      { id: "skin_2", name: "[4-6] Arranhar", type: "Minor", categoria: "Corte", acerto: 10, dano: "2d6", description: "Sangramento -80" },
+      { id: "skin_3", name: "[7-9] Agarrar", type: "Major", categoria: "Impacto", acerto: 8, dano: "-", description: "Agarra o alvo" },
+      { id: "skin_4", name: "[10-11] Bombarda", type: "Major", categoria: "Elemental", acerto: 8, dano: "2d8", description: "Causa explosão 2x2m em até 8m. Dano em área." },
+      { id: "skin_5", name: "[12-13] Circus Infalamre", type: "Major", categoria: "Elemental", acerto: 8, dano: "-", description: "Conjura círculo de fogo 10m. Conjurador no canto." },
+      { id: "skin_6", name: "[14-16] Erracto Córtex", type: "Major", categoria: "Magia Negra", acerto: 10, dano: "3d6", description: "Ilusão de corte profundo no braço. Forte sangramento (3d6)" },
+      { id: "skin_7", name: "[17-20] Flipendo", type: "Minor", categoria: "Feitiço", acerto: 10, dano: "2d4", description: "Causa dor excruciante. Pode derrubar -40" },
+      { id: "skin_8", name: "Oscausi", type: "Major", categoria: "Magia Negra", acerto: 8, dano: "-", description: "Sela a boca do alvo" }
+    ]
   }
 ];

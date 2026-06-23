@@ -60,7 +60,11 @@ export interface TableToken {
   prevY?: number;
   size: number;
   imageUrl?: string;
-  type: 'character' | 'creature';
+  type: 'character' | 'creature' | 'aoe';
+  aoeShape?: 'circle' | 'square' | 'rectangle';
+  aoeColor?: string;
+  aoeWidth?: number; // width in grid units (e.g., 2, 3, etc.)
+  aoeHeight?: number; // height in grid units
   characterId?: string;
   userId?: string;
   hp?: number;
@@ -89,6 +93,11 @@ export interface TableToken {
   defenseWeaponId?: string;
   defendedAt?: number; // Timestamp or turn count
   defenseRounds?: number;
+  armas?: any[];
+  catalisadores?: any[];
+  armaduras?: any[];
+  acessorios?: any[];
+  compartimentos?: any[];
 }
 
 export interface CalendarEvent {
@@ -191,6 +200,57 @@ export interface NegativeEffect {
   isUnusable?: boolean;
 }
 
+export interface TocaCreature {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  maxHp: number;
+  hpAtual?: number;
+  size?: number;
+  esquiva: number;
+  acuracia: number;
+  deslocamento: string;
+  bonus: string;
+  ataque: {
+    corte: number;
+    perfuracao: number;
+    impacto: number;
+    resistencia: number;
+    feitico: number;
+    elemental: number;
+    magiaNegra: number;
+    potencial: number;
+  };
+  defesa: {
+    corte: number;
+    perfuracao: number;
+    impacto: number;
+    feitico: number;
+    elemental: number;
+    magiaNegra: number;
+  };
+  acoes: MonsterAction[];
+  
+  // Modificadores extras adicionados para a Toca:
+  fome: number;
+  sede: number;
+  clima: number;
+  carga: number;
+
+  armas?: Weapon[];
+  catalisadores?: Catalyst[];
+  armaduras?: ArmorPiece[];
+  acessorios?: ArmorPiece[];
+  compartimentos?: Compartment[];
+
+  local?: string;
+  personalidade?: string;
+  gostaNaoGosta?: string;
+  partesUteis?: string;
+  informacoes?: string;
+  habitos?: string;
+}
+
 export interface Character {
   id: string;
   userId: string;
@@ -243,9 +303,13 @@ export interface Character {
   dadosCustomizados: { id: string; lados: number; nome: string }[];
   imagens: { id: string; url: string; titulo: string }[];
   itens: Item[];
+  bonusCarga?: number;
   isDefending?: boolean;
   defenseType?: 'Shield' | 'Weapon';
   defenseWeaponId?: string;
+  tocaCreatures?: TocaCreature[];
+  bonusFomeProximaRolagem?: number;
+  acoes?: MonsterAction[];
 }
 
 export interface Escala {

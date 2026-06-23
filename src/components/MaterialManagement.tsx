@@ -169,7 +169,8 @@ export const MaterialManagement: React.FC<MaterialManagementProps> = ({
                     <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1.5 ml-1">Corte</label>
                     <input
                       type="number"
-                      value={editingMaterial.corte?.fisico ?? 0}
+                      value={editingMaterial.corte?.fisico || ""}
+                      placeholder="0"
                       onChange={(e) => setEditingMaterial({ 
                         ...editingMaterial, 
                         corte: { fisico: parseInt(e.target.value) || 0, magico: 0 } 
@@ -181,7 +182,8 @@ export const MaterialManagement: React.FC<MaterialManagementProps> = ({
                     <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1.5 ml-1">Impacto</label>
                     <input
                       type="number"
-                      value={editingMaterial.impacto?.fisico ?? 0}
+                      value={editingMaterial.impacto?.fisico || ""}
+                      placeholder="0"
                       onChange={(e) => setEditingMaterial({ 
                         ...editingMaterial, 
                         impacto: { fisico: parseInt(e.target.value) || 0, magico: 0 } 
@@ -193,7 +195,8 @@ export const MaterialManagement: React.FC<MaterialManagementProps> = ({
                     <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1.5 ml-1">Perfuração</label>
                     <input
                       type="number"
-                      value={editingMaterial.perfuracao?.fisico ?? 0}
+                      value={editingMaterial.perfuracao?.fisico || ""}
+                      placeholder="0"
                       onChange={(e) => setEditingMaterial({ 
                         ...editingMaterial, 
                         perfuracao: { fisico: parseInt(e.target.value) || 0, magico: 0 } 
@@ -205,7 +208,8 @@ export const MaterialManagement: React.FC<MaterialManagementProps> = ({
                     <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1.5 ml-1">Resistência</label>
                     <input
                       type="number"
-                      value={editingMaterial.resistencia?.fisico ?? 0}
+                      value={editingMaterial.resistencia?.fisico || ""}
+                      placeholder="0"
                       onChange={(e) => setEditingMaterial({ 
                         ...editingMaterial, 
                         resistencia: { fisico: parseInt(e.target.value) || 0, magico: 0 } 

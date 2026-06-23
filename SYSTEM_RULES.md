@@ -1,4 +1,4 @@
-# Regras do Sistema - RPG Legendarium
+# Regras do Sistema - Demons Despair
 
 Este documento contém todas as regras lógicas e mecânicas do sistema para garantir a consistência entre a Ficha do Jogador, os Dados de Combate e o VTT.
 
@@ -53,14 +53,16 @@ Este documento contém todas as regras lógicas e mecânicas do sistema para gar
 
 ### Defesa e Contra-Ataque
 - **Postura de Defesa**: Durante o turno, pode-se usar uma ação menor para preparar defesa.
-- **Defesa com Escudo**: Impõe **Desvantagem** ao atacante. Se o ataque falhar e o atacante rolar pelo menos dois dados com valor **"1"**, o defensor pode realizar um **Contra-Ataque**.
+- **Defesa com Escudo**: Impõe **Desvantagem** ao atacante. 
+  - **Mecânica de Nivel de Escudo**: Se o nível de defesa do escudo que está defendendo for menor que o nível de ataque da arma atacante (mesmo se a arma atacante estiver fazendo uso de sua resistência/ressonância), o escudo só bloqueia **metade (50%) do dano** e perde **1 de Durabilidade** em caso de acerto. Se o nível de defesa do escudo for maior ou igual ao nível de ataque do agressor, o escudo bloqueia o ataque totalmente (100% de redução).
+  - Se o ataque falhar e o atacante rolar pelo menos dois dados com valor **"1"**, o defensor pode realizar um **Contra-Ataque**.
 - **Defesa com Arma**: O defensor rola **3d8**. Bloqueia o ataque se o resultado for **Atacante + 3**. 
   - **Contra-Ataque**: Se o bloqueio for bem-sucedido e o defensor rolar pelo menos um **"8"**, pode realizar um contra-ataque.
   - **Restrições**: 
     - **Lanças**: Só podem defender se o atacante estiver a pelo menos **2 metros**.
     - **Adagas/Facas**: Não podem defender contra **Armas Pesadas** (Machados de Guerra, Martelos de Guerra, Espadas Grandes, Porretes, Maças de Guerra, Montantes).
     - **Projéteis/Magia**: Armas não podem defender ataques à distância ou mágicos; apenas escudos podem.
-- **Regras de Nível para Defesa**:
+- **Regras de Nível para Defesa Passiva (Armaduras e Proteção Corporal)**:
   - **Nível Defensor >= Nível Atacante**: Bloqueio automático bem-sucedido.
   - **Nível Defensor + Resistência >= Nível Atacante**: Bloqueio bem-sucedido, mas o item de defesa perde **1 de Durabilidade**.
   - **Nível Defensor + Resistência < Nível Atacante**: O bloqueio falha, o defensor recebe o dano e o item de defesa ainda perde **1 de Durabilidade**.

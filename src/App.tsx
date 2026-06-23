@@ -60,6 +60,9 @@ import {
   Menu,
   Disc,
   Scissors,
+  Sparkles,
+  PawPrint,
+  ExternalLink,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
@@ -67,7 +70,7 @@ import { twMerge } from "tailwind-merge";
 import { jsPDF } from "jspdf";
 import { DiceImage } from "./components/ui/DiceImage";
 import { diceBase64 } from "./diceIcons";
-import { auth, loginWithGoogle, logout as firebaseLogout, handleRedirectResult, clearFirestoreCache } from "./lib/firebase";
+import { auth, loginWithGoogle, logout as firebaseLogout, handleRedirectResult, clearFirestoreCache, isFirebaseQuotaExceeded } from "./lib/firebase";
 import { subscribeToUserCharacters, saveCharacterToFirestore, deleteCharacterFromFirestore } from "./services/characterService";
 import { 
   createCampaign, 
@@ -91,7 +94,9 @@ import { randomInt, randomElement, generateId, secureRandom } from './lib/random
 import { Character, AppState, ArmorPiece, Campaign, TableToken, TableConfig, BestiaryMonster, NegativeEffect, CalendarEvent } from "./types";
 import { VTTBoard } from "./components/VTTBoard";
 import { Bestiary } from "./components/Bestiary";
+import { TocaManager } from "./components/TocaManager";
 import { MaterialManagement } from "./components/MaterialManagement";
+import { OracleTab } from "./components/OracleTab";
 import { subscribeToMaterials, saveMaterial, deleteMaterial } from "./services/materialService";
 import { MaterialData } from "./data/materials";
 import { DEFAULT_MONSTERS } from "./constants/defaultMonsters";
@@ -113,6 +118,10 @@ import {
   Item,
   calculateInventoryTotals,
   getLoadPenalties,
+  getItemPeso,
+  getItemVolume,
+  getArmorWeight,
+  getArmorVolume,
 } from "./rules/inventoryRules";
 import {
   Weapon,
@@ -287,11 +296,11 @@ const getGhostTemplate = (): Character => ({
 
 const MenuButton = ({ active, onClick, icon, label, color }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string, color: string }) => {
   const colors: Record<string, string> = {
-    amber: active ? "bg-amber-500 text-zinc-950" : "text-zinc-400 hover:bg-zinc-800",
-    purple: active ? "bg-purple-600 text-white" : "text-zinc-400 hover:bg-zinc-800",
-    blue: active ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-800",
-    red: active ? "bg-red-600 text-white" : "text-zinc-400 hover:bg-zinc-800",
-    orange: active ? "bg-orange-600 text-white" : "text-zinc-400 hover:bg-zinc-800",
+    amber: active ? "bg-amber-500 text-zinc-950" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200",
+    purple: active ? "bg-purple-600 text-white" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200",
+    blue: active ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200",
+    red: active ? "bg-red-600 text-white" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200",
+    orange: active ? "bg-orange-600 text-white" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200",
   };
 
   return (
@@ -299,18 +308,18 @@ const MenuButton = ({ active, onClick, icon, label, color }: { active: boolean, 
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
       className={cn(
-        "flex items-center gap-3 px-3 py-3 rounded-xl transition-all w-full text-left font-bold text-sm",
+        "flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg transition-all w-full text-left font-bold text-xs",
         colors[color] || colors.amber
       )}
     >
       <div className={cn(
-        "w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-950/20 shadow-inner",
+        "w-7 h-7 flex items-center justify-center rounded-md bg-zinc-950/20 shadow-inner shrink-0",
         active && "bg-white/10"
       )}>
-        {icon}
+        {React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement<any>, { size: 15 }) : icon}
       </div>
       <span>{label}</span>
-      {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-current opacity-60" />}
+      {active && <div className="ml-auto w-1 h-1 rounded-full bg-current opacity-60" />}
     </motion.button>
   );
 };
@@ -533,6 +542,8 @@ function App() {
 
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(() => (state as any).activeCampaignId || null);
 
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState(() => isFirebaseQuotaExceeded());
+
   useEffect(() => {
     setState(prev => {
       if ((prev as any).activeCampaignId === activeCampaignId) return prev;
@@ -540,10 +551,11 @@ function App() {
     });
   }, [activeCampaignId]);
 
-  const [cutItem, setCutItem] = useState<{ item: any; charId: string; sourceId: string; type: 'inventory' | 'weapon' | 'catalyst' } | null>(null);
+  const [cutItem, setCutItem] = useState<{ item: any; charId: string; sourceId: string; type: 'inventory' | 'weapon' | 'catalyst' | 'armor' | 'accessory'; companionId?: string } | null>(null);
+  const [pendingCutAction, setPendingCutAction] = useState<{ type: 'inventory' | 'weapon' | 'catalyst' | 'armor' | 'accessory'; charId: string; sourceId: string; item: any } | null>(null);
 
   const [multiClipboard, setMultiClipboard] = useState<{
-    type: "Arma" | "Catalisador" | "Armadura" | "Item" | "Magia" | "Habilidade";
+    type: "Arma" | "Catalisador" | "Armadura" | "Acessório" | "Item" | "Magia" | "Habilidade";
     data: any;
   }[]>([]);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
@@ -561,7 +573,7 @@ function App() {
     [],
   );
   const [activePage, setActivePage] = useState<
-    "sheet" | "notes" | "dice" | "gallery" | "master" | "table" | "bestiary" | "library" | "materials"
+    "sheet" | "notes" | "dice" | "gallery" | "master" | "table" | "bestiary" | "library" | "materials" | "oracle" | "toca"
   >("sheet");
   const [customMaterials, setCustomMaterials] = useState<MaterialData[]>([]);
   const [masterCampaigns, setMasterCampaigns] = useState<Campaign[]>([]);
@@ -759,8 +771,18 @@ function App() {
         setIsLoadingSync(false);
       }
 
-      // Sanitize characters from Firestore
-      const sanitizedFireChars = fireChars.map(fc => sanitizeCharacter(fc));
+      // Clean up deletedCharsRef for IDs that are truly gone from the server
+      const fireCharIds = new Set(fireChars.map(fc => fc.id));
+      deletedCharsRef.current.forEach(id => {
+        if (!fireCharIds.has(id)) {
+          deletedCharsRef.current.delete(id);
+        }
+      });
+
+      // Sanitize characters from Firestore and exclude those deleted locally
+      const sanitizedFireChars = fireChars
+        .filter(fc => !deletedCharsRef.current.has(fc.id))
+        .map(fc => sanitizeCharacter(fc));
 
       setState(prev => {
         const dirtyIds = new Set(prev.dirtyCharacterIds || []);
@@ -859,6 +881,28 @@ function App() {
     };
   }, [user?.uid]);
 
+  // Listen to custom "firebase-quota-exceeded" event
+  useEffect(() => {
+    let lastToastTime = 0;
+    const handleFirebaseQuotaExceeded = () => {
+      setIsQuotaExceeded(true);
+      const now = Date.now();
+      // Throttle to avoid showing multiple toasts for simultaneous background writes
+      if (now - lastToastTime > 60000) {
+        lastToastTime = now;
+        showToast(
+          "⚠️ O limite diário de gravação do banco de dados (Firebase) foi atingido. Suas fichas continuarão sendo salvas localmente neste navegador de forma segura!",
+          "info"
+        );
+      }
+    };
+
+    window.addEventListener("firebase-quota-exceeded", handleFirebaseQuotaExceeded);
+    return () => {
+      window.removeEventListener("firebase-quota-exceeded", handleFirebaseQuotaExceeded);
+    };
+  }, [showToast]);
+
   // Subscribe to Materials
   useEffect(() => {
     if (!user?.uid) {
@@ -882,21 +926,27 @@ function App() {
     return () => unsubscribe();
   }, [user?.uid]);
 
-  // Player Joined Campaigns Effect
-  const joinedCampaignIds = useMemo(() => {
-    return Array.from(new Set(state.characters.map(c => c.campaignId).filter(id => !!id)));
+  // Player Joined Campaigns Effect - Memoized sorted string key to prevent constant database resubscriptions on every character state edit
+  const joinedCampaignIdsKey = useMemo(() => {
+    const ids = Array.from(new Set(state.characters.map(c => c.campaignId).filter(id => !!id)));
+    return ids.sort().join(',');
   }, [state.characters]);
 
   useEffect(() => {
-    if (!user || joinedCampaignIds.length === 0) {
+    if (!user || !joinedCampaignIdsKey) {
       setJoinedCampaigns([]);
       return;
     }
-    const unsubscribe = subscribeToCampaignsByIds(joinedCampaignIds as string[], (camps) => {
+    const ids = joinedCampaignIdsKey.split(',').filter(Boolean);
+    console.log(`📡 [Sync] Assinando campanhas participadas: ${ids.join(', ')}`);
+    const unsubscribe = subscribeToCampaignsByIds(ids, (camps) => {
       setJoinedCampaigns(camps);
     });
-    return () => unsubscribe();
-  }, [user, joinedCampaignIds]);
+    return () => {
+      console.log(`🔌 [Sync] Cancelando assinatura de campanhas participadas`);
+      unsubscribe();
+    };
+  }, [user, joinedCampaignIdsKey]);
 
   // Campaign Characters & Tokens Effect
   useEffect(() => {
@@ -1218,6 +1268,7 @@ function App() {
       );
 
       const hungerProf = activeChar.fome >= 50 ? hungerProfBase : 0;
+      const hungerBonusTemp = activeChar.bonusFomeProximaRolagem || 0;
 
       let hungerRoll = randomInt(1, activeChar.fome || 1);
       if (activeChar.fome < 20) hungerRoll -= 5;
@@ -1225,18 +1276,19 @@ function App() {
       let thirstRoll = randomInt(1, activeChar.sede || 1);
       if (activeChar.sede < 20) thirstRoll -= 5;
 
-      const totalHunger = hungerRoll + hungerProf;
+      const totalHunger = hungerRoll + hungerProf + hungerBonusTemp;
       const finalHunger =
         totalHunger > activeChar.fome ? activeChar.fome : totalHunger;
 
-      console.log("Fome e Sede roll:", { hungerRoll, thirstRoll, finalHunger });
+      console.log("Fome e Sede roll:", { hungerRoll, thirstRoll, finalHunger, hungerBonusTemp });
 
       updateChar(c => ({
         fome: finalHunger,
         sede: thirstRoll,
+        bonusFomeProximaRolagem: 0,
       }));
 
-      const formula = `1d${activeChar.fome}${hungerProf > 0 ? ` + ${hungerProf}` : ""} (Fome) & 1d${activeChar.sede} (Sede)`;
+      const formula = `1d${activeChar.fome}${hungerProf > 0 ? ` + ${hungerProf}` : ""}${hungerBonusTemp !== 0 ? ` + ${hungerBonusTemp} (Bônus)` : ""} (Fome) & 1d${activeChar.sede} (Sede)`;
       const finalResult = finalHunger + thirstRoll;
 
       setDiceHistory((prev) =>
@@ -1244,7 +1296,7 @@ function App() {
           {
             id: generateId(),
             result: finalResult,
-            formula: `Fome: ${hungerRoll}${hungerProf > 0 ? ` + ${hungerProf} = ${finalHunger}` : ""}, Sede: ${thirstRoll}`,
+            formula: `Fome: ${hungerRoll}${hungerProf > 0 ? ` + ${hungerProf}` : ""}${hungerBonusTemp !== 0 ? ` + ${hungerBonusTemp} (Bônus)` : ""} = ${finalHunger}, Sede: ${thirstRoll}`,
             timestamp: Date.now(),
           },
           ...prev,
@@ -1496,22 +1548,223 @@ function App() {
   }, []);
 
   const copyToClipboard = (
-    type: "Arma" | "Catalisador" | "Armadura" | "Item" | "Magia" | "Habilidade",
+    type: "Arma" | "Catalisador" | "Armadura" | "Acessório" | "Item" | "Magia" | "Habilidade",
     data: any,
   ) => {
+    let resolvedType = type;
     const dataWithTipo = { ...data, id: generateId() };
-    if (type === "Arma") dataWithTipo.tipo = "Arma";
-    if (type === "Catalisador") dataWithTipo.tipo = "Catalisador";
-    if (type === "Armadura") dataWithTipo.tipo = "Armadura";
-    setMultiClipboard([{ type, data: dataWithTipo }]);
+
+    // Automatically infer more specific clipboard type if it is "Item" but has specific tipo meta
+    if (resolvedType === "Item" && dataWithTipo.tipo) {
+      const t = dataWithTipo.tipo;
+      if (t === "Arma") resolvedType = "Arma";
+      else if (t === "Catalisador") resolvedType = "Catalisador";
+      else if (t === "Armadura") resolvedType = "Armadura";
+      else if (t === "Acessório" || t === "Acessórios") resolvedType = "Acessório";
+    }
+
+    if (resolvedType === "Arma") dataWithTipo.tipo = "Arma";
+    if (resolvedType === "Catalisador") dataWithTipo.tipo = "Catalisador";
+    if (resolvedType === "Armadura") dataWithTipo.tipo = "Armadura";
+    if (resolvedType === "Acessório") dataWithTipo.tipo = "Acessório";
+
+    setMultiClipboard([{ type: resolvedType, data: dataWithTipo }]);
     setCutItem(null);
-    showToast(`${type} copiado(a)!`, "success");
+    showToast(`${resolvedType} copiado(a)!`, "success");
   };
 
-  const handleCutItem = (type: 'inventory' | 'weapon' | 'catalyst', charId: string, sourceId: string, item: any) => {
+  const executeClipboardCut = (
+    type: 'inventory' | 'weapon' | 'catalyst' | 'armor' | 'accessory',
+    charId: string,
+    sourceId: string,
+    item: any
+  ) => {
     setCutItem({ item, charId, sourceId, type });
-    setMultiClipboard([]);
+
+    // Also place it in the multiClipboard to allow pasting into equipment slots!
+    let clipboardType: "Arma" | "Catalisador" | "Armadura" | "Acessório" | "Item" = "Item";
+    if (type === 'weapon') clipboardType = "Arma";
+    else if (type === 'catalyst') clipboardType = "Catalisador";
+    else if (type === 'armor') clipboardType = "Armadura";
+    else if (type === 'accessory') clipboardType = "Acessório";
+    else if (type === 'inventory') {
+      const t = item.tipo;
+      if (t === "Arma") clipboardType = "Arma";
+      else if (t === "Catalisador") clipboardType = "Catalisador";
+      else if (t === "Armadura") clipboardType = "Armadura";
+      else if (t === "Acessório" || t === "Acessórios") clipboardType = "Acessório";
+    }
+
+    setMultiClipboard([{ type: clipboardType, data: { ...item } }]);
     showToast(`Item "${item.nome}" recortado!`, "info");
+  };
+
+  const handleCutItem = (
+    type: 'inventory' | 'weapon' | 'catalyst' | 'armor' | 'accessory',
+    charId: string,
+    sourceId: string,
+    item: any
+  ) => {
+    setPendingCutAction({ type, charId, sourceId, item });
+  };
+
+  const getCreaturePesoTotal = (creature: any) => {
+    const armasPeso = (creature.armas || []).reduce((acc: number, w: any) => acc + (w.peso || 0), 0);
+    const catalisadoresPeso = (creature.catalisadores || []).reduce((acc: number, c: any) => acc + (c.peso || 0), 0);
+    const armadurasPeso = (creature.armaduras || []).reduce((acc: number, a: any) => acc + getArmorWeight(a), 0);
+    const acessoriosPeso = (creature.acessorios || []).reduce((acc: number, a: any) => acc + (a.peso || 0), 0);
+    
+    let compPeso = 0;
+    (creature.compartimentos || []).forEach((comp: any) => {
+      (comp.itens || []).forEach((item: any) => {
+        if (!comp.externo) {
+          compPeso += getItemPeso(item) * (item.quantidade !== undefined ? item.quantidade : 1);
+        }
+      });
+    });
+    
+    return armasPeso + catalisadoresPeso + armadurasPeso + acessoriosPeso + compPeso;
+  };
+
+  const handleQuickMoveToCharacterCompartment = (targetCompId: string) => {
+    if (!pendingCutAction) return;
+    const { type, sourceId, item } = pendingCutAction;
+    
+    updateChar(char => {
+      let armas = [...(char.armas || [])];
+      let catalisadores = [...(char.catalisadores || [])];
+      let armaduras = [...(char.armaduras || [])];
+      let acessorios = [...(char.acessorios || [])];
+      let compartimentos = [...(char.compartimentos || [])];
+      let itensGeral = [...(char.itens || [])];
+      
+      // 1. Remove from source
+      if (type === 'weapon') {
+        armas = armas.filter(w => w.id !== item.id);
+      } else if (type === 'catalyst') {
+        catalisadores = catalisadores.filter(c => c.id !== item.id);
+      } else if (type === 'armor') {
+        armaduras = armaduras.filter(a => a.id !== item.id);
+      } else if (type === 'accessory') {
+        acessorios = acessorios.filter(a => a.id !== item.id);
+      } else if (type === 'inventory') {
+        compartimentos = compartimentos.map(c => {
+          if (c.id === sourceId) {
+            return { ...c, itens: (c.itens || []).filter(it => it.id !== item.id) };
+          }
+          return c;
+        });
+      }
+      
+      // 2. Add to target compartment
+      const mappedItem = {
+        ...item,
+        tipo: type === 'weapon' ? 'Arma' 
+              : type === 'catalyst' ? 'Catalisador' 
+              : type === 'armor' ? 'Armadura' 
+              : type === 'accessory' ? 'Acessório' 
+              : (item.tipo || 'Item')
+      };
+      
+      compartimentos = compartimentos.map(c => {
+        if (c.id === targetCompId) {
+          return { ...c, itens: [...(c.itens || []), mappedItem] };
+        }
+        return c;
+      });
+      
+      return {
+        armas,
+        catalisadores,
+        armaduras,
+        acessorios,
+        compartimentos,
+        itens: itensGeral
+      };
+    });
+    
+    showToast(`"${item.nome}" movido para mochila!`, "success");
+    setPendingCutAction(null);
+  };
+
+  const handleQuickMoveToCompanion = (companionId: string) => {
+    if (!pendingCutAction) return;
+    const { type, sourceId, item } = pendingCutAction;
+    
+    updateChar(char => {
+      let armas = [...(char.armas || [])];
+      let catalisadores = [...(char.catalisadores || [])];
+      let armaduras = [...(char.armaduras || [])];
+      let acessorios = [...(char.acessorios || [])];
+      let compartimentos = [...(char.compartimentos || [])];
+      let tocaCreatures = [...(char.tocaCreatures || [])];
+      
+      // 1. Remove from source
+      if (type === 'weapon') {
+        armas = armas.filter(w => w.id !== item.id);
+      } else if (type === 'catalyst') {
+        catalisadores = catalisadores.filter(c => c.id !== item.id);
+      } else if (type === 'armor') {
+        armaduras = armaduras.filter(a => a.id !== item.id);
+      } else if (type === 'accessory') {
+        acessorios = acessorios.filter(a => a.id !== item.id);
+      } else if (type === 'inventory') {
+        compartimentos = compartimentos.map(c => {
+          if (c.id === sourceId) {
+            return { ...c, itens: (c.itens || []).filter(it => it.id !== item.id) };
+          }
+          return c;
+        });
+      }
+      
+      // 2. Add to companion
+      const mappedItem = {
+        ...item,
+        quantidade: item.quantidade !== undefined ? (Number(item.quantidade) || 1) : 1,
+        tipo: type === 'weapon' ? 'Arma' 
+              : type === 'catalyst' ? 'Catalisador' 
+              : type === 'armor' ? 'Armadura' 
+              : type === 'accessory' ? 'Acessório' 
+              : (item.tipo || 'Item')
+      };
+      
+      tocaCreatures = tocaCreatures.map(creature => {
+        if (creature.id === companionId) {
+          const helperComps = [...(creature.compartimentos || [])];
+          if (helperComps.length === 0) {
+            helperComps.push({
+              id: generateId(),
+              nome: "Bolsa de Carga",
+              volumeMax: 30,
+              itens: []
+            });
+          }
+          
+          helperComps[0] = {
+            ...helperComps[0],
+            itens: [...(helperComps[0].itens || []), mappedItem]
+          };
+          
+          return {
+            ...creature,
+            compartimentos: helperComps
+          };
+        }
+        return creature;
+      });
+      
+      return {
+        armas,
+        catalisadores,
+        armaduras,
+        acessorios,
+        compartimentos,
+        tocaCreatures
+      };
+    });
+    
+    showToast(`"${item.nome}" enviado ao companheiro!`, "success");
+    setPendingCutAction(null);
   };
 
   const handlePasteItemToCompartment = async (targetCharId: string, targetCompId: string) => {
@@ -1530,6 +1783,10 @@ function App() {
           charUpdates.armas = (char.armas || []).filter(w => w.id !== cutItem.item.id);
         } else if (cutItem.type === 'catalyst') {
           charUpdates.catalisadores = (char.catalisadores || []).filter(c => c.id !== cutItem.item.id);
+        } else if (cutItem.type === 'armor') {
+          charUpdates.armaduras = (char.armaduras || []).filter(a => a.id !== cutItem.item.id);
+        } else if (cutItem.type === 'accessory') {
+          charUpdates.acessorios = (char.acessorios || []).filter(a => a.id !== cutItem.item.id);
         } else {
           charUpdates.compartimentos = (char.compartimentos || []).map(c => ({
             ...c,
@@ -1538,15 +1795,33 @@ function App() {
         }
 
         // Add to target compartment
+        const pastedItem = {
+          ...cutItem.item,
+          quantidade: cutItem.item.quantidade !== undefined ? (Number(cutItem.item.quantidade) || 1) : 1,
+          tipo: cutItem.type === 'weapon' ? 'Arma' 
+                : cutItem.type === 'catalyst' ? 'Catalisador' 
+                : cutItem.type === 'armor' ? 'Armadura' 
+                : cutItem.type === 'accessory' ? 'Acessório' 
+                : (cutItem.item.tipo || 'Item')
+        };
+
         const currentComps = charUpdates.compartimentos || char.compartimentos || [];
         charUpdates.compartimentos = currentComps.map((c: any) => 
-          c.id === targetCompId ? { ...c, itens: [...(c.itens || []), cutItem.item] } : c
+          c.id === targetCompId ? { ...c, itens: [...(c.itens || []), pastedItem] } : c
         );
       } else {
-        // Different character logic would require cross-service updates, 
-        // focus on single character move for now or use saveCharacterToFirestore directly
+        // Different character logic
+        const pastedItem = {
+          ...cutItem.item,
+          quantidade: cutItem.item.quantidade !== undefined ? (Number(cutItem.item.quantidade) || 1) : 1,
+          tipo: cutItem.type === 'weapon' ? 'Arma' 
+                : cutItem.type === 'catalyst' ? 'Catalisador' 
+                : cutItem.type === 'armor' ? 'Armadura' 
+                : cutItem.type === 'accessory' ? 'Acessório' 
+                : (cutItem.item.tipo || 'Item')
+        };
         const targetComps = (char.compartimentos || []).map(c => 
-          c.id === targetCompId ? { ...c, itens: [...(c.itens || []), cutItem.item] } : c
+          c.id === targetCompId ? { ...c, itens: [...(c.itens || []), pastedItem] } : c
         );
         return { compartimentos: targetComps };
       }
@@ -1563,6 +1838,10 @@ function App() {
             updates.armas = (sourceChar.armas || []).filter(w => w.id !== cutItem.item.id);
           } else if (cutItem.type === 'catalyst') {
             updates.catalisadores = (sourceChar.catalisadores || []).filter(c => c.id !== cutItem.item.id);
+          } else if (cutItem.type === 'armor') {
+            updates.armaduras = (sourceChar.armaduras || []).filter(a => a.id !== cutItem.item.id);
+          } else if (cutItem.type === 'accessory') {
+            updates.acessorios = (sourceChar.acessorios || []).filter(a => a.id !== cutItem.item.id);
           } else {
             updates.compartimentos = (sourceChar.compartimentos || []).map(c => ({
               ...c,
@@ -1575,6 +1854,162 @@ function App() {
 
     setCutItem(null);
     showToast("Item movido com sucesso!", "success");
+  };
+
+  const handleSendToCompanion = (companionId: string) => {
+    if (!cutItem) return;
+
+    const mappedItem = {
+      ...cutItem.item,
+      quantidade: cutItem.item.quantidade !== undefined ? (Number(cutItem.item.quantidade) || 1) : 1,
+      tipo: cutItem.type === 'weapon' ? 'Arma' 
+            : cutItem.type === 'catalyst' ? 'Catalisador' 
+            : cutItem.type === 'armor' ? 'Armadura' 
+            : cutItem.type === 'accessory' ? 'Acessório' 
+            : (cutItem.item.tipo || 'Item')
+    };
+
+    updateChar(char => {
+      let armas = [...(char.armas || [])];
+      let catalisadores = [...(char.catalisadores || [])];
+      let armaduras = [...(char.armaduras || [])];
+      let acessorios = [...(char.acessorios || [])];
+      let compartimentos = [...(char.compartimentos || [])];
+      let tocaCreatures = [...(char.tocaCreatures || [])];
+
+      // 1. Remove from source
+      if (cutItem.type === 'weapon') {
+        armas = armas.filter(w => w.id !== cutItem.item.id);
+      } else if (cutItem.type === 'catalyst') {
+        catalisadores = catalisadores.filter(c => c.id !== cutItem.item.id);
+      } else if (cutItem.type === 'armor') {
+        armaduras = armaduras.filter(a => a.id !== cutItem.item.id);
+      } else if (cutItem.type === 'accessory') {
+        acessorios = acessorios.filter(a => a.id !== cutItem.item.id);
+      } else if (cutItem.type === 'inventory') {
+        compartimentos = compartimentos.map(c => {
+          if (c.id === cutItem.sourceId) {
+            return { ...c, itens: (c.itens || []).filter(it => it.id !== cutItem.item.id) };
+          }
+          return c;
+        });
+      }
+
+      // 2. Add as item in first compartment of the selected creature companion
+      tocaCreatures = tocaCreatures.map(creature => {
+        if (creature.id === companionId) {
+          const companionComps = [...(creature.compartimentos || [])];
+          if (companionComps.length === 0) {
+            companionComps.push({
+              id: generateId(),
+              nome: "Bolsa Principal",
+              volumeMax: 50,
+              itens: []
+            });
+          }
+          companionComps[0] = {
+            ...companionComps[0],
+            itens: [...(companionComps[0].itens || []), mappedItem]
+          };
+          return {
+            ...creature,
+            compartimentos: companionComps
+          };
+        }
+        return creature;
+      });
+
+      return {
+        armas,
+        catalisadores,
+        armaduras,
+        acessorios,
+        compartimentos,
+        tocaCreatures
+      };
+    });
+
+    setCutItem(null);
+    showToast(`"${mappedItem.nome}" enviado ao companheiro!`, "success");
+  };
+
+  const handleSendToMochila = () => {
+    if (!cutItem || !cutItem.companionId) return;
+
+    const mappedItem = {
+      ...cutItem.item,
+      quantidade: cutItem.item.quantidade !== undefined ? (Number(cutItem.item.quantidade) || 1) : 1,
+      tipo: cutItem.type === 'weapon' ? 'Arma' 
+            : cutItem.type === 'catalyst' ? 'Catalisador' 
+            : cutItem.type === 'armor' ? 'Armadura' 
+            : cutItem.type === 'accessory' ? 'Acessório' 
+            : (cutItem.item.tipo || 'Item')
+    };
+
+    updateChar(char => {
+      let compartimentos = [...(char.compartimentos || [])];
+      let tocaCreatures = [...(char.tocaCreatures || [])];
+
+      // Remove from companion source
+      tocaCreatures = tocaCreatures.map(creature => {
+        if (creature.id === cutItem.companionId) {
+          let cArmas = [...(creature.armas || [])];
+          let cCatalisadores = [...(creature.catalisadores || [])];
+          let cArmaduras = [...(creature.armaduras || [])];
+          let cAcessorios = [...(creature.acessorios || [])];
+          let cComps = [...(creature.compartimentos || [])];
+
+          if (cutItem.type === 'weapon') {
+            cArmas = cArmas.filter(w => w.id !== cutItem.item.id);
+          } else if (cutItem.type === 'catalyst') {
+            cCatalisadores = cCatalisadores.filter(c => c.id !== cutItem.item.id);
+          } else if (cutItem.type === 'armor') {
+            cArmaduras = cArmaduras.filter(a => a.id !== cutItem.item.id);
+          } else if (cutItem.type === 'accessory') {
+            cAcessorios = cAcessorios.filter(a => a.id !== cutItem.item.id);
+          } else {
+            cComps = cComps.map(c => {
+              if (c.id === cutItem.sourceId) {
+                return { ...c, itens: (c.itens || []).filter(it => it.id !== cutItem.item.id) };
+              }
+              return c;
+            });
+          }
+
+          return {
+            ...creature,
+            armas: cArmas,
+            catalisadores: cCatalisadores,
+            armaduras: cArmaduras,
+            acessorios: cAcessorios,
+            compartimentos: cComps
+          };
+        }
+        return creature;
+      });
+
+      // Add to character's first compartment
+      if (compartimentos.length === 0) {
+        compartimentos.push({
+          id: generateId(),
+          nome: "Mochila Principal",
+          volumeMax: 50,
+          itens: []
+        });
+      }
+      compartimentos[0] = {
+        ...compartimentos[0],
+        itens: [...(compartimentos[0].itens || []), mappedItem]
+      };
+
+      return {
+        tocaCreatures,
+        compartimentos
+      };
+    });
+
+    setCutItem(null);
+    showToast(`"${mappedItem.nome}" mandado de volta à mochila!`, "success");
   };
 
   const toggleSelectionMode = () => {
@@ -1603,6 +2038,12 @@ function App() {
       if (selectedItems.has(i.id))
         items.push({ type: "Armadura", data: { ...i } });
     });
+    if (char.acessorios) {
+      char.acessorios.forEach((i) => {
+        if (selectedItems.has(i.id))
+          items.push({ type: "Acessório", data: { ...i } });
+      });
+    }
     char.catalisadores.forEach((i) => {
       if (selectedItems.has(i.id))
         items.push({ type: "Catalisador", data: { ...i } });
@@ -1634,39 +2075,95 @@ function App() {
     }
   };
 
-  const handlePasteSelected = () => {
+  const handlePasteSelected = async () => {
     if (multiClipboard.length === 0) return;
 
     updateChar((c) => {
-      const newArmas = [...(c.armas || [])];
-      const newArmaduras = [...(c.armaduras || [])];
-      const newCatalisadores = [...(c.catalisadores || [])];
+      let newArmas = [...(c.armas || [])];
+      let newArmaduras = [...(c.armaduras || [])];
+      let newAcessorios = [...(c.acessorios || [])];
+      let newCatalisadores = [...(c.catalisadores || [])];
       const newMagias = [...(c.magias || [])];
       const newHabilidades = [...(c.habilidades || [])];
-      const newItensGeral = [...(c.itens || [])];
+      let newItensGeral = [...(c.itens || [])];
+      let newCompartimentos = [...(c.compartimentos || [])];
 
       multiClipboard.forEach((item) => {
         const data = { ...item.data, id: generateId() };
-        if (item.type === "Arma") newArmas.push(data);
-        else if (item.type === "Armadura") newArmaduras.push(data);
-        else if (item.type === "Catalisador") newCatalisadores.push(data);
-        else if (item.type === "Magia") newMagias.push(data);
-        else if (item.type === "Habilidade") newHabilidades.push(data);
-        else if (item.type === "Item") newItensGeral.push(data);
+        let targetType = item.type;
+
+        if (item.type === "Item" && data.tipo) {
+          if (data.tipo === "Arma") targetType = "Arma";
+          else if (data.tipo === "Catalisador") targetType = "Catalisador";
+          else if (data.tipo === "Armadura") targetType = "Armadura";
+          else if (data.tipo === "Acessório" || data.tipo === "Acessorios") targetType = "Acessório";
+        }
+
+        if (targetType === "Arma") newArmas.push(data);
+        else if (targetType === "Armadura") newArmaduras.push(data);
+        else if (targetType === "Acessório") newAcessorios.push(data);
+        else if (targetType === "Catalisador") newCatalisadores.push(data);
+        else if (targetType === "Magia") newMagias.push(data);
+        else if (targetType === "Habilidade") newHabilidades.push(data);
+        else newItensGeral.push(data);
       });
+
+      // Cleanup source item in current character if we are removing a cutItem
+      if (cutItem && cutItem.charId === c.id) {
+        if (cutItem.type === 'weapon') {
+          newArmas = newArmas.filter(w => w.id !== cutItem.item.id);
+        } else if (cutItem.type === 'catalyst') {
+          newCatalisadores = newCatalisadores.filter(ct => ct.id !== cutItem.item.id);
+        } else if (cutItem.type === 'armor') {
+          newArmaduras = newArmaduras.filter(a => a.id !== cutItem.item.id);
+        } else if (cutItem.type === 'accessory') {
+          newAcessorios = newAcessorios.filter(ac => ac.id !== cutItem.item.id);
+        } else if (cutItem.type === 'inventory') {
+          newCompartimentos = newCompartimentos.map(comp => ({
+            ...comp,
+            itens: (comp.itens || []).filter(it => it.id !== cutItem.item.id)
+          }));
+        }
+      }
 
       return {
         armas: newArmas,
         armaduras: newArmaduras,
+        acessorios: newAcessorios,
         catalisadores: newCatalisadores,
         magias: newMagias,
         habilidades: newHabilidades,
         itens: newItensGeral,
+        compartimentos: newCompartimentos,
       };
     });
 
+    // Handle cross-character cut cleanup
+    if (cutItem && cutItem.charId !== activeChar?.id) {
+      const sourceChar = campaignCharacters.find(ch => ch.id === cutItem.charId);
+      if (sourceChar) {
+         const updates: any = {};
+         if (cutItem.type === 'weapon') {
+           updates.armas = (sourceChar.armas || []).filter(w => w.id !== cutItem.item.id);
+         } else if (cutItem.type === 'catalyst') {
+           updates.catalisadores = (sourceChar.catalisadores || []).filter(ct => ct.id !== cutItem.item.id);
+         } else if (cutItem.type === 'armor') {
+           updates.armaduras = (sourceChar.armaduras || []).filter(a => a.id !== cutItem.item.id);
+         } else if (cutItem.type === 'accessory') {
+           updates.acessorios = (sourceChar.acessorios || []).filter(ac => ac.id !== cutItem.item.id);
+         } else if (cutItem.type === 'inventory') {
+           updates.compartimentos = (sourceChar.compartimentos || []).map(comp => ({
+             ...comp,
+             itens: (comp.itens || []).filter(it => it.id !== cutItem.item.id)
+           }));
+         }
+         await saveCharacterToFirestore({ ...sourceChar, ...updates });
+      }
+    }
+
     showToast(`${multiClipboard.length} itens colados com sucesso!`, "success");
     setMultiClipboard([]);
+    setCutItem(null); // Clear cut item state
   };
 
   const climateProficiency = useMemo(() => {
@@ -1844,6 +2341,11 @@ function App() {
       return;
     }
     
+    if (isFirebaseQuotaExceeded()) {
+      console.log("📡 [Sincronização Nuvem] Pausada temporariamente devido ao limite de cota de escrita diária excedido no Firebase. Suas fichas continuarão salvando localmente (LocalStorage) e serão enviadas para a nuvem assim que a cota for restaurada/redefinida.");
+      return;
+    }
+
     const dirtyIds = new Set(state.dirtyCharacterIds || []);
     const characters = state.characters;
     
@@ -1879,6 +2381,11 @@ function App() {
 
           // Novo timer para sincronizar este personagem específico
           syncTimersRef.current[char.id] = setTimeout(async () => {
+            if (deletedCharsRef.current.has(char.id)) {
+              console.log(`🛑 [Sync] Abortando upload de ${char.nome} porque já foi marcado como deletado.`);
+              delete syncTimersRef.current[char.id];
+              return;
+            }
             try {
               console.log(`📡 [Sync] Enviando ${char.nome} para nuvem...`);
               await saveCharacterToFirestore(char);
@@ -1951,16 +2458,22 @@ function App() {
   }, [campaignCharacters, state.characters]);
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [globalConfirm, setGlobalConfirm] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   // Derived Values - Moved up before early returns to fix Rules of Hooks
   const { stats, vidaMax, manaMax, sanidadeMax, cargaMax, deslocamentoBase } = useMemo(() => {
     const s = activeChar?.stats || createEmptyCharacter().stats;
+    const bonusCarga = activeChar?.bonusCarga || 0;
     return {
       stats: s,
       vidaMax: getVidaMaxima(s.CON),
       manaMax: getManaMaxima(s.APR),
       sanidadeMax: getSanidadeMaxima(s.MEN),
-      cargaMax: getCargaMaxima(s.RES),
+      cargaMax: getCargaMaxima(s.RES) + (bonusCarga * 10),
       deslocamentoBase: activeChar ? getDeslocamentoBase(
         s.DEX,
         activeChar.efeitosNegativos || [],
@@ -1970,7 +2483,7 @@ function App() {
         climateProficiency
       ) : 0
     };
-  }, [activeChar?.stats, activeChar?.fome, activeChar?.sede, activeChar?.clima, climateProficiency, activeChar?.efeitosNegativos]);
+  }, [activeChar?.stats, activeChar?.fome, activeChar?.sede, activeChar?.clima, climateProficiency, activeChar?.efeitosNegativos, activeChar?.bonusCarga]);
 
   const compartimentos = activeChar?.compartimentos || [];
   const armas = activeChar?.armas || [];
@@ -1982,7 +2495,7 @@ function App() {
     const invTotals = calculateInventoryTotals(compartimentos);
     const weaponPeso = armas.reduce((acc, w) => acc + (w.peso || 0), 0);
     const catalystPeso = catalisadores.reduce((acc, c) => acc + (c.peso || 0), 0);
-    const armorPeso = armaduras.reduce((acc, a) => acc + (a.peso || 0), 0);
+    const armorPeso = armaduras.reduce((acc, a) => acc + getArmorWeight(a), 0);
     const accessoryPeso = acessorios.reduce((acc, a) => acc + (a.peso || 0), 0);
     const total = invTotals.peso + weaponPeso + catalystPeso + armorPeso + accessoryPeso;
     
@@ -2228,6 +2741,12 @@ function App() {
     
     if (idToDelete) {
       deletedCharsRef.current.add(idToDelete);
+      // Cancel any pending sync timers before deleting to prevent race condition uploads
+      if (syncTimersRef.current[idToDelete]) {
+        console.log(`🛑 [deleteChar] Cancelando upload pendente do personagem de ID ${idToDelete} antes da remoção`);
+        clearTimeout(syncTimersRef.current[idToDelete]);
+        delete syncTimersRef.current[idToDelete];
+      }
     }
 
     setState((prev) => {
@@ -2272,10 +2791,13 @@ function App() {
 
   console.log("Renderizando App. User:", user?.email, "Chars:", state.characters.length);
 
+  const isFullScreenPage = activePage === "table" || activePage === "dice" || activePage === "master";
+
   return (
     <div className={cn(
-      "min-h-screen w-full bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30 flex flex-col",
-      activePage === "table" ? "h-screen fixed inset-0 overflow-hidden touch-none" : "overflow-x-hidden"
+      "w-full bg-zinc-950 text-zinc-100 font-sans selection:bg-amber-500/30 flex flex-col",
+      activePage === "table" ? "h-screen fixed inset-0 overflow-hidden touch-none" :
+      isFullScreenPage ? "h-screen overflow-hidden" : "min-h-screen overflow-x-hidden"
     )}>
       {/* Header */}
       <header className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
@@ -2307,11 +2829,11 @@ function App() {
                     initial={{ x: -20, opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: -20, opacity: 0 }}
-                    className="absolute left-0 top-full mt-4 w-64 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-3 z-[60] space-y-1"
+                    className="absolute left-0 top-full mt-3 w-60 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-2 z-[60] space-y-1 max-h-[calc(100vh-100px)] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent"
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v11.3</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v13.10</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -2348,6 +2870,13 @@ function App() {
                         onClick={() => { setActivePage("gallery"); setIsSideMenuOpen(false); }}
                         icon={<Image size={20} />}
                         label="Galeria"
+                        color="amber"
+                      />
+                      <MenuButton 
+                        active={activePage === "toca"} 
+                        onClick={() => { setActivePage("toca"); setIsSideMenuOpen(false); }}
+                        icon={<PawPrint size={20} />}
+                        label="Toca"
                         color="amber"
                       />
                       
@@ -2389,6 +2918,16 @@ function App() {
                           color="blue"
                         />
                       )}
+
+                      <div className="my-1 border-t border-zinc-800/20" />
+
+                      <MenuButton 
+                        active={activePage === "oracle"} 
+                        onClick={() => { setActivePage("oracle"); setIsSideMenuOpen(false); }}
+                        icon={<Sparkles size={20} className="text-amber-500" />}
+                        label="Oráculo"
+                        color="amber"
+                      />
                     </div>
                   </motion.div>
                 </>
@@ -2400,14 +2939,14 @@ function App() {
           <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
             <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
             <div className="w-[1px] h-3 bg-zinc-800" />
-            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v11.6</span>
+            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v13.14</span>
           </div>
 
           {/* Quick Active Page Status - desktop only */}
           <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
               <div className="flex flex-col">
                 <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v11.6</span>
+                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v13.14</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -2459,9 +2998,14 @@ function App() {
               {state.dirtyCharacterIds.length > 0 && (
                 <button
                   onClick={() => {
-                    if (confirm("Isso irá limpar o cache local e forçar o carregamento total do servidor. Dados não sincronizados serão perdidos. Prosseguir?")) {
-                      clearFirestoreCache();
-                    }
+                    setGlobalConfirm({
+                      title: "Limpar Cache de Sincronização",
+                      message: "Isso irá limpar o cache local e forçar o carregamento total do servidor. Dados não sincronizados serão perdidos. Prosseguir?",
+                      onConfirm: () => {
+                        clearFirestoreCache();
+                        setGlobalConfirm(null);
+                      }
+                    });
                   }}
                   className="p-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500/20 transition-colors"
                   title="Resetar cache de sincronização (Use se estiver travado)"
@@ -2636,6 +3180,40 @@ function App() {
 
         {/* Delete Confirmation Modal */}
         <AnimatePresence>
+          {globalConfirm && (
+            <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-zinc-950 border border-zinc-800 p-6 rounded-2xl max-w-sm w-full shadow-2xl space-y-4 font-sans"
+              >
+                <h3 className="font-black text-sm uppercase text-amber-500 flex items-center gap-1.5 border-b border-zinc-800/60 pb-2">
+                  {globalConfirm.title}
+                </h3>
+                <p className="text-xs text-zinc-300 leading-relaxed font-semibold">
+                  {globalConfirm.message}
+                </p>
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setGlobalConfirm(null)}
+                    className="px-3.5 py-2 bg-zinc-900 border border-zinc-805 hover:bg-zinc-850 rounded-xl text-[10px] font-black uppercase tracking-wider text-zinc-400 transition-all cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => globalConfirm.onConfirm()}
+                    className="px-4 py-2 bg-red-650 hover:bg-red-650/85 rounded-xl text-[10px] font-black uppercase tracking-wider text-white transition-all cursor-pointer shadow-lg shadow-red-950/20"
+                  >
+                    Confirmar
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
           {showDeleteConfirm && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
               <motion.div
@@ -2668,12 +3246,147 @@ function App() {
               </motion.div>
             </div>
           )}
+
+          {activeChar && pendingCutAction && (
+            <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl max-w-md w-full shadow-2xl relative"
+              >
+                <button
+                  type="button"
+                  onClick={() => setPendingCutAction(null)}
+                  className="absolute top-4 right-4 text-zinc-500 hover:text-white"
+                >
+                  <X size={18} />
+                </button>
+                
+                <h3 className="text-base font-black uppercase text-amber-500 flex items-center gap-2 mb-2">
+                  <Scissors size={18} />
+                  Mover Item: {pendingCutAction.item.nome}
+                </h3>
+                
+                <p className="text-xs text-zinc-400 mb-6 font-medium leading-relaxed">
+                  Escolha o destino deste item. Você pode enviá-lo diretamente para a bolsa de um companheiro na Toca, para uma mochila (compartimento) do seu personagem, ou apenas recortá-lo para colar manualmente.
+                </p>
+                
+                <div className="space-y-4">
+                  {/* Mandar para Mochila do Personagem */}
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">🧳 Suas Mochilas / Compartimentos</span>
+                    {activeChar.compartimentos && activeChar.compartimentos.length > 0 ? (
+                      <div className="grid grid-cols-1 gap-1.5 max-h-32 overflow-y-auto custom-scrollbar">
+                        {activeChar.compartimentos.map(comp => (
+                          <button
+                            key={comp.id}
+                            type="button"
+                            onClick={() => {
+                              handleQuickMoveToCharacterCompartment(comp.id);
+                            }}
+                            className="w-full text-left text-xs bg-zinc-950/60 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 px-3 py-2 rounded-xl text-zinc-100 font-bold transition-all flex items-center justify-between cursor-pointer"
+                          >
+                            <span>{comp.nome}</span>
+                            <span className="text-[9px] text-zinc-500 font-mono">{(calculateInventoryTotals([comp]).peso / 10).toFixed(1)} kg</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-zinc-500 italic pl-1">Nenhum compartimento encontrado no personagem.</p>
+                    )}
+                  </div>
+                  
+                  {/* Mandar para Companheiro */}
+                  <div className="space-y-2 pt-2 border-t border-zinc-800/60">
+                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">🐾 Companheiros na Toca</span>
+                    {activeChar.tocaCreatures && activeChar.tocaCreatures.length > 0 ? (
+                      <div className="grid grid-cols-1 gap-1.5 max-h-32 overflow-y-auto custom-scrollbar">
+                        {activeChar.tocaCreatures.map(creature => (
+                          <button
+                            key={creature.id}
+                            type="button"
+                            onClick={() => {
+                              handleQuickMoveToCompanion(creature.id);
+                            }}
+                            className="w-full text-left text-xs bg-zinc-950/60 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 px-3 py-2 rounded-xl text-zinc-100 font-bold transition-all flex items-center justify-between cursor-pointer"
+                          >
+                            <span className="flex items-center gap-1.5">
+                              {creature.imageUrl ? (
+                                <img src={creature.imageUrl} alt="" className="w-5 h-5 rounded object-cover border border-zinc-800" referrerPolicy="no-referrer" />
+                              ) : (
+                                <PawPrint size={14} className="text-amber-500/85" />
+                              )}
+                              <span>{creature.name}</span>
+                            </span>
+                            <span className="text-[9px] text-zinc-500 font-mono">
+                              {(getCreaturePesoTotal(creature) / 10).toFixed(1)} / {(creature.carga / 10).toFixed(1)} kg
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-zinc-500 italic pl-1">Nenhum companheiro registrado na Toca.</p>
+                    )}
+                  </div>
+                  
+                  {/* Outras Ações */}
+                  <div className="grid grid-cols-2 gap-3 pt-3 border-t border-zinc-800/60">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        executeClipboardCut(pendingCutAction.type, pendingCutAction.charId, pendingCutAction.sourceId, pendingCutAction.item);
+                        setPendingCutAction(null);
+                      }}
+                      className="w-full py-2.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded-xl text-xs font-black uppercase tracking-wider text-center transition-all cursor-pointer"
+                    >
+                      📋 Apenas Recortar
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => setPendingCutAction(null)}
+                      className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-750 rounded-xl text-xs font-bold text-zinc-400 text-center transition-all cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
         </AnimatePresence>
       </header>
 
+      {isQuotaExceeded && (
+        <div className="bg-amber-950/20 border-b border-amber-800/30 px-4 py-3 text-amber-200">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 text-xs md:text-sm">
+            <div className="flex items-start gap-3">
+              <span className="text-lg leading-none mt-0.5">⚠️</span>
+              <div>
+                <p className="font-black uppercase tracking-wider text-amber-500 font-sans text-[10px] mb-0.5">Limite de Banco de Dados Excedido</p>
+                <p className="text-zinc-300 font-medium">
+                  A cota gratuita diária de gravação foi atingida no Firebase. Suas fichas e progresso continuarão sendo guardados localmente com segurança até que o limite seja liberado!
+                </p>
+              </div>
+            </div>
+            <a 
+              href="https://console.firebase.google.com/project/gen-lang-client-0677748971/firestore/databases/ai-studio-1a82e7bc-e41e-43fa-8f91-4d5fb7def03d/data?openUpgradeDialog=true"
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="whitespace-nowrap px-3 py-1.5 bg-amber-550 hover:bg-amber-600 text-black font-black uppercase tracking-wider rounded-lg transition-all shadow-[0_0_10px_rgba(245,158,11,0.15)] flex items-center gap-1 cursor-pointer text-[9px] md:text-xxs-tight"
+            >
+              Fazer Upgrade / Liberar Banco <ExternalLink size={12} className="inline ml-1" />
+            </a>
+          </div>
+        </div>
+      )}
+
       <main key={activeChar.id} className={cn(
-        "flex-1 overflow-y-auto custom-scrollbar overscroll-none flex flex-col",
-        activePage === "table" || activePage === "dice" || activePage === "master" ? "h-full w-full overflow-hidden p-0" : "max-w-7xl mx-auto w-full p-4 md:p-6 pb-20"
+        "flex-1 overscroll-none flex flex-col min-h-0",
+        activePage === "table" || activePage === "dice" || activePage === "master"
+          ? "flex-1 h-0 min-h-0 w-full overflow-hidden p-0"
+          : "max-w-7xl mx-auto w-full p-4 md:p-6 pb-20 overflow-y-auto custom-scrollbar"
       )}>
         {activePage === "sheet" ? (
           <div className="max-w-4xl mx-auto w-full space-y-8 flex flex-col">
@@ -2855,6 +3568,21 @@ function App() {
                           value={activeChar?.fome || 0}
                           color="bg-orange-500"
                           onChange={(v) => updateChar({ fome: v })}
+                          extra={
+                            <div className="flex items-center gap-1 bg-zinc-950/60 px-1 py-0.5 rounded border border-zinc-805/50" onClick={(e) => e.stopPropagation()}>
+                              <span className="text-[8px] text-orange-400 font-bold font-mono">Bônus:</span>
+                              <input
+                                type="number"
+                                placeholder="+0"
+                                value={activeChar?.bonusFomeProximaRolagem === undefined || activeChar?.bonusFomeProximaRolagem === 0 ? "" : activeChar.bonusFomeProximaRolagem}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value);
+                                  updateChar({ bonusFomeProximaRolagem: isNaN(val) ? undefined : val });
+                                }}
+                                className="w-8 text-[9px] bg-transparent text-center font-bold font-mono text-zinc-100 focus:outline-none focus:ring-0 p-0 border-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                            </div>
+                          }
                         />
                         <MiniBar
                           label="Sede"
@@ -2925,9 +3653,27 @@ function App() {
                       </div>
 
                       <div className="pt-4 border-t border-zinc-800">
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className="text-zinc-500 uppercase font-bold tracking-tighter">Carga Total</span>
-                          <span className={cn(pesoTotal > cargaMax ? "text-red-400" : "text-zinc-300")}>{(pesoTotal / 10).toFixed(2)} / {(cargaMax / 10).toFixed(1)} kg</span>
+                        <div className="flex justify-between items-center text-xs mb-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-zinc-500 uppercase font-bold tracking-tighter">Carga Total</span>
+                            <div className="flex items-center gap-1" title="Bônus de Carga (kg)">
+                              <span className="text-[10px] text-zinc-500 font-medium">Bônus:</span>
+                              <input
+                                type="number"
+                                value={activeChar.bonusCarga || ""}
+                                placeholder="0"
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value) || 0;
+                                  updateChar({ bonusCarga: val });
+                                }}
+                                className="w-10 text-center text-[10px] bg-zinc-900 border border-zinc-800 rounded font-medium text-amber-500 py-0.5 focus:outline-none focus:border-amber-400"
+                              />
+                              <span className="text-[9px] text-zinc-600">kg</span>
+                            </div>
+                          </div>
+                          <span className={cn(pesoTotal > cargaMax ? "text-red-400" : "text-zinc-300", "font-mono")}>
+                            {(pesoTotal / 10).toFixed(2)} / {(cargaMax / 10).toFixed(1)} kg
+                          </span>
                         </div>
                         <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
                           <div className={cn("h-full transition-all duration-500", pesoTotal > cargaMax ? "bg-red-500" : "bg-amber-500")} style={{ width: `${Math.min(100, (pesoTotal / cargaMax) * 100)}%` }} />
@@ -3399,7 +4145,7 @@ function App() {
                           onClick={handlePasteSelected}
                           className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
                         >
-                          Colar Armas ({multiClipboard.filter(it => it.type === "Arma").length})
+                          Colar Armas ({multiClipboard.filter(it => it.type === "Arma" || (it.type === "Item" && it.data.tipo === "Arma")).length})
                         </motion.button>
                       )}
                     <div className="space-y-1.5">
@@ -3570,7 +4316,7 @@ function App() {
                           onClick={handlePasteSelected}
                           className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
                         >
-                          Colar Catalisadores ({multiClipboard.filter(it => it.type === "Catalisador").length})
+                          Colar Catalisadores ({multiClipboard.filter(it => it.type === "Catalisador" || (it.type === "Item" && it.data.tipo === "Catalisador")).length})
                         </motion.button>
                       )}
                     <div className="space-y-3">
@@ -3733,7 +4479,7 @@ function App() {
                           onClick={handlePasteSelected}
                           className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all font-sans"
                         >
-                          Colar Armaduras ({multiClipboard.filter(it => it.type === "Armadura").length})
+                          Colar Armaduras ({multiClipboard.filter(it => it.type === "Armadura" || (it.type === "Item" && it.data.tipo === "Armadura")).length})
                         </motion.button>
                       )}
                     <div className="space-y-3">
@@ -3779,6 +4525,14 @@ function App() {
                               />
                             </div>
                             <div className="flex items-center gap-2">
+                              <motion.button
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => handleCutItem('armor', activeChar.id, 'equipment', a)}
+                                className="text-zinc-500 hover:text-amber-500 p-1"
+                                title="Recortar Armadura"
+                              >
+                                <Scissors size={20} />
+                              </motion.button>
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() => copyToClipboard("Armadura", a)}
@@ -3877,16 +4631,17 @@ function App() {
                       !selectionMode &&
                       multiClipboard.some(
                         (item) =>
+                          item.type === "Acessório" ||
                           item.type === "Armadura" ||
                           (item.type === "Item" &&
-                            item.data.tipo === "Armadura"),
+                            (item.data.tipo === "Armadura" || item.data.tipo === "Acessório" || item.data.tipo === "Acessórios")),
                       ) && (
                         <motion.button
                           whileTap={{ scale: 0.95 }}
                           onClick={handlePasteSelected}
                           className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all font-sans"
                         >
-                          Colar Acessórios ({multiClipboard.filter(it => it.type === "Armadura").length})
+                          Colar Acessórios ({multiClipboard.filter(it => it.type === "Acessório" || it.type === "Armadura" || (it.type === "Item" && (it.data.tipo === "Armadura" || it.data.tipo === "Acessório" || it.data.tipo === "Acessórios"))).length})
                         </motion.button>
                       )}
                     <div className="space-y-3">
@@ -3934,7 +4689,7 @@ function App() {
                             <div className="flex items-center gap-2">
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
-                                onClick={() => handleCutItem('inventory', activeChar.id, 'equipment', a)}
+                                onClick={() => handleCutItem('accessory', activeChar.id, 'equipment', a)}
                                 className="text-zinc-500 hover:text-amber-500 p-1"
                                 title="Recortar Acessório"
                               >
@@ -3942,7 +4697,7 @@ function App() {
                               </motion.button>
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
-                                onClick={() => copyToClipboard("Armadura", a)}
+                                onClick={() => copyToClipboard("Acessório", a)}
                                 className="text-zinc-500 hover:text-zinc-300 p-1"
                                 title="Copiar Acessório"
                               >
@@ -4019,7 +4774,7 @@ function App() {
                   <div className="space-y-4">
                     {compartimentos.map((comp, cIdx) => {
                       const compVolume = (comp.itens || []).reduce(
-                        (acc, i) => acc + (i.volume || 0) * (i.quantidade || 0),
+                        (acc, i) => acc + (i.volume || 0) * (i.quantidade !== undefined ? i.quantidade : 1),
                         0,
                       );
                       return (
@@ -4430,9 +5185,13 @@ function App() {
                                               copyToClipboard(
                                                 item.tipo === "Arma"
                                                   ? "Arma"
-                                                  : item.tipo === "Armadura"
-                                                    ? "Armadura"
-                                                    : "Item",
+                                                  : item.tipo === "Catalisador"
+                                                    ? "Catalisador"
+                                                    : item.tipo === "Armadura"
+                                                      ? "Armadura"
+                                                      : (item.tipo === "Acessório" || item.tipo === "Acessórios")
+                                                        ? "Acessório"
+                                                        : "Item",
                                                 item,
                                               )
                                             }
@@ -4468,7 +5227,7 @@ function App() {
                                           </span>
                                           <span className="text-xs font-bold text-zinc-400">
                                             {(
-                                              (item.peso * item.quantidade) / 10
+                                              (getItemPeso(item) * item.quantidade) / 10
                                             ).toFixed(2)}
                                             kg
                                           </span>
@@ -4589,7 +5348,7 @@ function App() {
                                           </span>
                                           <span className="text-xs font-bold text-zinc-400">
                                             {(
-                                              (item.peso * item.quantidade) / 10
+                                              (getItemPeso(item) * item.quantidade) / 10
                                             ).toFixed(2)}
                                             kg
                                           </span>
@@ -4708,7 +5467,7 @@ function App() {
                                           </span>
                                           <span className="text-xs font-bold text-zinc-400">
                                             {(
-                                              (item.peso * item.quantidade) / 10
+                                              (getItemPeso(item) * item.quantidade) / 10
                                             ).toFixed(2)}
                                             kg
                                           </span>
@@ -4818,7 +5577,7 @@ function App() {
                                           </span>
                                           <span className="text-xs font-bold text-zinc-400">
                                             {(
-                                              (item.peso * item.quantidade) / 10
+                                              (getItemPeso(item) * item.quantidade) / 10
                                             ).toFixed(2)}
                                             kg
                                           </span>
@@ -4970,7 +5729,7 @@ function App() {
                                           </span>
                                           <span className="text-xs font-bold text-zinc-400">
                                             {(
-                                              (item.peso * item.quantidade) / 10
+                                              (getItemPeso(item) * item.quantidade) / 10
                                             ).toFixed(2)}
                                             kg
                                           </span>
@@ -6831,6 +7590,12 @@ function App() {
                               e.stopPropagation();
                               if (charIdToDelete === char.id) {
                                 deletedCharsRef.current.add(char.id);
+                                // Cancel any pending sync timers before deleting to prevent race condition uploads
+                                if (syncTimersRef.current[char.id]) {
+                                  console.log(`🛑 [LibraryDelete] Cancelando upload pendente do personagem de ID ${char.id} antes da remoção`);
+                                  clearTimeout(syncTimersRef.current[char.id]);
+                                  delete syncTimersRef.current[char.id];
+                                }
                                 if (user) deleteCharacterFromFirestore(char.id);
                                 setState(prev => {
                                   const filtered = prev.characters.filter(c => c.id !== char.id);
@@ -7565,6 +8330,24 @@ function App() {
             </div>
             <Bestiary />
           </div>
+        ) : activePage === "toca" ? (
+          <div className="max-w-6xl mx-auto">
+            {activeChar ? (
+              <TocaManager 
+                activeChar={activeChar} 
+                updateChar={updateChar} 
+                cutItem={cutItem} 
+                setCutItem={setCutItem} 
+                showToast={showToast} 
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/10 border border-dashed border-zinc-800 rounded-3xl">
+                <PawPrint size={48} className="text-zinc-700 mb-4 animate-pulse" />
+                <p className="text-zinc-400 font-black uppercase text-sm tracking-wider mb-1">Ficha Não Selecionada</p>
+                <p className="text-zinc-500 text-xs">Por favor, selecione ou crie um personagem na aba "Ficha" para acessar a Toca.</p>
+              </div>
+            )}
+          </div>
         ) : activePage === "materials" ? (
           <div className="max-w-6xl mx-auto p-6">
             <div className="mb-8">
@@ -7629,6 +8412,17 @@ function App() {
                 </div>
             )}
           </div>
+        ) : activePage === "oracle" ? (
+          <div className="w-full max-w-5xl mx-auto px-2 md:px-4 py-2">
+            <div className="w-full h-[calc(100vh-190px)] min-h-[720px] flex flex-col">
+              <OracleTab 
+                characters={allAvailableCharacters}
+                activeCharacterId={state.activeCharacterId}
+                onUpdateCharacter={updateChar}
+                showToast={showToast}
+              />
+            </div>
+          </div>
         ) : null}
 
         {/* Floating Action Bars for Multi-Copy/Paste */}
@@ -7665,6 +8459,72 @@ function App() {
                   className="flex items-center gap-2 bg-zinc-800 text-zinc-400 px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700"
                 >
                   <X size={14} />
+                  Cancelar
+                </motion.button>
+              </div>
+            </motion.div>
+          )}
+
+          {cutItem && (
+            <motion.div
+              initial={{ y: 100, x: "-50%", opacity: 0 }}
+              animate={{ y: 0, x: "-50%", opacity: 1 }}
+              exit={{ y: 100, x: "-50%", opacity: 0 }}
+              className="fixed bottom-6 left-1/2 z-[100] flex flex-col sm:flex-row items-center gap-3 bg-zinc-950/95 border border-amber-500/50 p-4 rounded-xl shadow-2xl shadow-amber-500/10 backdrop-blur-md font-mono"
+            >
+              <div className="flex items-center gap-2 max-w-[220px]">
+                <div className="p-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-lg">
+                  <Scissors size={14} />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-[8px] text-zinc-500 font-bold uppercase block tracking-wider">Item Recortado</span>
+                  <span className="text-xs font-black text-white truncate block">{cutItem.item.nome}</span>
+                </div>
+              </div>
+              
+              <div className="h-px sm:h-8 w-full sm:w-px bg-zinc-800" />
+              
+              <div className="flex items-center gap-2">
+                {cutItem.companionId ? (
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleSendToMochila}
+                    className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all"
+                  >
+                    Mandar p/ Mochila
+                  </motion.button>
+                ) : (
+                  (activeChar?.tocaCreatures || []).length > 0 ? (
+                    <div className="relative group">
+                      <motion.button
+                        whileTap={{ scale: 0.95 }}
+                        className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all cursor-pointer"
+                      >
+                        Enviar p/ Companheiro <ChevronDown size={12} />
+                      </motion.button>
+                      <div className="absolute bottom-full mb-2 right-0 bg-zinc-900 border border-zinc-805 rounded-xl p-1 shadow-xl hidden group-hover:block z-50 min-w-[160px] max-h-48 overflow-y-auto">
+                        <span className="text-[8px] text-zinc-500 font-extrabold uppercase p-1.5 block border-b border-zinc-800">Selecione:</span>
+                        {(activeChar.tocaCreatures || []).map(creature => (
+                          <button
+                            key={creature.id}
+                            onClick={() => handleSendToCompanion(creature.id)}
+                            className="w-full text-left px-2 py-1.5 text-xs text-zinc-300 hover:bg-amber-500 hover:text-zinc-950 rounded-lg font-bold truncate block transition-colors cursor-pointer"
+                          >
+                            {creature.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] text-zinc-500 font-extrabold uppercase px-2">Crie um companheiro para enviar</span>
+                  )
+                )}
+                
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setCutItem(null)}
+                  className="flex items-center gap-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all border border-zinc-800/80 cursor-pointer"
+                >
                   Cancelar
                 </motion.button>
               </div>
@@ -8257,14 +9117,16 @@ const ProgressBar = React.memo(({
 }) => {
   const percent = Math.min(100, (current / max) * 100);
   const [innerValue, setInnerValue] = useState(current?.toString() ?? "");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (document.activeElement === inputRef.current) return;
+
     if (
       current !== undefined &&
       current !== null &&
       current.toString() !== innerValue
     ) {
-      if (current === 0 && innerValue === "") return;
       setInnerValue(current.toString());
     }
   }, [current]);
@@ -8280,12 +9142,18 @@ const ProgressBar = React.memo(({
         </span>
         <div className="flex items-center gap-1">
           <input
+            ref={inputRef}
             type="number"
             value={innerValue}
             onDoubleClick={(e) => e.stopPropagation()}
             onChange={(e) => {
               setInnerValue(e.target.value);
               onChange(parseInt(e.target.value) || 0);
+            }}
+            onBlur={() => {
+              if (current !== undefined && current !== null) {
+                setInnerValue(current.toString());
+              }
             }}
             className="w-12 bg-transparent text-right font-bold text-sm focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
@@ -8315,23 +9183,27 @@ const MiniBar = React.memo(({
   max = 100,
   color,
   onChange,
+  extra,
 }: {
   label: string;
   value: number;
   max?: number;
   color: string;
   onChange: (v: number) => void;
+  extra?: React.ReactNode;
 }) => {
   const percent = Math.min(100, (value / max) * 100);
   const [innerValue, setInnerValue] = useState(value?.toString() ?? "");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (document.activeElement === inputRef.current) return;
+
     if (
       value !== undefined &&
       value !== null &&
       value.toString() !== innerValue
     ) {
-      if (value === 0 && innerValue === "") return;
       setInnerValue(value.toString());
     }
   }, [value]);
@@ -8341,17 +9213,26 @@ const MiniBar = React.memo(({
       onDoubleClick={() => value < max && onChange(max)}
       className="bg-zinc-900/50 border border-zinc-800 p-2 rounded-lg cursor-pointer"
     >
-      <div className="text-[9px] text-zinc-500 font-bold uppercase mb-1">
-        {label}
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-[9px] text-zinc-500 font-bold uppercase">
+          {label}
+        </div>
+        {extra}
       </div>
       <div className="flex items-center gap-2">
         <input
+          ref={inputRef}
           type="number"
           value={innerValue}
           onDoubleClick={(e) => e.stopPropagation()}
           onChange={(e) => {
             setInnerValue(e.target.value);
             onChange(parseInt(e.target.value) || 0);
+          }}
+          onBlur={() => {
+            if (value !== undefined && value !== null) {
+              setInnerValue(value.toString());
+            }
           }}
           className="w-10 bg-transparent text-xs font-bold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
@@ -8374,6 +9255,7 @@ const WeaponProperties = React.memo(({
   updateCharacter?: (fn: any) => void;
   onChange: (updates: any) => void;
 }) => {
+  const [showTypeSelector, setShowTypeSelector] = React.useState(false);
   const isFirearm = item.categoria === 'Arma de Fogo';
   const isBow = item.categoria === 'Arco';
   const isMelee = item.categoria === 'Arma Branca' || !item.categoria;
@@ -8388,8 +9270,81 @@ const WeaponProperties = React.memo(({
       return n.includes("bala") || n.includes("munição") || n.includes("projetil") || n.includes("flecha") || t === "munição";
     });
 
+  const handleConvertType = (newCategory: 'Arma Branca' | 'Arma de Fogo' | 'Arco') => {
+    if (item.categoria === newCategory) return;
+    
+    const updates: any = {
+      categoria: newCategory,
+      atributoBase: newCategory === 'Arma Branca' ? 'Força' : 'Destreza',
+    };
+
+    const oldCat = item.categoria || 'Arma Branca';
+    const customName = item.nome || '';
+    if (customName === `Nova ${oldCat}` || customName === `Novo ${oldCat}` || customName === 'Nova Arma' || !customName) {
+      const article = newCategory === 'Arco' ? 'Novo' : 'Nova';
+      updates.nome = `${article} ${newCategory}`;
+    }
+
+    if (newCategory === 'Arma de Fogo') {
+      updates.municaoTotal = item.municaoTotal !== undefined ? item.municaoTotal : 6;
+      updates.municaoCarregada = item.municaoCarregada !== undefined ? item.municaoCarregada : 6;
+    } else {
+      updates.municaoTotal = undefined;
+      updates.municaoCarregada = undefined;
+      updates.bulletId = undefined;
+    }
+
+    onChange(updates);
+  };
+
   return (
     <div className="space-y-2 pt-1 border-t border-zinc-800/30">
+      {/* Mini Seletor de Tipo de Arma */}
+      <div className="flex items-center justify-between bg-zinc-950/20 px-2 py-1 rounded border border-zinc-800/20 relative">
+        <span className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">Tipo/Propriedades</span>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowTypeSelector(!showTypeSelector)}
+            className="flex items-center gap-1 px-2 py-0.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-amber-500 text-[8px] font-black uppercase rounded shadow-sm transition-colors cursor-pointer select-none"
+          >
+            <RotateCw size={8} />
+            <span>{item.categoria || 'Arma Branca'} ▾</span>
+          </button>
+          
+          {showTypeSelector && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowTypeSelector(false)} />
+              <div className="absolute right-0 mt-1 w-28 bg-zinc-950 border border-zinc-800 rounded shadow-xl z-50 py-0.5 font-mono overflow-hidden">
+                {[
+                  { cat: "Arma Branca", icon: <Sword size={10} /> },
+                  { cat: "Arma de Fogo", icon: <Zap size={10} /> },
+                  { cat: "Arco", icon: <Target size={10} /> }
+                ].map((opt) => (
+                  <button
+                    key={opt.cat}
+                    type="button"
+                    onClick={() => {
+                      handleConvertType(opt.cat as any);
+                      setShowTypeSelector(false);
+                    }}
+                    className={cn(
+                      "w-full flex items-center gap-1.5 px-2 py-1 text-[9px] font-bold uppercase transition-colors text-left",
+                      (item.categoria === opt.cat || (opt.cat === 'Arma Branca' && !item.categoria))
+                        ? "bg-amber-500 text-zinc-950"
+                        : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
+                    )}
+                  >
+                    {opt.icon}
+                    <span>{opt.cat}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 gap-1.5">
         <MiniInput
           label="Dano"
@@ -8738,26 +9693,28 @@ const ArmorProperties = React.memo(({
 }) => {
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-2">
-        <MiniInput
-          label="Corte"
-          value={item.corte || 0}
-          type="number"
-          onChange={(v) => onChange({ corte: parseInt(v) || 0 })}
-        />
-        <MiniInput
-          label="Impacto"
-          value={item.impacto || 0}
-          type="number"
-          onChange={(v) => onChange({ impacto: parseInt(v) || 0 })}
-        />
-        <MiniInput
-          label="Perf."
-          value={item.perfuracao || 0}
-          type="number"
-          onChange={(v) => onChange({ perfuracao: parseInt(v) || 0 })}
-        />
-      </div>
+      {item.tipo !== "Acessório" && item.tipo !== "Acessórios" && (
+        <div className="grid grid-cols-3 gap-2">
+          <MiniInput
+            label="Corte"
+            value={item.corte || 0}
+            type="number"
+            onChange={(v) => onChange({ corte: parseInt(v) || 0 })}
+          />
+          <MiniInput
+            label="Impacto"
+            value={item.impacto || 0}
+            type="number"
+            onChange={(v) => onChange({ impacto: parseInt(v) || 0 })}
+          />
+          <MiniInput
+            label="Perf."
+            value={item.perfuracao || 0}
+            type="number"
+            onChange={(v) => onChange({ perfuracao: parseInt(v) || 0 })}
+          />
+        </div>
+      )}
       <div className="grid grid-cols-4 gap-2">
         <MiniInput
           label="Durab."
@@ -8784,6 +9741,7 @@ const ArmorProperties = React.memo(({
           onChange={(v) => onChange({ reducaoDano: parseInt(v) || 0 })}
         />
       </div>
+
       <TextArea
         label="Descrição"
         value={item.descricao || item.efeito || ""}
@@ -8866,14 +9824,18 @@ const MiniInput = React.memo(({
   disabled?: boolean;
 }) => {
   const [innerValue, setInnerValue] = useState(value?.toString() ?? "");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
+    const isFocused = document.activeElement === inputRef.current || document.activeElement === textareaRef.current;
+    if (isFocused) return;
+
     if (
       value !== undefined &&
       value !== null &&
       value.toString() !== innerValue
     ) {
-      if (value === 0 && innerValue === "") return;
       setInnerValue(value.toString());
     }
   }, [value]);
@@ -8890,11 +9852,17 @@ const MiniInput = React.memo(({
       </span>
       {type === "text" ? (
         <textarea
+          ref={textareaRef}
           value={innerValue}
           disabled={disabled}
           onChange={(e) => {
             setInnerValue(e.target.value);
             onChange(e.target.value);
+          }}
+          onBlur={() => {
+            if (value !== undefined && value !== null) {
+              setInnerValue(value.toString());
+            }
           }}
           rows={1}
           className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 break-words whitespace-normal resize-none overflow-hidden min-h-[20px] w-full"
@@ -8906,6 +9874,7 @@ const MiniInput = React.memo(({
         />
       ) : (
         <input
+          ref={inputRef}
           type="text"
           inputMode="numeric"
           value={innerValue}
@@ -8916,6 +9885,11 @@ const MiniInput = React.memo(({
               .replace(",", ".");
             setInnerValue(val);
             onChange(val);
+          }}
+          onBlur={() => {
+            if (value !== undefined && value !== null) {
+              setInnerValue(value.toString());
+            }
           }}
           className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />

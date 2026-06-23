@@ -9,48 +9,17 @@ import {
   Timestamp,
   orderBy
 } from "firebase/firestore";
-import { db, auth } from "../lib/firebase";
+import { db, auth, handleFirestoreError, OperationType, isFirebaseQuotaExceeded } from "../lib/firebase";
 import { BestiaryMonster } from "../types";
 
 const COLLECTION_NAME = "bestiary";
 
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-  }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-    },
-    operationType,
-    path
-  }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
-
 export const saveMonsterToBestiary = async (monster: BestiaryMonster) => {
   if (!auth.currentUser) return;
+  if (isFirebaseQuotaExceeded()) {
+    console.warn("⚠️ [Firestore] Não é possível salvar monstro: Limite de cota diário excedido.");
+    return;
+  }
   
   const monsterRef = doc(db, COLLECTION_NAME, monster.id);
   const monsterData = {
@@ -73,6 +42,10 @@ export const saveMonsterToBestiary = async (monster: BestiaryMonster) => {
 
 export const deleteMonsterFromBestiary = async (monsterId: string) => {
   if (!auth.currentUser) return;
+  if (isFirebaseQuotaExceeded()) {
+    console.warn("⚠️ [Firestore] Não é possível excluir monstro: Limite de cota diário excedido.");
+    return;
+  }
   const monsterRef = doc(db, COLLECTION_NAME, monsterId);
   try {
     await deleteDoc(monsterRef);

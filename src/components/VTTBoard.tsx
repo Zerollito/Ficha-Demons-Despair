@@ -6,11 +6,11 @@ import Konva from 'konva';
 import { TableToken, TableConfig, Character, MonsterAction, NegativeEffect } from '../types';
 import { updateTokenPosition, addCombatLog, subscribeToCombatLogs } from '../services/vttService';
 import { saveCharacterToFirestore } from '../services/characterService';
-import { Shield, User, Trash2, Plus, Settings, ZoomIn, ZoomOut, Maximize, Eye, EyeOff, Upload, ChevronLeft, ChevronRight, Skull, Info, Heart, Minus, FileText, Zap, Dices, Swords, AlertTriangle, RefreshCw, Calendar, Clock, Sun, Cloud, Wind, Snowflake, Target, X, Package } from 'lucide-react';
+import { Shield, User, Trash2, Plus, Settings, ZoomIn, ZoomOut, Maximize, Eye, EyeOff, Upload, ChevronLeft, ChevronRight, Skull, Info, Heart, Minus, FileText, Zap, Dices, Swords, AlertTriangle, RefreshCw, Calendar, Clock, Sun, Cloud, Wind, Snowflake, Target, X, Package, PawPrint } from 'lucide-react';
 import { randomInt, randomElement, generateId, secureRandom } from '../lib/random';
 import { cn } from '../lib/utils';
-import { doc, getDoc, updateDoc, setDoc, arrayUnion, writeBatch, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { doc, getDoc, updateDoc as firestoreUpdateDoc, setDoc as firestoreSetDoc, arrayUnion, writeBatch as firestoreWriteBatch, serverTimestamp } from 'firebase/firestore';
+import { db, auth, isFirebaseQuotaExceeded, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Bestiary } from './Bestiary';
 import { BestiaryMonster } from '../types';
 import { EnemyGenerator } from './EnemyGenerator';
@@ -22,6 +22,58 @@ import { Season, getSeason, getSeasonIcon } from '../rules/timeRules';
 import { compressImageDataUrl } from '../lib/imageUtils';
 import { DiceImage } from './ui/DiceImage';
 
+const updateDoc = async (ref: any, data: any) => {
+  if (isFirebaseQuotaExceeded()) {
+    console.warn("⚠️ [Firestore] updateDoc interrompido para evitar erros (limite de cota atingido).");
+    return;
+  }
+  try {
+    return await firestoreUpdateDoc(ref, data);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, ref ? ref.path : null);
+  }
+};
+
+const setDoc = async (ref: any, data: any, options?: any) => {
+  if (isFirebaseQuotaExceeded()) {
+    console.warn("⚠️ [Firestore] setDoc interrompido para evitar erros (limite de cota atingido).");
+    return;
+  }
+  try {
+    return await firestoreSetDoc(ref, data, options);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, ref ? ref.path : null);
+  }
+};
+
+const writeBatch = (database: any) => {
+  const batch = firestoreWriteBatch(database);
+  return {
+    set: (ref: any, data: any, options?: any) => {
+      if (isFirebaseQuotaExceeded()) return;
+      batch.set(ref, data, options);
+    },
+    update: (ref: any, data: any) => {
+      if (isFirebaseQuotaExceeded()) return;
+      batch.update(ref, data);
+    },
+    delete: (ref: any) => {
+      if (isFirebaseQuotaExceeded()) return;
+      batch.delete(ref);
+    },
+    commit: async () => {
+      if (isFirebaseQuotaExceeded()) {
+        console.warn("⚠️ [Firestore] batch.commit interrompido (limite de cota atingido).");
+        return;
+      }
+      try {
+        return await batch.commit();
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, "batch");
+      }
+    }
+  };
+};
 
 import { MaterialData } from '../data/materials';
 
@@ -72,6 +124,162 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
   const radius = (token.size * gridSize) / 2;
   const [dragDist, setDragDist] = useState(0);
   const lastPos = useRef({ x: token.x, y: token.y });
+
+  if (token.type === 'aoe') {
+    const aoeW = (token.aoeWidth || token.size || 1) * gridSize;
+    const aoeH = (token.aoeHeight || token.aoeWidth || token.size || 1) * gridSize;
+    
+    // Choose presets
+    const getAoEColors = (colorName?: string) => {
+      switch (colorName) {
+        case 'red': return { fill: 'rgba(239, 68, 68, 0.25)', stroke: '#ef4444' };
+        case 'green': return { fill: 'rgba(34, 197, 94, 0.25)', stroke: '#22c55e' };
+        case 'blue': return { fill: 'rgba(59, 130, 246, 0.25)', stroke: '#3b82f6' };
+        case 'yellow': return { fill: 'rgba(245, 158, 11, 0.25)', stroke: '#f59e0b' };
+        case 'purple': return { fill: 'rgba(168, 85, 247, 0.25)', stroke: '#a855f7' };
+        case 'gray': return { fill: 'rgba(113, 113, 122, 0.25)', stroke: '#71717a' };
+        default: return { fill: 'rgba(239, 68, 68, 0.25)', stroke: '#ef4444' };
+      }
+    };
+    
+    const colors = getAoEColors(token.aoeColor);
+    const canMoveAoE = isMaster || true; // Everyone can relocate templates for maximum playability
+
+    return (
+      <Group
+        draggable={canMoveAoE}
+        x={token.x}
+        y={token.y}
+        offsetX={0}
+        offsetY={0}
+        onDragStart={(e) => {
+          lastPos.current = { x: e.target.x(), y: e.target.y() };
+          setDragDist(0);
+        }}
+        onDragMove={(e) => {
+          const nx = e.target.x();
+          const ny = e.target.y();
+          const dx = nx - lastPos.current.x;
+          const dy = ny - lastPos.current.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d > 1) {
+            setDragDist(prev => prev + (d / gridSize));
+            lastPos.current = { x: nx, y: ny };
+          }
+        }}
+        onDragEnd={(e) => {
+          setDragDist(0);
+          onDragEnd(token.id, e.target.x(), e.target.y());
+        }}
+        onClick={(e) => {
+          if (e) e.cancelBubble = true;
+          if (onClick) onClick();
+        }}
+        onTap={(e) => {
+          if (e) e.cancelBubble = true;
+          if (onClick) onClick();
+        }}
+      >
+        {isTarget && (
+          token.aoeShape === 'circle' ? (
+            <Circle
+              x={0}
+              y={0}
+              radius={aoeW / 2 + 8}
+              stroke="#ef4444"
+              strokeWidth={3}
+              dash={[10, 5]}
+            />
+          ) : (
+            <Rect
+              x={-aoeW / 2 - 8}
+              y={-aoeH / 2 - 8}
+              width={aoeW + 16}
+              height={aoeH + 16}
+              stroke="#ef4444"
+              strokeWidth={3}
+              dash={[10, 5]}
+              cornerRadius={6}
+            />
+          )
+        )}
+
+        {token.aoeShape === 'circle' ? (
+          <Circle
+            x={0}
+            y={0}
+            radius={aoeW / 2}
+            fill={colors.fill}
+            stroke={colors.stroke}
+            strokeWidth={2.5}
+            dash={[6, 3]}
+            shadowColor="black"
+            shadowBlur={8}
+            shadowOpacity={0.3}
+          />
+        ) : (
+          <Rect
+            x={-aoeW / 2}
+            y={-aoeH / 2}
+            width={aoeW}
+            height={aoeH}
+            fill={colors.fill}
+            stroke={colors.stroke}
+            strokeWidth={2.5}
+            dash={[6, 3]}
+            cornerRadius={4}
+            shadowColor="black"
+            shadowBlur={8}
+            shadowOpacity={0.3}
+          />
+        )}
+
+        <Circle x={0} y={0} radius={4} fill={colors.stroke} />
+
+        {dragDist > 0 && (
+          <Text
+            text={`${(dragDist * 1.5).toFixed(1)}m`}
+            fontSize={12}
+            fontStyle="bold"
+            fill="#3b82f6"
+            align="center"
+            width={120}
+            x={-60}
+            y={token.aoeShape === 'circle' ? -(aoeW / 2) - 38 : -(aoeH / 2) - 38}
+            shadowColor="black"
+            shadowBlur={4}
+          />
+        )}
+
+        <Text
+          text={token.name}
+          fontSize={11}
+          fontStyle="bold"
+          fill="white"
+          align="center"
+          width={180}
+          x={-90}
+          y={token.aoeShape === 'circle' ? -(aoeW / 2) - 15 : -(aoeH / 2) - 15}
+          shadowColor="black"
+          shadowBlur={6}
+        />
+
+        <Text
+          text={token.aoeShape === 'circle' ? `R: ${(token.aoeWidth || token.size) * 1.5}m (${token.aoeWidth || token.size}q)` : `${token.aoeWidth || token.size}x${token.aoeHeight || token.aoeWidth || token.size} (q)`}
+          fontSize={8}
+          fontStyle="bold"
+          fill={colors.stroke}
+          align="center"
+          width={120}
+          x={-60}
+          y={token.aoeShape === 'circle' ? -(aoeW / 2) - 25 : -(aoeH / 2) - 25}
+          shadowColor="black"
+          shadowBlur={4}
+        />
+      </Group>
+    );
+  }
+
   const char = token.characterId ? (availableCharacters.find(c => c.id === token.characterId) || fetchedCharacters?.[token.characterId]) : null;
   const currentHp = char ? (char.vidaAtual ?? 0) : (token.hp ?? 0);
   const maxHp = Math.max(1, char ? getVidaMaxima(char.stats.CON) : (token.maxHp ?? 10));
@@ -269,6 +477,38 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
   );
 });
 
+const isFirearmItem = (item: any) => {
+  if (!item) return false;
+  const cat = (item.categoria || "").toLowerCase();
+  const type = (item.tipo || "").toLowerCase();
+  const name = (item.nome || "").toLowerCase();
+  return cat === 'arma de fogo' || 
+         type === 'arma de fogo' || 
+         name.includes('pistola') || 
+         name.includes('revol') || 
+         name.includes('rifle') || 
+         name.includes('fuzil') || 
+         name.includes('escopeta') || 
+         name.includes('trabuco');
+};
+
+const isBowItem = (item: any) => {
+  if (!item) return false;
+  const cat = (item.categoria || "").toLowerCase();
+  const name = (item.nome || "").toLowerCase();
+  return cat === 'arco' || name.includes('arco') || name.includes('besta');
+};
+
+const getMaxCapacity = (weapon: any): number => {
+  if (!weapon) return 6;
+  const total = weapon.municaoTotal !== undefined && weapon.municaoTotal !== null && weapon.municaoTotal !== 0 ? Number(weapon.municaoTotal) : null;
+  const pente = weapon.capacidadePente !== undefined && weapon.capacidadePente !== null && weapon.capacidadePente !== 0 ? Number(weapon.capacidadePente) : null;
+  
+  if (total !== null && !isNaN(total)) return total;
+  if (pente !== null && !isNaN(pente)) return pente;
+  return 6;
+};
+
 export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({ 
   campaignId, 
   isMaster, 
@@ -297,10 +537,74 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const [showCreatureModal, setShowCreatureModal] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [isCharacterModalOpen, setIsCharacterModalOpen] = useState(false);
+  const [isTocaModalOpen, setIsTocaModalOpen] = useState(false);
   const [viewingCreatureId, setViewingCreatureId] = useState<string | null>(null);
   const [lootingCharId, setLootingCharId] = useState<string | null>(null);
   const [fetchedCharacters, setFetchedCharacters] = useState<Record<string, Character>>({});
   const fetchingIdsRef = useRef<Set<string>>(new Set());
+
+  const [screenAlert, setScreenAlert] = useState<{ msg: string; type: 'warning' | 'error' } | null>(null);
+  const alertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const triggerScreenAlert = (msg: string, type: 'warning' | 'error') => {
+    if (alertTimeoutRef.current) {
+      clearTimeout(alertTimeoutRef.current);
+    }
+    setScreenAlert({ msg, type });
+    alertTimeoutRef.current = setTimeout(() => {
+      setScreenAlert(null);
+    }, 3000);
+  };
+
+  const updateCharacterLocalAndRemote = async (characterId: string, updates: Partial<Character>) => {
+    // 1. Update in high-level local React state immediately so UI and sidebars update instantly
+    if (onUpdateCharacter) {
+      onUpdateCharacter(updates, characterId);
+    }
+
+    // Also update our locally cached fetchedCharacters in state if it exists
+    setFetchedCharacters(prev => {
+      if (prev[characterId]) {
+        return {
+          ...prev,
+          [characterId]: { ...prev[characterId], ...updates }
+        };
+      }
+      return prev;
+    });
+    
+    // 2. Also save to the local campaign characters list cache so other subscriptions are aware
+    if (campaignId) {
+      try {
+        const cached = localStorage.getItem(`campaign_characters_${campaignId}`);
+        if (cached) {
+          const chars = JSON.parse(cached) as Character[];
+          const idx = chars.findIndex(c => c.id === characterId);
+          if (idx !== -1) {
+            chars[idx] = { ...chars[idx], ...updates };
+            localStorage.setItem(`campaign_characters_${campaignId}`, JSON.stringify(chars));
+          }
+        }
+      } catch (e) {
+        console.error("Error updating local campaign chars cache:", e);
+      }
+    }
+
+    // 3. Save to Firestore if quota is NOT exceeded
+    if (!isFirebaseQuotaExceeded()) {
+      try {
+        const charRef = doc(db, 'characters', characterId);
+        await updateDoc(charRef, { 
+          ...updates,
+          updatedAt: serverTimestamp()
+        });
+      } catch (error) {
+        console.warn("[VTTBoard] Error updating character on Firestore:", error);
+      }
+    } else {
+      console.log(`[VTTBoard] Firebase quota exceeded. Character ${characterId} updated purely locally (will sync later).`);
+    }
+  };
 
   const sanitizeLocalCharacter = (char: any): Character => {
     if (!char || typeof char !== 'object') return char;
@@ -339,6 +643,20 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       }
     });
   }, [tokens, availableCharacters, fetchedCharacters]);
+
+  // Mobile sidebar mutual exclusion
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768) {
+        if (showLeftSidebar && showSidebar) {
+          setShowSidebar(false);
+        }
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    handleResize();
+    return () => window.removeEventListener('resize', handleResize);
+  }, [showLeftSidebar, showSidebar]);
   
   const [inputMapUrl, setInputMapUrl] = useState(config.mapUrl || '');
   const [inputGridSize, setInputGridSize] = useState(config.gridSize?.toString() || '50');
@@ -360,16 +678,17 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const [attackerId, setAttackerId] = useState<string | null>(null);
   const [targetId, setTargetId] = useState<string | null>(null);
   const [weaponSelectTokenId, setWeaponSelectTokenId] = useState<string | null>(null);
+  const [defenseSelectTokenId, setDefenseSelectTokenId] = useState<string | null>(null);
   const [selectedAmmoWeaponId, setSelectedAmmoWeaponId] = useState<string | null>(null);
   
   const ammoSelectWeapon = useMemo(() => {
     if (!selectedAmmoWeaponId || !weaponSelectTokenId) return null;
     const attacker = tokens.find(t => t.id === weaponSelectTokenId);
-    const char = attacker?.characterId ? availableCharacters.find(c => c.id === attacker.characterId) : null;
+    const char = attacker?.characterId ? (availableCharacters.find(c => c.id === attacker.characterId) || fetchedCharacters[attacker.characterId]) : null;
     if (!char) return null;
     return char.armas.find((w: any) => w.id === selectedAmmoWeaponId) || 
            char.compartimentos?.flatMap((c: any) => c.itens || []).find((i: any) => i.id === selectedAmmoWeaponId);
-  }, [selectedAmmoWeaponId, weaponSelectTokenId, tokens, availableCharacters]);
+  }, [selectedAmmoWeaponId, weaponSelectTokenId, tokens, availableCharacters, fetchedCharacters]);
 
   const [selectedAmmoId, setSelectedAmmoId] = useState<string | null>(null);
   const [ammoOptions, setAmmoOptions] = useState<any[]>([]);
@@ -383,6 +702,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     id?: string
   }[]>([]);
 
+  const visibleTocaCharacters = useMemo(() => {
+    return availableCharacters.filter(char => {
+      const hasToca = char.tocaCreatures && char.tocaCreatures.length > 0;
+      if (!hasToca) return false;
+      if (isMaster) return true;
+      return char.id === activeCharacterId;
+    });
+  }, [availableCharacters, isMaster, activeCharacterId]);
+
   // Subscribe to shared combat logs
   useEffect(() => {
     if (!campaignId) return;
@@ -391,7 +719,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     });
     return unsub;
   }, [campaignId]);
-  const [sidebarTab, setSidebarTab] = useState<'creatures' | 'combat' | 'initiative' | 'generator'>('creatures');
+  const [sidebarTab, setSidebarTab] = useState<'creatures' | 'combat' | 'initiative' | 'generator' | 'aoe'>(isMaster ? 'creatures' : 'aoe');
+
+  // Form states for AoE Creation
+  const [aoeFormName, setAoeFormName] = useState('Bola de Fogo');
+  const [aoeFormShape, setAoeFormShape] = useState<'circle' | 'square' | 'rectangle'>('circle');
+  const [aoeFormColor, setAoeFormColor] = useState('red');
+  const [aoeFormWidth, setAoeFormWidth] = useState(3);
+  const [aoeFormHeight, setAoeFormHeight] = useState(3);
 
   // Time handling functions
   // Helper to calculate Esquiva bonus for any token
@@ -417,11 +752,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
     // 2. If it's linked to a character, update that character's document too
     if (token.characterId) {
-      const charRef = doc(db, 'characters', token.characterId);
-      await updateDoc(charRef, { 
-        vidaAtual: newHp,
-        updatedAt: serverTimestamp()
-      });
+      await updateCharacterLocalAndRemote(token.characterId, { vidaAtual: newHp });
     }
   };
 
@@ -451,6 +782,60 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     if (!isMaster) return;
 
     setCombatLog(prev => [{ msg: "--- INÍCIO DE NOVO TURNO ---", type: 'info' }, ...prev]);
+
+    if (isFirebaseQuotaExceeded()) {
+      for (const token of tokens) {
+        const tokenUpdates: any = {};
+        const charUpdates: any = {};
+        let hasTokenChanges = false;
+        let hasCharChanges = false;
+
+        // 1. Handle defense rounds
+        if (token.isDefending) {
+          const rounds = token.defenseRounds || 1;
+          if (rounds > 1) {
+            tokenUpdates.defenseRounds = rounds - 1;
+            hasTokenChanges = true;
+          } else {
+            tokenUpdates.isDefending = false;
+            tokenUpdates.defenseType = null;
+            tokenUpdates.defenseWeaponId = null;
+            tokenUpdates.defenseRounds = 0;
+            hasTokenChanges = true;
+          }
+        }
+
+        // 2. Bleeding damage
+        const effects = token.efeitosNegativos || [];
+        const penalties = getNegativeEffectPenalties(effects);
+        if (penalties.bleedingDamage > 0) {
+          const newHp = Math.max(0, (token.hp || 0) - penalties.bleedingDamage);
+          tokenUpdates.hp = newHp;
+          hasTokenChanges = true;
+          
+          // If it's a character, prepare Character doc update
+          if (token.type === 'character' && token.characterId) {
+            charUpdates.vidaAtual = newHp;
+            hasCharChanges = true;
+          }
+
+          setCombatLog(prev => [{ 
+            msg: `${token.name} sofreu ${penalties.bleedingDamage} de dano por SANGRAMENTO acumulado!`, 
+            type: 'error' 
+          }, ...prev]);
+        }
+
+        if (hasTokenChanges) {
+          await updateTokenPosition(campaignId, token.id, tokenUpdates);
+        }
+
+        if (hasCharChanges && token.characterId) {
+          await updateCharacterLocalAndRemote(token.characterId, charUpdates);
+        }
+      }
+      setCombatLog(prev => [{ msg: "Turno processado com sucesso (Salvo Localmente).", type: 'success' }, ...prev]);
+      return;
+    }
 
     const batch = writeBatch(db);
     let anyChanges = false;
@@ -534,28 +919,35 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     }
   }, [tokens, isMaster, campaignId, availableCharacters]);
 
-  const handleSetDefense = async (tokenId: string, type: 'Weapon' | 'Shield') => {
+  const handleSetDefense = async (tokenId: string, type: 'Weapon' | 'Shield', weaponId?: string | null) => {
     const token = tokens.find(t => t.id === tokenId);
     if (!token) return;
-
-    if (token.type === 'creature' && !token.characterId) {
-       await addCombatLog(campaignId, { msg: "Criaturas não podem usar Postura de Defesa.", type: 'error' });
-       return;
-    }
 
     const tokenUpdates = { 
       isDefending: true, 
       defenseType: type, 
+      defenseWeaponId: weaponId || null,
       defenseRounds: 2,
       defendedAt: Date.now()
     };
     
     await updateTokenPosition(campaignId, tokenId, tokenUpdates);
-    await addCombatLog(campaignId, { msg: `${token.name} entrou em postura de defesa (${type === 'Shield' ? 'Escudo' : 'Esquiva/Parada'})`, type: 'info' });
+    
+    let itemName = type === 'Shield' ? "Escudo" : "Esquiva/Parada";
+    if (weaponId) {
+      const char = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
+      if (char) {
+        const item = [...(char.armas || []), ...(char.compartimentos?.flatMap((c: any) => c.itens || []) || [])].find(i => i.id === weaponId);
+        if (item) {
+          itemName = item.nome;
+        }
+      }
+    }
+    await addCombatLog(campaignId, { msg: `${token.name} entrou em postura de defesa com ${itemName} (${type === 'Shield' ? 'Escudo' : 'Esquiva/Parada'})`, type: 'info' });
   };
 
   const handleReload = async (charId: string, weaponId: string, ammoId: string) => {
-    const char = availableCharacters.find(c => c.id === charId);
+    let char = availableCharacters.find(c => c.id === charId) || fetchedCharacters[charId];
     if (!char) return;
 
     let weapon = char.armas.find(w => w.id === weaponId);
@@ -573,15 +965,17 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     }
 
     const currentMagazine = (weapon as any).magazineAmmo || [];
-    const maxCapacity = (weapon as any).capacidadePente || 6;
+    const maxCapacity = getMaxCapacity(weapon);
     
     if (currentMagazine.length >= maxCapacity) {
       await addCombatLog(campaignId, { msg: "O pente já está cheio!", type: 'error' });
       return;
     }
 
+    const amountToLoad = 1;
     const charUpdates: any = {};
-    const newMagazine = [...currentMagazine, { ...ammo as any, quantidade: 1 }];
+    const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...ammo as any, id: generateId(), quantidade: 1 }));
+    const newMagazine = [...currentMagazine, ...ammoToAdd];
 
     // Update weapon
     charUpdates.armas = char.armas.map(w => w.id === weaponId ? { ...w, municaoCarregada: newMagazine.length, magazineAmmo: newMagazine } : w);
@@ -589,7 +983,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     // Update ammo quantity in compartments
     charUpdates.compartimentos = char.compartimentos.map(comp => ({
       ...comp,
-      itens: comp.itens.map(it => it.id === ammoId ? { ...it, quantidade: Math.max(0, (it.quantidade || 1) - 1) } : it)
+      itens: comp.itens.map(it => it.id === ammoId ? { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) } : it)
     }));
 
     // If weapon is in compartment
@@ -601,12 +995,40 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       }));
     }
 
-    await updateDoc(doc(db, 'characters', char.id), { ...charUpdates, updatedAt: serverTimestamp() });
+    await updateCharacterState(char.id, charUpdates);
     await addCombatLog(campaignId, { msg: `${char.nome} recarregou 1 munição (${ammo.nome}) em ${weapon.nome}.`, type: 'info' });
   };
 
+  const handleMaintenance = async (charId: string, weaponId: string) => {
+    let char = availableCharacters.find(c => c.id === charId) || fetchedCharacters[charId];
+    if (!char) return;
+
+    let weapon = char.armas.find(w => w.id === weaponId);
+    const inventoryItems = char.compartimentos?.flatMap(c => c.itens || []) || [];
+    if (!weapon) {
+      weapon = inventoryItems.find(i => i.id === weaponId) as any;
+    }
+
+    if (!weapon) return;
+
+    const charUpdates: any = {};
+    const maxDur = (weapon as any).durabilidadeMaxUtil || weapon.maxDurabilidade || 10;
+
+    // Update weapon in character armas
+    charUpdates.armas = char.armas.map(w => w.id === weaponId ? { ...w, durabilidade: maxDur } : w);
+
+    // Update weapon in compartments if present
+    charUpdates.compartimentos = char.compartimentos.map(comp => ({
+      ...comp,
+      itens: comp.itens.map((it: any) => it.id === weaponId ? { ...it, durabilidade: maxDur } : it)
+    }));
+
+    await updateCharacterState(char.id, charUpdates);
+    await addCombatLog(campaignId, { msg: `${char.nome} realizou a manutenção de "${weapon.nome}". Durabilidade útil restaurada para ${maxDur}!`, type: 'success' });
+  };
+
   const handleReloadAll = async (charId: string, weaponId: string, ammoId: string) => {
-    const char = availableCharacters.find(c => c.id === charId);
+    let char = availableCharacters.find(c => c.id === charId) || fetchedCharacters[charId];
     if (!char) return;
 
     let weapon = char.armas.find(w => w.id === weaponId);
@@ -624,7 +1046,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     }
 
     const currentMagazine = (weapon as any).magazineAmmo || [];
-    const maxCapacity = (weapon as any).capacidadePente || 6;
+    const maxCapacity = getMaxCapacity(weapon);
     
     if (currentMagazine.length >= maxCapacity) {
       await addCombatLog(campaignId, { msg: "O pente já está cheio!", type: 'error' });
@@ -656,7 +1078,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       }));
     }
 
-    await updateDoc(doc(db, 'characters', char.id), { ...charUpdates, updatedAt: serverTimestamp() });
+    await updateCharacterState(char.id, charUpdates);
     await addCombatLog(campaignId, { msg: `${char.nome} recarregou ${amountToLoad} munições (${ammo.nome}) em ${weapon.nome}.`, type: 'info' });
   };
 
@@ -690,36 +1112,38 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       return prev;
     });
 
-    // 2. Check if the character is a private player character created and owned by us (not a Monster/NPC)
+    // 2. Check if the character is owned by the current user to update the main app state
     const isOwn = availableCharacters.some(c => 
       c.id === charId && 
-      c.etnia !== 'Monstro' && 
-      c.userId !== 'monster' && 
       (c.userId === auth.currentUser?.uid || c.userEmail === auth.currentUser?.email)
     );
     
     if (isOwn && onUpdateCharacter) {
-      console.log(`[VTT] Updating own character ${charId} locally and trigger sync.`, updates);
+      console.log(`[VTT] Updating owned character ${charId} via app sync.`, updates);
       onUpdateCharacter(updates, charId);
-    } else {
-      // 3. Otherwise update directly via Firestore (e.g. NPC or monster campaign sheet)
-      console.log(`[VTT] Updating character ${charId} directly in Firestore.`, updates);
-      const cleanUpdate = deepCleanData({ ...updates, updatedAt: serverTimestamp() });
-      const charRef = doc(db, 'characters', charId);
-      
+    }
+
+    // 3. Always synchronize with Firestore directly for campaign character updates to notify other players
+    if (isFirebaseQuotaExceeded()) {
+      console.warn(`[VTT] Sincronização em nuvem ignorada devido a cota esgotada para o personagem: ${charId}`);
+      return;
+    }
+    console.log(`[VTT] Synchronizing character ${charId} directly in Firestore.`, updates);
+    const cleanUpdate = deepCleanData({ ...updates, updatedAt: serverTimestamp() });
+    const charRef = doc(db, 'characters', charId);
+    
+    try {
+      // Use setDoc with { merge: true } to prevent "document not found" errors when creating on-the-fly
+      await setDoc(charRef, cleanUpdate, { merge: true });
+      console.log(`✅ [VTT] Sincronização direta Firestore concluída para ${charId}.`);
+    } catch (fError) {
+      console.warn(`[VTT] setDoc falhou para ${charId}, tentando updateDoc fallback:`, fError);
       try {
-        // Use setDoc with { merge: true } to prevent "document not found" errors when creating on-the-fly
-        await setDoc(charRef, cleanUpdate, { merge: true });
-        console.log(`✅ [VTT] Sincronização direta Firestore concluída para ${charId}.`);
-      } catch (fError) {
-        console.warn(`[VTT] setDoc falhou para ${charId}, tentando updateDoc fallback:`, fError);
-        try {
-          await updateDoc(charRef, cleanUpdate);
-          console.log(`✅ [VTT] Sincronização de backup updateDoc direta concluída para ${charId}.`);
-        } catch (uError) {
-          console.warn(`⚠️ [VTT] Falha ao sincronizar ficha diretamente em Firestore (pode ser restrição de permissão de saque para jogadores):`, uError);
-          // Do not rethrow so that local looting / state works perfectly without throwing exception
-        }
+        await updateDoc(charRef, cleanUpdate);
+        console.log(`✅ [VTT] Sincronização de backup updateDoc direta concluída para ${charId}.`);
+      } catch (uError) {
+        console.warn(`⚠️ [VTT] Falha ao sincronizar ficha diretamente em Firestore (pode ser restrição de permissão de saque para jogadores):`, uError);
+        // Do not rethrow so that local looting / state works perfectly without throwing exception
       }
     }
   };
@@ -889,25 +1313,52 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         let mappedItem = { ...item };
         
         if (sourceCategory === 'armas') {
-          mappedItem = {
-            id: item.id || generateId(),
-            nome: item.nome || "Arma Saqueada",
-            peso: item.peso || 0,
-            volume: item.volume || 0,
-            quantidade: 1,
-            tipo: 'Arma',
-            durabilidade: item.durabilidade ?? 100,
-            maxDurabilidade: item.maxDurabilidade ?? 100,
-            descricao: item.descricao || item.efeito || '',
-            dano: item.dano,
-            acerto: item.acerto,
-            escala: item.escala,
-            atributoBase: item.atributoBase,
-            corte: item.corte,
-            impacto: item.impacto,
-            perfuracao: item.perfuracao,
-            resistencia: item.resistencia
-          };
+          const lowerNome = (item.nome || "").toLowerCase();
+          const lowerTipo = (item.tipo || "").toLowerCase();
+          const isAmmo = (lowerTipo === 'munição' || lowerTipo === 'municao') || 
+                         (lowerTipo !== 'arma' && lowerTipo !== 'escudo' && (
+                           lowerNome.includes('flecha') || 
+                           lowerNome.includes('muniç') || 
+                           lowerNome.includes('municao') || 
+                           lowerNome.includes('pente') || 
+                           lowerNome.includes('projetil') || 
+                           (lowerNome.includes('bala') && !lowerNome.includes('revolver') && !lowerNome.includes('pistola') && !lowerNome.includes('rifle') && !lowerNome.includes('arma'))
+                         ));
+
+          if (isAmmo) {
+            const ammoQty = item.quantidade || item.municaoTotal || item.municaoCarregada || 1;
+            mappedItem = {
+              id: item.id || generateId(),
+              nome: item.nome || "Munição Saqueada",
+              peso: item.peso || 0,
+              volume: item.volume || 0,
+              quantidade: ammoQty,
+              tipo: 'Munição',
+              durabilidade: item.durabilidade ?? 100,
+              maxDurabilidade: item.maxDurabilidade ?? 100,
+              descricao: item.descricao || item.efeito || 'Munição para armas.',
+            };
+          } else {
+            mappedItem = {
+              id: item.id || generateId(),
+              nome: item.nome || "Arma Saqueada",
+              peso: item.peso || 0,
+              volume: item.volume || 0,
+              quantidade: 1,
+              tipo: 'Arma',
+              durabilidade: item.durabilidade ?? 100,
+              maxDurabilidade: item.maxDurabilidade ?? 100,
+              descricao: item.descricao || item.efeito || '',
+              dano: item.dano,
+              acerto: item.acerto,
+              escala: item.escala,
+              atributoBase: item.atributoBase,
+              corte: item.corte,
+              impacto: item.impacto,
+              perfuracao: item.perfuracao,
+              resistencia: item.resistencia
+            };
+          }
         } else if (sourceCategory === 'catalisadores') {
           mappedItem = {
             id: item.id || generateId(),
@@ -998,24 +1449,28 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       return isNaN(num) ? 0 : num;
     };
 
-    const armas = (token.acoes || []).map((action) => ({
-      id: generateId(),
-      nome: action.name || "Aquelecorte",
-      tipo: action.type || "Major",
-      dano: action.dano || "1d6",
-      acerto: typeof action.acerto === 'number' ? action.acerto : parseNum(action.acerto),
-      atributoBase: 'Força',
-      escala: '0',
-      peso: 0,
-      volume: 0,
-      durabilidade: 100,
-      maxDurabilidade: 100,
-      corte: action.categoria === 'Corte' ? 4 : 0,
-      perfuracao: action.categoria === 'Perfuração' ? 4 : 0,
-      impacto: action.categoria === 'Impacto' ? 4 : 0,
-      resistencia: 0,
-      efeito: action.description || ''
-    }));
+    // For creatures (monsters or Toca), we do not convert their natural combat actions/attacks (acoes) 
+    // into physical lootable weapon items. We only include actual carried weapons if they exist on the token.
+    const armas = token.type === 'creature' 
+      ? ((token as any).armas || []) 
+      : (token.acoes || []).map((action) => ({
+          id: generateId(),
+          nome: action.name || "Aquelecorte",
+          tipo: action.type || "Major",
+          dano: action.dano || "1d6",
+          acerto: typeof action.acerto === 'number' ? action.acerto : parseNum(action.acerto),
+          atributoBase: 'Força',
+          escala: '0',
+          peso: 0,
+          volume: 0,
+          durabilidade: 100,
+          maxDurabilidade: 100,
+          corte: action.categoria === 'Corte' ? 4 : 0,
+          perfuracao: action.categoria === 'Perfuração' ? 4 : 0,
+          impacto: action.categoria === 'Impacto' ? 4 : 0,
+          resistencia: 0,
+          efeito: action.description || ''
+        }));
 
     return {
       id: charId,
@@ -1053,12 +1508,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       joias: [],
       imagem: token.imageUrl || '',
       armas: armas as any[],
-      catalisadores: [],
+      catalisadores: (token as any).catalisadores || [],
       habilidades: [],
       magias: [],
-      armaduras: [],
-      acessorios: [],
-      compartimentos: [
+      armaduras: (token as any).armaduras || [],
+      acessorios: (token as any).acessorios || [],
+      compartimentos: (token as any).compartimentos || [
         { id: generateId(), nome: "Espólios", volumeMax: 100, itens: [], externo: false },
         { id: generateId(), nome: "Mochila de Viagem", volumeMax: 50, itens: [], externo: false },
         { id: generateId(), nome: "Bolsa de Cinto", volumeMax: 3, itens: [], externo: false }
@@ -1069,7 +1524,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       anotacoes: [],
       dadosCustomizados: [],
       imagens: [],
-      itens: []
+      itens: [],
+      acoes: token.acoes || []
     };
   };
 
@@ -1416,7 +1872,17 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         const ability = (attackerChar.habilidades || []).find(h => h.id === actionOrWeapon.id);
         const item = inventoryItems.find(i => i.id === actionOrWeapon.id);
 
-        if (weapon) hydratedAction = { ...weapon, type: 'weapon' };
+        if (weapon) {
+          hydratedAction = { 
+            ...weapon, 
+            type: 'weapon',
+            corte: actionOrWeapon.corte !== undefined ? actionOrWeapon.corte : weapon.corte,
+            perfuracao: actionOrWeapon.perfuracao !== undefined ? actionOrWeapon.perfuracao : weapon.perfuracao,
+            impacto: actionOrWeapon.impacto !== undefined ? actionOrWeapon.impacto : weapon.impacto,
+            resistencia: actionOrWeapon.resistencia !== undefined ? actionOrWeapon.resistencia : weapon.resistencia,
+            magazineAmmo: actionOrWeapon.magazineAmmo !== undefined ? actionOrWeapon.magazineAmmo : weapon.magazineAmmo
+          };
+        }
         else if (spell) hydratedAction = { ...spell, type: 'spell' };
         else if (ability) hydratedAction = { ...ability, type: 'ability' };
         else if (item) hydratedAction = { ...item, type: 'item' };
@@ -1424,8 +1890,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       const action = hydratedAction;
 
       // 0. Ammo/Quantity Check
-      const isFirearm = (action.categoria === 'Arma de Fogo');
-      const isBow = (action.categoria === 'Arco');
+      const isFirearm = isFirearmItem(action);
+      const isBow = isBowItem(action);
       
       let actingBullet: any = null;
       if (isFirearm && action.magazineAmmo && action.magazineAmmo.length > 0) {
@@ -1434,14 +1900,18 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
       if (isFirearm) {
         if ((action.municaoCarregada || 0) <= 0) {
-          setCombatLog(prev => [{ msg: `A arma "${action.nome}" está descarregada!`, type: 'error' }, ...prev]);
+          const msg = `⚠️ A arma "${action.nome || action.name}" está descarregada!`;
+          setCombatLog(prev => [{ msg, type: 'error' }, ...prev]);
+          triggerScreenAlert(msg, 'warning');
           setIsAttackingMode(false);
           setAttackerId(null);
           setTargetId(null);
           return;
         }
         if ((action.durabilidade || 0) <= 0 && (action.maxDurabilidade || 0) <= 0) {
-          setCombatLog(prev => [{ msg: `A arma "${action.nome}" está quebrada e não pode mais disparar!`, type: 'error' }, ...prev]);
+          const msg = `❌ A arma "${action.nome || action.name}" está quebrada e não pode mais disparar!`;
+          setCombatLog(prev => [{ msg, type: 'error' }, ...prev]);
+          triggerScreenAlert(msg, 'error');
           setIsAttackingMode(false);
           setAttackerId(null);
           setTargetId(null);
@@ -1450,7 +1920,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       }
 
       if (action.quantidade !== undefined && action.quantidade <= 0) {
-        setCombatLog(prev => [{ msg: `Você não possui mais unidades de "${action.nome}"!`, type: 'error' }, ...prev]);
+        setCombatLog(prev => [{ msg: `Você não possui mais unidades de "${action.nome || action.name}"!`, type: 'error' }, ...prev]);
         setIsAttackingMode(false);
         setAttackerId(null);
         setTargetId(null);
@@ -1464,29 +1934,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       
       const isPhysical = (type: string) => ['Corte', 'Perfuração', 'Impacto'].includes(type);
 
-      if (attacker.type === 'creature' && attacker.stats) {
-        const v: any = { 
-          'Corte': getVal(action, 'Corte'), 
-          'Perfuração': getVal(action, 'Perfuração'), 
-          'Impacto': getVal(action, 'Impacto') 
-        };
-        const maxV = Math.max(v.Corte, v.Perfuração, v.Impacto);
-
-        if (maxV > 0) {
-          if (forcedType && v[forcedType] > 0) attackType = forcedType;
-          else if (chosenAttackType && (v as any)[chosenAttackType] > 0) attackType = chosenAttackType as any;
-          else attackType = Object.entries(v).reduce((a: any, b: any) => a[1] > b[1] ? a : b)[0] as any;
-          attackLevel = v[attackType];
-          attackerResonance = Number(action.resistencia) || 0;
-        } else {
-          attackType = forcedType || chosenAttackType || action.categoria || 'Corte';
-          const key = getMapKey(attackType);
-          attackLevel = (attacker.stats.ataque as any)[key] || 0;
-          attackerResonance = isPhysical(attackType) 
-            ? (attacker.stats.ataque.resistencia || 0) 
-            : (attacker.stats.ataque.potencial || 0);
-        }
-      } else if (attacker.type === 'character' && attackerChar) {
+      if (attackerChar) {
         if (action.escola) {
           attackType = forcedType || action.escola;
           const inventoryItems = attackerChar.compartimentos?.flatMap(c => c.itens || []) || [];
@@ -1512,12 +1960,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           // Fallback for monster actions that don't have level properties but follow a category
           const monsterAction = action as MonsterAction;
           if (v.Corte === 0 && v['Perfuração'] === 0 && v.Impacto === 0) {
-            if (attacker.stats?.ataque) {
+            if ((attackerChar.stats as any)?.ataque) {
               v = {
-                'Corte': Number(attacker.stats.ataque.corte) || 0,
-                'Perfuração': Number(attacker.stats.ataque.perfuracao) || 0,
-                'Impacto': Number(attacker.stats.ataque.impacto) || 0,
-                'Elemental': Number(attacker.stats.ataque.elemental) || 0
+                'Corte': Number(((attackerChar.stats as any).ataque as any).corte) || 0,
+                'Perfuração': Number(((attackerChar.stats as any).ataque as any).perfuracao) || 0,
+                'Impacto': Number(((attackerChar.stats as any).ataque as any).impacto) || 0,
+                'Elemental': Number(((attackerChar.stats as any).ataque as any).elemental) || 0
               };
             }
           }
@@ -1551,6 +1999,28 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 attackerResonance = Number(actingBullet.resistencia) || 0;
             }
           }
+        }
+      } else if (attacker.type === 'creature' && attacker.stats) {
+        const v: any = { 
+          'Corte': getVal(action, 'Corte'), 
+          'Perfuração': getVal(action, 'Perfuração'), 
+          'Impacto': getVal(action, 'Impacto') 
+        };
+        const maxV = Math.max(v.Corte, v.Perfuração, v.Impacto);
+
+        if (maxV > 0) {
+          if (forcedType && v[forcedType] > 0) attackType = forcedType;
+          else if (chosenAttackType && (v as any)[chosenAttackType] > 0) attackType = chosenAttackType as any;
+          else attackType = Object.entries(v).reduce((a: any, b: any) => a[1] > b[1] ? a : b)[0] as any;
+          attackLevel = v[attackType];
+          attackerResonance = Number(action.resistencia) || 0;
+        } else {
+          attackType = forcedType || chosenAttackType || action.categoria || 'Corte';
+          const key = getMapKey(attackType);
+          attackLevel = (attacker.stats.ataque as any)[key] || 0;
+          attackerResonance = isPhysical(attackType) 
+            ? (attacker.stats.ataque.resistencia || 0) 
+            : (attacker.stats.ataque.potencial || 0);
         }
       }
 
@@ -1605,16 +2075,16 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       let attackerAcuracia = 0;
       let targetEsquiva = 0;
 
-      if (attacker.type === 'creature' && attacker.stats) {
-        attackerAcuracia = attacker.stats.acuracia || 0;
-      } else if (attacker.type === 'character' && attackerChar) {
+      if (attackerChar) {
         attackerAcuracia = calculateProficiencyBonus(attackerChar.stats, "Acurácia", ["FOR", "DEX"], attackerChar.fome, attackerChar.sede, attackerChar.cansaco, attackerChar.clima, 0, attackerChar.bonusProficiencias?.["Acurácia"], attackerChar.efeitosNegativos);
+      } else if (attacker.type === 'creature' && attacker.stats) {
+        attackerAcuracia = attacker.stats.acuracia || 0;
       }
 
-      if (target.type === 'creature' && target.stats) {
-        targetEsquiva = target.stats.esquiva || 0;
-      } else if (target.type === 'character' && targetChar) {
+      if (targetChar) {
         targetEsquiva = calculateProficiencyBonus(targetChar.stats, "Esquiva", ["DEX", "ADP"], targetChar.fome, targetChar.sede, targetChar.cansaco, targetChar.clima, 0, targetChar.bonusProficiencias?.["Esquiva"], targetChar.efeitosNegativos);
+      } else if (target.type === 'creature' && target.stats) {
+        targetEsquiva = target.stats.esquiva || 0;
       }
 
       const totalHitRoll = attackerRawDiceTotal + attackerAcuracia - targetEsquiva;
@@ -1636,7 +2106,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       ['projetil', 'feitiço', 'elemental', 'magia negra'].some(t => attackType.toLowerCase().includes(t.toLowerCase())) ||
       ['arco', 'besta', 'projetil', 'arremesso', 'shuriken', 'fogo', 'arma de fogo', 'pistola', 'mosquete', 'rifle'].some(t => {
         const cat = (actionOrWeapon.categoria || "").toLowerCase();
-        const nome = (actionOrWeapon.nome || "").toLowerCase();
+        const nome = (actionOrWeapon.nome || actionOrWeapon.name || "").toLowerCase();
         return cat.includes(t) || nome.includes(t);
       });
 
@@ -1675,9 +2145,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         });
       }
 
+      const locKey = locationName.includes('Perna') ? 'Pernas' : locationName;
+      const baseLimbDef = (targetChar.defesa as any)[locKey] || 0;
+
       if (armorItemToDegrade) {
-        targetDefenseLevel = getVal(armorItemToDegrade, key);
+        targetDefenseLevel = getVal(armorItemToDegrade, key) || baseLimbDef;
         targetDefenseResist = Number(armorItemToDegrade.resistencia) || 0;
+      } else {
+        targetDefenseLevel = baseLimbDef;
       }
     } else if (target.stats) {
       targetDefenseLevel = getVal(target.stats.defesa, key);
@@ -1730,11 +2205,37 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       }
     }
 
+    // Active Defense (Shield Block)
+    if (!blockSuccessful && target.isDefending && target.defenseType === 'Shield') {
+      const defShield = targetChar ? [...targetChar.armas, ...(targetChar.armaduras || []), ...targetChar.compartimentos.flatMap(c => c.itens)].find(i => i.id === target.defenseWeaponId) : null;
+      let shieldLevel = 0;
+      let shieldResist = 0;
+      if (defShield) {
+        shieldLevel = (defShield as any)[key] || 0;
+        shieldResist = (defShield as any).resistencia || 0;
+      } else if (target.type === 'creature' && target.stats && target.stats.defesa) {
+        shieldLevel = (target.stats.defesa as any)[key] || 0;
+        shieldResist = Number(target.stats.ataque?.resistencia) || 0;
+      }
+
+      const isAttackerUsingResist = (attackLevel < targetDefenseLevel) && (attackLevel + attackerResonance >= targetDefenseLevel);
+      const effectiveAttackerLevel = isAttackerUsingResist ? (attackLevel + attackerResonance) : attackLevel;
+
+      if (shieldLevel >= effectiveAttackerLevel) {
+        blockSuccessful = true;
+        defenseLog = ` (Bloqueado por Escudo! Nível do Escudo: ${shieldLevel} vs Ataque: ${effectiveAttackerLevel})`;
+      } else {
+        damageMultiplier = 0.5;
+        targetDefenseItemDurabilityDown = true;
+        defenseLog = ` (Escudo sobrepujado! Defende 50% de dano e perde 1 Durabilidade. Nível do Escudo: ${shieldLevel} vs Ataque: ${effectiveAttackerLevel})`;
+      }
+    }
+
     if (isCriticalErrorTrigger) attackerWeaponDurabilityDown = true;
     if (hitBaseCheckOk && !blockSuccessful) targetArmorDurabilityDown = true;
 
     // 6. Damage Calculation
-    let hitSucceeded = (hitBaseCheckOk && !blockSuccessful) || isCriticalHit || (damageMultiplier < 1.0);
+    let hitSucceeded = ((hitBaseCheckOk || isCriticalHit) && !blockSuccessful) || (damageMultiplier < 1.0);
     let damage = 0;
     let damageFormula = "";
     let dmgDiceRolls: number[] = [];
@@ -1824,10 +2325,10 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       // Defense of location
       let locDefVal = 0;
       if (targetChar) {
-        const locKey = locationName.includes('Braço') ? 'Braços' : (locationName.includes('Perna') ? 'Pernas' : locationName);
+        const locKey = locationName.includes('Perna') ? 'Pernas' : locationName;
         locDefVal = (targetChar.defesa as any)[locKey] || 0;
       } else if (target.stats) {
-        locDefVal = (target.stats.defesa as any)[locationName] || (target.stats.defesa as any).Tronco || 0;
+        locDefVal = (target.stats.defesa as any)[key] || 0;
       }
 
       damage = Math.max(0, Math.floor((damage + extraDamageTakenFromEffects - locDefVal) * damageMultiplier));
@@ -1893,20 +2394,20 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           
           await updateTokenPosition(campaignId, target.id, { hp: newHp, efeitosNegativos: finalEffects, ...defenseClear });
           if (targetChar) {
-            await updateDoc(doc(db, 'characters', targetChar.id), { vidaAtual: newHp, efeitosNegativos: finalEffects, ...defenseClear, updatedAt: serverTimestamp() });
+            await updateCharacterLocalAndRemote(targetChar.id, { vidaAtual: newHp, efeitosNegativos: finalEffects, ...defenseClear });
           }
         } else {
           effectInfo = ` (Resistiu: ${resRoll}+${resProf}=${resRoll+resProf})`;
           const currentHpBeforeDmg = targetChar ? (targetChar.vidaAtual ?? 0) : (target.hp ?? 0);
           const newHp = Math.max(0, currentHpBeforeDmg - damage);
           await updateTokenPosition(campaignId, target.id, { hp: newHp, ...defenseClear });
-          if (targetChar) await updateDoc(doc(db, 'characters', targetChar.id), { vidaAtual: newHp, ...defenseClear, updatedAt: serverTimestamp() });
+          if (targetChar) await updateCharacterLocalAndRemote(targetChar.id, { vidaAtual: newHp, ...defenseClear });
         }
       } else {
         const currentHpBeforeDmg = targetChar ? (targetChar.vidaAtual ?? 0) : (target.hp ?? 0);
         const newHp = Math.max(0, currentHpBeforeDmg - damage);
         await updateTokenPosition(campaignId, target.id, { hp: newHp, ...defenseClear });
-        if (targetChar) await updateDoc(doc(db, 'characters', targetChar.id), { vidaAtual: newHp, ...defenseClear, updatedAt: serverTimestamp() });
+        if (targetChar) await updateCharacterLocalAndRemote(targetChar.id, { vidaAtual: newHp, ...defenseClear });
       }
 
       await addCombatLog(campaignId, { 
@@ -1922,7 +2423,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           isCombat: true,
           attackerName: attacker.name,
           targetName: target.name,
-          armaNome: actionOrWeapon.nome,
+          armaNome: actionOrWeapon.nome || actionOrWeapon.name,
           combatNote: (isCriticalHit ? "CRÍTICO! " : "") + (effectInfo || defenseLog || ""),
           hitResult: totalHitRoll,
           hitFormula: `${attackerRawDiceTotal} (dados) + ${attackerAcuracia} (bônus) - ${targetEsquiva} (esquiva) [vs ${baseAcerto}]`,
@@ -1957,7 +2458,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       if (target.isDefending) {
         await updateTokenPosition(campaignId, target.id, defenseClear);
         if (targetChar) {
-          await updateDoc(doc(db, 'characters', targetChar.id), { ...defenseClear, updatedAt: serverTimestamp() });
+          await updateCharacterLocalAndRemote(targetChar.id, defenseClear);
         }
       }
 
@@ -1966,7 +2467,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           isCombat: true,
           attackerName: attacker.name,
           targetName: target.name,
-          armaNome: actionOrWeapon.nome,
+          armaNome: actionOrWeapon.nome || actionOrWeapon.name,
           combatNote: blockSuccessful ? "BLOQUEADO! " + defenseLog : "ERROU! " + defenseLog,
           hitResult: totalHitRoll,
           hitFormula: `${attackerRawDiceTotal} (dados) + ${attackerAcuracia} (bônus) - ${targetEsquiva} (esquiva) [vs ${baseAcerto}]`,
@@ -1997,14 +2498,30 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         let itemProcessed = false;
 
         if (isFirearm) {
+          let warningMsg: string | null = null;
+          let errorMsg: string | null = null;
+          let degradeMsg: string | null = null;
+
           // Firearms always lose 1 point per shot
           charUpdates.armas = attackerChar.armas.map(w => {
             if (w.id === item.id) {
               itemProcessed = true;
               let newDur = w.durabilidade || 0;
               let newMaxDur = w.maxDurabilidade || 0;
-              if (newDur > 0) newDur -= 1;
-              else if (newMaxDur > 0) newMaxDur -= 1;
+              
+              if (newDur > 0) {
+                newDur -= 1;
+                if (newDur === 0) {
+                  warningMsg = `⚠️ A durabilidade útil de "${w.nome}" acabou! Desgaste total iniciado. Durabilidade total restante: ${newMaxDur}.`;
+                }
+              } else if (newMaxDur > 0) {
+                newMaxDur -= 1;
+                if (newMaxDur === 0) {
+                  errorMsg = `❌ A arma "${w.nome}" quebrou completamente e não pode mais ser disparada!`;
+                } else {
+                  degradeMsg = `⚠️ "${w.nome}" desgastando estrutura total! Durabilidade total restante: ${newMaxDur}.`;
+                }
+              }
               
               const currentMag = (w as any).magazineAmmo || [];
               const newMag = currentMag.slice(1);
@@ -2028,8 +2545,21 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                   itemProcessed = true;
                   let newDur = (i as any).durabilidade || 0;
                   let newMaxDur = (i as any).maxDurabilidade || 0;
-                  if (newDur > 0) newDur -= 1;
-                  else if (newMaxDur > 0) newMaxDur -= 1;
+                  
+                  if (newDur > 0) {
+                    newDur -= 1;
+                    if (newDur === 0) {
+                      warningMsg = `⚠️ A durabilidade útil de "${i.nome}" acabou! Desgaste total iniciado. Durabilidade total restante: ${newMaxDur}.`;
+                    }
+                  } else if (newMaxDur > 0) {
+                    newMaxDur -= 1;
+                    if (newMaxDur === 0) {
+                      errorMsg = `❌ A arma "${i.nome}" quebrou completamente e não pode mais ser disparada!`;
+                    } else {
+                      degradeMsg = `⚠️ "${i.nome}" desgastando estrutura total! Durabilidade total restante: ${newMaxDur}.`;
+                    }
+                  }
+                  
                   const currentMag = (i as any).magazineAmmo || [];
                   const newMag = currentMag.slice(1);
 
@@ -2044,6 +2574,17 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 return i;
               })
             }));
+          }
+
+          if (errorMsg) {
+            await addCombatLog(campaignId, { msg: errorMsg, type: 'error' });
+            triggerScreenAlert(errorMsg, 'error');
+          } else if (warningMsg) {
+            await addCombatLog(campaignId, { msg: warningMsg, type: 'warning' });
+            triggerScreenAlert(warningMsg, 'warning');
+          } else if (degradeMsg) {
+            await addCombatLog(campaignId, { msg: degradeMsg, type: 'warning' });
+            triggerScreenAlert(degradeMsg, 'warning');
           }
         } else {
           // Standard Durability for Melee/Catalyst
@@ -2099,18 +2640,26 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         }
 
         if (Object.keys(charUpdates).length > 0) {
-          await updateDoc(doc(db, 'characters', attackerChar.id), { ...charUpdates, updatedAt: serverTimestamp() });
+          await updateCharacterLocalAndRemote(attackerChar.id, charUpdates);
         }
       }
     }
     if (targetChar && targetArmorDurabilityDown && armorItemToDegrade) {
       const updatedArmaduras = targetChar.armaduras.map(a => a.id === armorItemToDegrade.id ? { ...a, durabilidade: Math.max(0, a.durabilidade - 1) } : a);
-      await updateDoc(doc(db, 'characters', targetChar.id), { armaduras: updatedArmaduras, updatedAt: serverTimestamp() });
+      await updateCharacterLocalAndRemote(targetChar.id, { armaduras: updatedArmaduras });
     }
     if (targetChar && targetDefenseItemDurabilityDown && target.defenseWeaponId) {
       const updatedArmas = targetChar.armas.map(w => w.id === target.defenseWeaponId ? { ...w, durabilidade: Math.max(0, w.durabilidade - 1) } : w);
       const updatedArmaduras = targetChar.armaduras.map(a => a.id === target.defenseWeaponId ? { ...a, durabilidade: Math.max(0, a.durabilidade - 1) } : a);
-      await updateDoc(doc(db, 'characters', targetChar.id), { armas: updatedArmas, armaduras: updatedArmaduras, updatedAt: serverTimestamp() });
+      const updatedCompartimentos = (targetChar.compartimentos || []).map((c: any) => ({
+        ...c,
+        itens: (c.itens || []).map((i: any) => i.id === target.defenseWeaponId ? { ...i, durabilidade: Math.max(0, (i.durabilidade || 0) - 1) } : i)
+      }));
+      await updateCharacterLocalAndRemote(targetChar.id, { 
+        armas: updatedArmas, 
+        armaduras: updatedArmaduras, 
+        compartimentos: updatedCompartimentos
+      });
     }
 
     } catch (error) {
@@ -2401,10 +2950,34 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         </div>
       )}
 
+      {/* Durability Wear Screen Alert (2 seconds) */}
+      {screenAlert && (
+        <div className={cn(
+          "absolute top-24 left-1/2 -translate-x-1/2 z-50 px-6 py-4 rounded-2xl flex items-center gap-3 shadow-2xl border backdrop-blur-md max-w-sm sm:max-w-md text-center transition-all duration-300 animate-in fade-in zoom-in-95 slide-in-from-top-12",
+          screenAlert.type === 'error' 
+            ? "bg-red-950/95 border-red-500 text-red-200" 
+            : "bg-amber-950/95 border-amber-500 text-amber-200"
+        )}>
+          <div className={cn(
+            "w-3 h-3 rounded-full shrink-0",
+            screenAlert.type === 'error' ? "bg-red-500 animate-ping" : "bg-amber-500 animate-pulse"
+          )} />
+          <span className="text-xs font-black uppercase tracking-wider leading-normal">
+            {screenAlert.msg}
+          </span>
+        </div>
+      )}
+
       {/* Left Sidebar Toggle (Master Only) */}
       {isMaster && (
         <button 
-          onClick={() => setShowLeftSidebar(!showLeftSidebar)}
+          onClick={() => {
+            const nextVal = !showLeftSidebar;
+            setShowLeftSidebar(nextVal);
+            if (nextVal && window.innerWidth < 768) {
+              setShowSidebar(false);
+            }
+          }}
           className={cn(
             "absolute top-4 z-50 p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all shadow-xl duration-300 flex items-center justify-center",
             showLeftSidebar ? "left-[260px]" : "left-4"
@@ -2458,6 +3031,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     className="w-full flex items-center gap-2 p-3 bg-amber-600/10 border border-amber-500/30 hover:bg-amber-600/20 text-amber-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
                   >
                     <Skull size={14} /> Add Criatura
+                  </button>
+                  <button 
+                    onClick={() => setIsTocaModalOpen(true)}
+                    className="w-full flex items-center gap-2 p-3 bg-emerald-600/10 border border-emerald-500/30 hover:bg-emerald-600/20 text-emerald-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                  >
+                    <PawPrint size={14} /> Add da Toca
                   </button>
                 </div>
               </div>
@@ -2569,6 +3148,18 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       </aside>
       )}
 
+      {/* Floating Toca Summoner Button */}
+      {visibleTocaCharacters.length > 0 && (
+        <button
+          onClick={() => setIsTocaModalOpen(true)}
+          className="absolute bottom-4 left-4 z-30 p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-emerald-500 hover:text-emerald-400 font-black uppercase tracking-wider text-[10px] shadow-xl flex items-center gap-1.5 transition-all text-[10px]"
+          title="Abrir Toca das Criaturas"
+        >
+          <PawPrint size={14} className="animate-pulse" />
+          <span>Toca</span>
+        </button>
+      )}
+
       {/* Clock Overlay */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
         <div className="flex items-center gap-3 px-6 py-2 bg-zinc-950/80 backdrop-blur-md border border-zinc-800 rounded-2xl shadow-2xl">
@@ -2648,6 +3239,149 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         )}
       </AnimatePresence>
 
+      {/* Toca Creatures Modal */}
+      {isTocaModalOpen && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setIsTocaModalOpen(false)}>
+          <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl w-full max-w-md shadow-2xl space-y-6 flex flex-col max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
+            <div className="space-y-1">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <PawPrint className="text-emerald-500" /> Criaturas da Toca
+              </h3>
+              <p className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">
+                Invoque companheiros e animais de estimação no mapa de combate
+              </p>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto pr-1 space-y-4 custom-scrollbar text-left min-h-[200px]">
+              {visibleTocaCharacters.length > 0 ? (
+                visibleTocaCharacters.map(char => {
+                  const isOwn = char.id === activeCharacterId;
+                  
+                  return (
+                    <div key={char.id} className="space-y-2 border-b border-zinc-800 pb-4 last:border-b-0 last:pb-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">
+                          Toca de {char.nome}
+                        </span>
+                        {isOwn && (
+                          <span className="px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-[8px] text-emerald-400 font-black uppercase tracking-wider leading-none">
+                            Seu
+                          </span>
+                        )}
+                      </div>
+                      
+                      <div className="space-y-2">
+                        {char.tocaCreatures?.map(creature => (
+                          <div 
+                            key={creature.id}
+                            className="bg-zinc-950 border border-zinc-800/80 p-3 rounded-2xl flex items-center justify-between gap-3 hover:border-emerald-500/30 transition-all group"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-10 h-10 bg-emerald-600/10 rounded-xl flex items-center justify-center border border-emerald-500/20 group-hover:bg-emerald-600 group-hover:border-emerald-500 transition-all overflow-hidden shrink-0">
+                                {creature.imageUrl ? (
+                                  <img src={creature.imageUrl} alt={creature.name} className="w-full h-full object-cover" />
+                                ) : (
+                                  <PawPrint size={18} className="text-emerald-500 group-hover:text-white" />
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-black text-white uppercase tracking-wider truncate leading-tight">{creature.name}</p>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-[9px] font-bold text-zinc-500 font-mono text-[9px]">HP: {creature.hpAtual ?? creature.maxHp}/{creature.maxHp}</span>
+                                  <div className="w-1 h-1 rounded-full bg-zinc-800" />
+                                  <span className="text-[9px] font-bold text-zinc-500 font-mono text-[9px]">Desloc: {creature.deslocamento}</span>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <button
+                              onClick={() => {
+                                if (onAddToken) {
+                                  const centerX = (dimensions.width / 2 - viewport.x) / viewport.scale;
+                                  const centerY = (dimensions.height / 2 - viewport.y) / viewport.scale;
+                                  
+                                  const parseNum = (val: any) => parseInt(val?.toString()) || 0;
+                                  
+                                  onAddToken({
+                                    id: generateId(),
+                                    name: creature.name,
+                                    imageUrl: creature.imageUrl,
+                                    x: centerX || 100,
+                                    y: centerY || 100,
+                                    size: creature.size || 1,
+                                    type: 'creature',
+                                    characterId: creature.id,
+                                    userId: char.userId || auth.currentUser?.uid || 'monster',
+                                    hp: creature.hpAtual ?? creature.maxHp,
+                                    maxHp: creature.maxHp,
+                                    color: '#10b981',
+                                    deslocamento: parseNum(creature.deslocamento) || 6,
+                                    efeitosNegativos: [],
+                                    stats: {
+                                      acuracia: parseNum(creature.acuracia),
+                                      esquiva: parseNum(creature.esquiva),
+                                      ataque: {
+                                        corte: parseNum(creature.ataque?.corte),
+                                        perfuracao: parseNum(creature.ataque?.perfuracao),
+                                        impacto: parseNum(creature.ataque?.impacto),
+                                        resistencia: parseNum(creature.ataque?.resistencia),
+                                        feitico: parseNum(creature.ataque?.feitico),
+                                        elemental: parseNum(creature.ataque?.elemental),
+                                        magiaNegra: parseNum(creature.ataque?.magiaNegra),
+                                        potencial: parseNum(creature.ataque?.potencial),
+                                      },
+                                      defesa: {
+                                        corte: parseNum(creature.defesa?.corte),
+                                        perfuracao: parseNum(creature.defesa?.perfuracao),
+                                        impacto: parseNum(creature.defesa?.impacto),
+                                        feitico: parseNum(creature.defesa?.feitico),
+                                        elemental: parseNum(creature.defesa?.elemental),
+                                        magiaNegra: parseNum(creature.defesa?.magiaNegra),
+                                      }
+                                    },
+                                    acoes: (creature.acoes || []).map(a => ({
+                                      ...a,
+                                      description: a.description || ''
+                                    })),
+                                    armas: creature.armas || [],
+                                    catalisadores: creature.catalisadores || [],
+                                    armaduras: creature.armaduras || [],
+                                    acessorios: creature.acessorios || [],
+                                    compartimentos: creature.compartimentos || []
+                                  });
+                                }
+                                setIsTocaModalOpen(false);
+                              }}
+                              className="px-3 py-1.5 bg-emerald-600/10 hover:bg-emerald-600 hover:text-white border border-emerald-500/20 hover:border-emerald-500 text-emerald-400 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shrink-0"
+                            >
+                              Sumonar
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-6">
+                  <p className="text-xs text-zinc-500 italic">Nenhum personagem registrado possui criaturas registradas na Toca.</p>
+                  <p className="text-[10px] text-zinc-600 mt-1">Configure companheiros ou animais de estimação na aba "Toca" primeiro!</p>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex justify-end pt-2 border-t border-zinc-800">
+              <button
+                onClick={() => setIsTocaModalOpen(false)}
+                className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Character Modal */}
       {isCharacterModalOpen && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
@@ -2711,6 +3445,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                               size: inputCreatureSize,
                               type: 'character',
                               characterId: char.id,
+                              userId: char.userId || auth.currentUser?.uid || 'player',
                               hp: char.vidaAtual || 1,
                               maxHp: getVidaMaxima(char.stats.CON),
                               color: '#3b82f6',
@@ -2739,6 +3474,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                               size: inputCreatureSize,
                               type: 'creature',
                               characterId: char.id,
+                              userId: 'monster',
                               hp: char.vidaAtual || 1,
                               maxHp: getVidaMaxima(char.stats.CON),
                               color: '#ef4444',
@@ -2856,10 +3592,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                          "Braço Direito": parseNum(monster.defesa.impacto),
                          "Pernas": parseNum(monster.defesa.elemental)
                       },
-                      armas: monster.acoes ? monster.acoes.map(a => ({
+                      armas: [],
+                      acoes: monster.acoes ? monster.acoes.map(a => ({
                         id: generateId(),
-                        nome: a.name,
-                        tipo: a.type,
+                        name: a.name,
+                        type: a.type,
+                        categoria: a.categoria || 'Outro',
                         dano: a.dano,
                         acerto: typeof a.acerto === 'number' ? a.acerto : 0,
                         atributoBase: 'Força',
@@ -2872,7 +3610,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                         perfuracao: a.categoria === 'Perfuração' ? 4 : 0,
                         impacto: a.categoria === 'Impacto' ? 4 : 0,
                         resistencia: 0,
-                        efeito: a.description
+                        description: a.description || ''
                       })) : [],
                       catalisadores: [],
                       habilidades: [],
@@ -3085,70 +3823,88 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         </Stage>
       </div>
 
-      {/* Retractable Sidebar Toggle (Master Only) */}
-      {isMaster && (
-        <button 
-          onClick={() => setShowSidebar(!showSidebar)}
-          className={cn(
-            "absolute top-4 z-50 p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all shadow-xl duration-300 flex items-center justify-center",
-            showSidebar ? "right-[260px]" : "right-2"
-          )}
-          title={showSidebar ? "Fechar Painel" : "Abrir Painel"}
-        >
-          {showSidebar ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
-        </button>
-      )}
+      {/* Retractable Sidebar Toggle */}
+      <button 
+        onClick={() => {
+          const nextVal = !showSidebar;
+          setShowSidebar(nextVal);
+          if (nextVal && window.innerWidth < 768) {
+            setShowLeftSidebar(false);
+          }
+        }}
+        className={cn(
+          "absolute top-4 z-50 p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all shadow-xl duration-300 flex items-center justify-center",
+          showSidebar ? "right-[260px]" : "right-2"
+        )}
+        title={showSidebar ? "Fechar Painel" : "Abrir Painel"}
+      >
+        {showSidebar ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
+      </button>
 
-      {isMaster && (
-        <aside className={cn(
-          "absolute top-0 right-0 h-full w-[250px] bg-zinc-900/95 backdrop-blur-xl border-l border-zinc-800 z-40 transition-transform duration-300 ease-in-out flex flex-col shadow-2xl",
-          showSidebar ? "translate-x-0" : "translate-x-full"
-        )}>
+      <aside className={cn(
+        "absolute top-0 right-0 h-full w-[250px] bg-zinc-900/95 backdrop-blur-xl border-l border-zinc-800 z-40 transition-transform duration-300 ease-in-out flex flex-col shadow-2xl",
+        showSidebar ? "translate-x-0" : "translate-x-full"
+      )}>
         {/* Sidebar Tabs Selector */}
-        <div className="flex bg-zinc-950 p-1 border-b border-zinc-800">
-          <button 
-            onClick={() => setSidebarTab('creatures')}
-            className={cn(
-              "flex-1 flex flex-col items-center justify-center p-2 rounded-lg transition-all",
-              sidebarTab === 'creatures' ? "bg-zinc-900 text-blue-500 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
-            )}
-            title="Inimigos"
-          >
-            <Skull size={18} />
-            <span className="text-[8px] font-black uppercase mt-1">Inimigos</span>
-          </button>
+        <div className="flex bg-zinc-950 p-1 border-b border-zinc-800 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] flex-nowrap w-full gap-0.5 select-none shrink-0">
+          {isMaster && (
+            <button 
+              onClick={() => setSidebarTab('creatures')}
+              className={cn(
+                "flex-1 flex-shrink-0 flex flex-col items-center justify-center p-1 py-1.5 rounded-lg transition-all min-w-[42px]",
+                sidebarTab === 'creatures' ? "bg-zinc-900 text-blue-500 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
+              )}
+              title="Inimigos"
+            >
+              <Skull size={15} />
+              <span className="text-[7px] font-black uppercase mt-0.5 tracking-tighter">Inimigos</span>
+            </button>
+          )}
           <button 
             onClick={() => setSidebarTab('initiative')}
             className={cn(
-              "flex-1 flex flex-col items-center justify-center p-2 rounded-lg transition-all",
+              "flex-1 flex-shrink-0 flex flex-col items-center justify-center p-1 py-1.5 rounded-lg transition-all min-w-[42px]",
               sidebarTab === 'initiative' ? "bg-zinc-900 text-amber-500 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
             )}
             title="Iniciativa"
           >
-            <Zap size={18} />
-            <span className="text-[8px] font-black uppercase mt-1">Iniciativa</span>
+            <Zap size={15} />
+            <span className="text-[7px] font-black uppercase mt-0.5 tracking-tighter">Iniciativa</span>
           </button>
           <button 
             onClick={() => setSidebarTab('combat')}
             className={cn(
-              "flex-1 flex flex-col items-center justify-center p-2 rounded-lg transition-all",
+              "flex-1 flex-shrink-0 flex flex-col items-center justify-center p-1 py-1.5 rounded-lg transition-all min-w-[42px]",
               sidebarTab === 'combat' ? "bg-zinc-900 text-red-500 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
             )}
             title="Combate"
           >
-            <FileText size={18} />
-            <span className="text-[8px] font-black uppercase mt-1">Combate</span>
+            <FileText size={15} />
+            <span className="text-[7px] font-black uppercase mt-0.5 tracking-tighter">Combate</span>
           </button>
+          {isMaster && (
+            <button 
+              onClick={() => setSidebarTab('generator')}
+              className={cn(
+                "flex-1 flex-shrink-0 flex flex-col items-center justify-center p-1 py-1.5 rounded-lg transition-all min-w-[42px]",
+                sidebarTab === 'generator' ? "bg-zinc-900 text-purple-500 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
+              )}
+              title="Gerador"
+            >
+              <Plus size={15} />
+              <span className="text-[7px] font-black uppercase mt-0.5 tracking-tighter">Gerador</span>
+            </button>
+          )}
           <button 
-            onClick={() => setSidebarTab('generator')}
+            onClick={() => setSidebarTab('aoe')}
             className={cn(
-              "flex-1 flex flex-col items-center justify-center p-2 rounded-lg transition-all",
-              sidebarTab === 'generator' ? "bg-zinc-900 text-purple-500 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
+              "flex-1 flex-shrink-0 flex flex-col items-center justify-center p-1 py-1.5 rounded-lg transition-all min-w-[42px]",
+              sidebarTab === 'aoe' ? "bg-zinc-900 text-teal-500 shadow-sm" : "text-zinc-500 hover:text-zinc-300"
             )}
-            title="Gerador"
+            title="Áreas de Efeito"
           >
-            <Plus size={18} />
-            <span className="text-[8px] font-black uppercase mt-1">Gerador</span>
+            <Target size={15} />
+            <span className="text-[7px] font-black uppercase mt-0.5 tracking-tighter">Áreas</span>
           </button>
         </div>
 
@@ -3203,8 +3959,9 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                             type="number"
                             value={(() => {
                               const char = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
-                              return char ? (char.vidaAtual ?? 0) : (token.hp ?? 0);
+                              return (char ? (char.vidaAtual ?? 0) : (token.hp ?? 0)) || "";
                             })()}
+                            placeholder="0"
                             onChange={(e) => {
                               const val = parseInt(e.target.value) || 0;
                               handleTokenHpUpdate(token.id, val);
@@ -3540,9 +4297,249 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               />
             </div>
           )}
+
+          {sidebarTab === 'aoe' && (
+            <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-4 text-left">
+              {/* Info Title */}
+              <div className="border-b border-zinc-800 pb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Target size={16} className="text-teal-500 animate-pulse" />
+                  <span className="text-[10px] font-black text-white uppercase tracking-widest">Áreas de Efeito</span>
+                </div>
+              </div>
+
+              {/* Form Card */}
+              <div className="bg-zinc-950/60 border border-zinc-800/80 rounded-2xl p-4 space-y-3 shadow-inner">
+                <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest text-center">Criar Nova Área / Foco</p>
+                
+                {/* Name */}
+                <div>
+                  <label className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-1">Nome do Efeito / Magia</label>
+                  <input
+                    type="text"
+                    value={aoeFormName}
+                    onChange={(e) => setAoeFormName(e.target.value)}
+                    placeholder="Ex: Bola de Fogo, Névoa, Gás..."
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-teal-500/50 shadow-inner"
+                  />
+                </div>
+
+                {/* Shape selectors */}
+                <div>
+                  <label className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-1">Formato Geométrico</label>
+                  <div className="grid grid-cols-3 gap-1 bg-zinc-900 p-1 rounded-xl border border-zinc-800/60">
+                    {(['circle', 'square', 'rectangle'] as const).map(sh => (
+                      <button
+                        key={sh}
+                        type="button"
+                        onClick={() => setAoeFormShape(sh)}
+                        className={cn(
+                          "py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                          aoeFormShape === sh ? "bg-teal-500 text-zinc-950 shadow" : "text-zinc-500 hover:text-zinc-300"
+                        )}
+                      >
+                        {sh === 'circle' ? 'Círculo' : sh === 'square' ? 'Quadrado' : 'Retângulo'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Color Swatch Selector */}
+                <div>
+                  <label className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-1.5">Cor Predominante</label>
+                  <div className="flex gap-2">
+                    {[
+                      { id: 'red', bg: 'bg-red-500/30', border: 'border-red-500' },
+                      { id: 'green', bg: 'bg-green-500/30', border: 'border-green-500' },
+                      { id: 'blue', bg: 'bg-blue-500/30', border: 'border-blue-500' },
+                      { id: 'yellow', bg: 'bg-amber-500/30', border: 'border-amber-500' },
+                      { id: 'purple', bg: 'bg-purple-500/30', border: 'border-purple-500' },
+                      { id: 'gray', bg: 'bg-zinc-500/30', border: 'border-zinc-500' }
+                    ].map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setAoeFormColor(c.id)}
+                        className={cn(
+                          "w-5 h-5 rounded-full border transition-all relative flex-shrink-0 cursor-pointer shadow",
+                          c.bg,
+                          c.border,
+                          aoeFormColor === c.id ? "scale-110 ring-2 ring-white/10" : "opacity-75 hover:opacity-100 hover:scale-105"
+                        )}
+                      >
+                        {aoeFormColor === c.id && (
+                          <span className="absolute inset-0 m-auto w-1 h-1 bg-white rounded-full" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Dimensions */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-1">
+                      {aoeFormShape === 'circle' ? 'Raio (q)' : 'Largura (q)'}
+                    </label>
+                    <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800/60 p-1 rounded-xl">
+                      <button
+                        type="button"
+                        onClick={() => setAoeFormWidth(prev => Math.max(1, prev - 1))}
+                        className="w-5 h-5 bg-zinc-800 hover:bg-zinc-700 text-[10px] font-bold text-zinc-400 rounded flex items-center justify-center cursor-pointer"
+                      >
+                        -
+                      </button>
+                      <span className="flex-1 text-[10px] font-black text-center text-white">{aoeFormWidth}q</span>
+                      <button
+                        type="button"
+                        onClick={() => setAoeFormWidth(prev => Math.min(20, prev + 1))}
+                        className="w-5 h-5 bg-zinc-800 hover:bg-zinc-700 text-[10px] font-bold text-zinc-400 rounded flex items-center justify-center cursor-pointer"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  {aoeFormShape === 'rectangle' ? (
+                    <div>
+                      <label className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-1">Comprimento (q)</label>
+                      <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800/60 p-1 rounded-xl">
+                        <button
+                          type="button"
+                          onClick={() => setAoeFormHeight(prev => Math.max(1, prev - 1))}
+                          className="w-5 h-5 bg-zinc-800 hover:bg-zinc-700 text-[10px] font-bold text-zinc-400 rounded flex items-center justify-center cursor-pointer"
+                        >
+                          -
+                        </button>
+                        <span className="flex-1 text-[10px] font-black text-center text-white">{aoeFormHeight}q</span>
+                        <button
+                          type="button"
+                          onClick={() => setAoeFormHeight(prev => Math.min(20, prev + 1))}
+                          className="w-5 h-5 bg-zinc-800 hover:bg-zinc-700 text-[10px] font-bold text-zinc-400 rounded flex items-center justify-center cursor-pointer"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col justify-end text-right">
+                      <span className="text-[8px] font-bold mt-1 text-zinc-650 leading-tight">
+                        Equivale a {aoeFormWidth * 1.5}m de raio/lado.
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Add dispatch button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onAddToken) {
+                      const newAoEId = generateId();
+                      const newToken: TableToken = {
+                        id: newAoEId,
+                        name: aoeFormName || 'Área de Efeito',
+                        x: 250,
+                        y: 250,
+                        size: aoeFormWidth, // base diameter
+                        type: 'aoe',
+                        aoeShape: aoeFormShape,
+                        aoeColor: aoeFormColor,
+                        aoeWidth: aoeFormWidth,
+                        aoeHeight: aoeFormShape === 'rectangle' ? aoeFormHeight : aoeFormWidth
+                      };
+                      onAddToken(newToken);
+                      setCombatLog(prev => [{ msg: `Área de Efeito "${newToken.name}" adicionada ao mapa!`, type: 'info' }, ...prev]);
+                    }
+                  }}
+                  className="w-full py-2.5 bg-teal-500 hover:bg-teal-400 text-zinc-950 font-black uppercase text-[10px] tracking-wider rounded-xl transition-all shadow-lg hover:shadow-teal-500/20 flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Plus size={12} /> Adicionar ao Mapa
+                </button>
+              </div>
+
+              {/* Active areas list */}
+              <div className="space-y-2 flex-grow overflow-y-auto max-h-[300px]">
+                <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500">
+                  <span>Áreas Ativas ({tokens.filter(t => t.type === 'aoe').length})</span>
+                </div>
+
+                <div className="space-y-1.5 pr-1 max-h-[220px] overflow-y-auto custom-scrollbar">
+                  {tokens.filter(t => t.type === 'aoe').map(tk => {
+                    const colorDot = 
+                      tk.aoeColor === 'green' ? 'bg-green-500' :
+                      tk.aoeColor === 'blue' ? 'bg-blue-500' :
+                      tk.aoeColor === 'yellow' ? 'bg-amber-500' :
+                      tk.aoeColor === 'purple' ? 'bg-purple-500' :
+                      tk.aoeColor === 'gray' ? 'bg-zinc-500' : 'bg-red-500';
+
+                    return (
+                      <div 
+                        key={tk.id} 
+                        onClick={() => setSelectedTokenId(tk.id)}
+                        className={cn(
+                          "p-2 bg-zinc-950/80 border border-zinc-800 rounded-xl flex items-center justify-between gap-2 hover:border-teal-500/40 transition-colors cursor-pointer group",
+                          selectedTokenId === tk.id && "border-teal-500/60 bg-teal-950/10"
+                        )}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0 border border-white/10 shadow-sm", colorDot)} />
+                          <div className="min-w-0 text-left">
+                            <p className="text-[10px] font-black text-white truncate max-w-[80px] uppercase leading-none">{tk.name}</p>
+                            <span className="text-[7px] font-bold text-zinc-500 uppercase tracking-tighter block mt-1">
+                              {tk.aoeShape === 'circle' ? 'Círculo' : tk.aoeShape === 'square' ? 'Quadrado' : 'Retângulo'} ({tk.aoeShape === 'rectangle' ? `${tk.aoeWidth || tk.size}x${tk.aoeHeight || tk.aoeWidth || tk.size}` : `${tk.aoeWidth || tk.size}`}q)
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Direct play dynamic buttons inside sidebar */}
+                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => {
+                              const currentW = tk.aoeWidth || tk.size || 1;
+                              updateTokenPosition(campaignId, tk.id, { 
+                                aoeWidth: Math.max(1, currentW - 1) 
+                              });
+                            }}
+                            title="Diminuir"
+                            className="p-1 px-1.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-[8px] rounded hover:text-white cursor-pointer"
+                          >
+                            -
+                          </button>
+                          <button
+                            onClick={() => {
+                              const currentW = tk.aoeWidth || tk.size || 1;
+                              updateTokenPosition(campaignId, tk.id, { 
+                                aoeWidth: Math.min(30, currentW + 1)
+                              });
+                            }}
+                            title="Aumentar"
+                            className="p-1 px-1.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-[8px] rounded hover:text-white cursor-pointer"
+                          >
+                            +
+                          </button>
+                          <button
+                            onClick={() => {
+                              onRemoveToken?.(tk.id);
+                              if (selectedTokenId === tk.id) setSelectedTokenId(null);
+                            }}
+                            className="p-1 text-zinc-600 hover:text-red-500 rounded transition-colors cursor-pointer"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {tokens.filter(t => t.type === 'aoe').length === 0 && (
+                    <div className="text-[8px] text-zinc-600 italic py-4 text-center">Nenhuma área ativa no mapa</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </aside>
-      )}
       {selectedTokenId && !isAttackingMode && (
         <div 
           className="absolute z-[100] bg-zinc-950/95 border border-zinc-800 rounded-2xl shadow-2xl p-4 w-72 backdrop-blur-xl transition-all"
@@ -3550,7 +4547,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             left: (() => {
               const token = tokens.find(t => t.id === selectedTokenId);
               if (!token) return 0;
-              const sidebarWidth = isMaster && showSidebar ? 250 : 0;
+              const sidebarWidth = showSidebar ? 250 : 0;
               const tokenX = viewport.x + token.x * viewport.scale;
               const tokenW = token.size * gridSize * viewport.scale;
               
@@ -3570,13 +4567,193 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           {(() => {
             const token = tokens.find(t => t.id === selectedTokenId);
             if (!token) return null;
+
+            if (token.type === 'aoe') {
+              const shapesList: { value: 'circle' | 'square' | 'rectangle'; label: string }[] = [
+                { value: 'circle', label: 'Círculo' },
+                { value: 'square', label: 'Quadrado' },
+                { value: 'rectangle', label: 'Retângulo' }
+              ];
+              const aoeColors = [
+                { id: 'red', name: 'Vermelho', bg: 'bg-red-500/30', border: 'border-red-500' },
+                { id: 'green', name: 'Verde', bg: 'bg-green-500/30', border: 'border-green-500' },
+                { id: 'blue', name: 'Azul', bg: 'bg-blue-500/30', border: 'border-blue-500' },
+                { id: 'yellow', name: 'Amarelo', bg: 'bg-amber-500/30', border: 'border-amber-500' },
+                { id: 'purple', name: 'Roxo', bg: 'bg-purple-500/30', border: 'border-purple-500' },
+                { id: 'gray', name: 'Cinza', bg: 'bg-zinc-500/30', border: 'border-zinc-500' }
+              ];
+
+              return (
+                <div className="space-y-4 text-left">
+                  {/* Header */}
+                  <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+                    <div className="flex items-center gap-3">
+                      <div className="relative w-10 h-10 rounded-xl border border-zinc-800 flex-shrink-0 flex items-center justify-center bg-zinc-900 shadow-inner">
+                        <Target size={18} className="text-amber-500 animate-pulse" />
+                      </div>
+                      <div className="min-w-0">
+                        <input
+                          type="text"
+                          value={token.name}
+                          onChange={(e) => updateTokenPosition(campaignId, token.id, { name: e.target.value })}
+                          className="bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-xs font-black uppercase text-zinc-100 max-w-[130px] leading-tight focus:outline-none focus:border-amber-500/50"
+                        />
+                        <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest leading-none mt-1">Área de Efeito (VTT)</p>
+                      </div>
+                    </div>
+                    <motion.button 
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => setSelectedTokenId(null)} 
+                      className="text-zinc-600 hover:text-zinc-400 p-1"
+                    >
+                      <X size={16} />
+                    </motion.button>
+                  </div>
+
+                  {/* Form */}
+                  <div className="space-y-3">
+                    {/* Shape Selector */}
+                    <div>
+                      <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block mb-1">Formato</label>
+                      <div className="grid grid-cols-3 gap-1 bg-zinc-900/50 p-1 rounded-xl border border-zinc-800">
+                        {shapesList.map(s => (
+                          <button
+                            key={s.value}
+                            onClick={() => updateTokenPosition(campaignId, token.id, { aoeShape: s.value })}
+                            className={cn(
+                              "py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
+                              token.aoeShape === s.value ? "bg-amber-500 text-zinc-950 shadow-sm" : "text-zinc-400 hover:text-zinc-200"
+                            )}
+                          >
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Dimensions Sizers */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center text-[10px] uppercase font-black tracking-widest text-zinc-500 px-1">
+                        <span>{token.aoeShape === 'circle' ? 'Raio' : 'Largura'} ({token.aoeWidth || token.size}q)</span>
+                        <span className="text-zinc-300 font-bold">{((token.aoeWidth || token.size) * 1.5).toFixed(1)}m</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            const cur = token.aoeWidth || token.size || 1;
+                            updateTokenPosition(campaignId, token.id, { aoeWidth: Math.max(1, cur - 1) });
+                          }}
+                          className="w-10 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white font-black text-xs cursor-pointer"
+                        >
+                          -1
+                        </button>
+                        <input
+                          type="range"
+                          min="1"
+                          max="20"
+                          value={token.aoeWidth || token.size || 1}
+                          onChange={(e) => updateTokenPosition(campaignId, token.id, { aoeWidth: parseInt(e.target.value) || 1 })}
+                          className="flex-1 accent-amber-500 h-1 bg-zinc-800 rounded-lg cursor-pointer"
+                        />
+                        <button
+                          onClick={() => {
+                            const cur = token.aoeWidth || token.size || 1;
+                            updateTokenPosition(campaignId, token.id, { aoeWidth: Math.min(30, cur + 1) });
+                          }}
+                          className="w-10 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white font-black text-xs cursor-pointer"
+                        >
+                          +1
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Height Sizer for Rectangles */}
+                    {token.aoeShape === 'rectangle' && (
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center text-[10px] uppercase font-black tracking-widest text-zinc-500 px-1">
+                          <span>Comprimento ({token.aoeHeight || token.aoeWidth || token.size}q)</span>
+                          <span className="text-zinc-300 font-bold">{((token.aoeHeight || token.aoeWidth || token.size) * 1.5).toFixed(1)}m</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              const cur = token.aoeHeight || token.aoeWidth || token.size || 1;
+                              updateTokenPosition(campaignId, token.id, { aoeHeight: Math.max(1, cur - 1) });
+                            }}
+                            className="w-10 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white font-black text-xs cursor-pointer"
+                          >
+                            -1
+                          </button>
+                          <input
+                            type="range"
+                            min="1"
+                            max="20"
+                            value={token.aoeHeight || token.aoeWidth || token.size || 1}
+                            onChange={(e) => updateTokenPosition(campaignId, token.id, { aoeHeight: parseInt(e.target.value) || 1 })}
+                            className="flex-1 accent-amber-500 h-1 bg-zinc-800 rounded-lg cursor-pointer"
+                          />
+                          <button
+                            onClick={() => {
+                              const cur = token.aoeHeight || token.aoeWidth || token.size || 1;
+                              updateTokenPosition(campaignId, token.id, { aoeHeight: Math.min(30, cur + 1) });
+                            }}
+                            className="w-10 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white font-black text-xs cursor-pointer"
+                          >
+                            +1
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Color Swatch */}
+                    <div>
+                      <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block mb-1.5">Cor / Efeito</label>
+                      <div className="flex flex-wrap gap-2">
+                        {aoeColors.map(c => (
+                          <button
+                            key={c.id}
+                            onClick={() => updateTokenPosition(campaignId, token.id, { aoeColor: c.id })}
+                            className={cn(
+                              "w-6 h-6 rounded-full border transition-all relative flex-shrink-0 cursor-pointer shadow-md",
+                              c.bg,
+                              c.border,
+                              token.aoeColor === c.id || (!token.aoeColor && c.id === 'red') ? "scale-110 ring-2 ring-white/20" : "opacity-80 hover:opacity-100 hover:scale-105"
+                            )}
+                            title={c.name}
+                          >
+                            {(token.aoeColor === c.id || (!token.aoeColor && c.id === 'red')) && (
+                              <span className="absolute inset-0 m-auto w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_2px_black]" />
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="pt-2">
+                    <button 
+                      onClick={() => {
+                        onRemoveToken?.(token.id);
+                        setSelectedTokenId(null);
+                      }}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 bg-zinc-900 shadow-inner text-zinc-500 border border-zinc-800 rounded-xl hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30 transition-all font-black uppercase text-[10px] tracking-widest cursor-pointer"
+                    >
+                      <Trash2 size={14} />
+                      Remover Área do Mapa
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
             const char = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
             const currentHp = char ? (char.vidaAtual ?? 0) : (token.hp ?? 0);
             const maxHp = char ? getVidaMaxima(char.stats.CON) : (token.maxHp ?? 10);
             const isDead = currentHp <= 0;
-            const isMasterOrOwner = isMaster || (token.type === 'character' && token.userId === auth.currentUser?.uid);
+            const isMasterOrOwner = isMaster || (token.type === 'character' && (token.userId === auth.currentUser?.uid || (char && (char.userId === auth.currentUser?.uid || char.userEmail === auth.currentUser?.email))));
             // Loot button should show for enemies or if the token is dead
-            const isEnemy = token.type === 'creature' || (token.type === 'character' && token.userId !== auth.currentUser?.uid);
+            const isEnemy = token.type === 'creature' || (token.type === 'character' && !isMasterOrOwner);
 
             return (
               <div className="space-y-4 text-left">
@@ -3629,7 +4806,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     <div className="flex items-center gap-1.5 mt-2">
                       <input 
                         type="number"
-                        value={currentHp}
+                        value={currentHp || ""}
+                        placeholder="0"
                         onChange={(e) => handleTokenHpUpdate(token.id, parseInt(e.target.value) || 0)}
                         className="w-16 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-xs font-black text-white focus:outline-none focus:border-red-500/50 text-center shadow-inner"
                       />
@@ -3678,9 +4856,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                         if (token.isDefending) {
                           updateTokenPosition(campaignId, token.id, { isDefending: false, defenseType: null, defenseWeaponId: null, defenseRounds: 0 });
                         } else {
-                          const targetChar = availableCharacters.find(c => c.id === token.characterId);
-                          const hasShield = targetChar?.compartimentos?.some((c: any) => c.itens?.some((e: any) => e.tipo === 'Escudo'));
-                          handleSetDefense(token.id, hasShield ? 'Shield' : 'Weapon');
+                          const targetChar = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
+                          if (targetChar) {
+                            setDefenseSelectTokenId(token.id);
+                          } else {
+                            handleSetDefense(token.id, 'Weapon', null);
+                          }
                         }
                       }}
                     >
@@ -3699,21 +4880,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     </button>
                   )}
 
-                  {isMasterOrOwner && token.characterId && (
-                    <button 
-                       onClick={() => {
-                         const char = availableCharacters.find(c => c.id === token.characterId);
-                         if (char) {
-                            setViewingCreatureId(char.id);
-                            setIsCharacterModalOpen(true);
-                         }
-                       }}
-                       className="flex items-center justify-center gap-2 py-2.5 bg-zinc-900 text-zinc-400 border border-zinc-800 rounded-xl hover:bg-zinc-800 transition-all font-black uppercase text-[10px] tracking-widest shadow-sm"
-                    >
-                      <FileText size={14} />
-                      Ver Ficha
-                    </button>
-                  )}
+
 
                   {isMaster && !token.characterId && (
                     <div className="col-span-2 p-2 bg-red-500/10 border border-red-500/20 rounded-xl space-y-2">
@@ -3769,12 +4936,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             <div className="p-4 max-h-[70vh] overflow-y-auto space-y-2 custom-scrollbar">
               {(() => {
                 const attacker = tokens.find(t => t.id === weaponSelectTokenId);
-                const attackerChar = availableCharacters.find(c => c.id === attacker?.characterId);
+                const attackerChar = availableCharacters.find(c => c.id === attacker?.characterId) || 
+                  (attacker?.characterId ? fetchedCharacters[attacker.characterId] : undefined);
                 const weapons = attackerChar?.armas || [];
                 const catalysts = attackerChar?.catalisadores || [];
                 const spells = attackerChar?.magias || [];
-                // If it has a character sheet, hide generic monster actions to avoid duplicates
-                const monsterActions = attackerChar ? [] : (attacker?.acoes || []);
+                // If it is a monster/creature on VTT, show its natural actions (acoes)
+                const monsterActions = attacker?.type === 'creature'
+                  ? (attackerChar?.acoes || attacker?.acoes || [])
+                  : (attackerChar ? [] : (attacker?.acoes || []));
                 
                 const inventoryItems = attackerChar?.compartimentos?.flatMap(c => c.itens || []) || [];
                 const inventoryWeapons = inventoryItems.filter(i => (i.tipo === 'Arma' || i.corte || i.perfuracao || i.impacto) && i.tipo !== 'Munição' && i.tipo !== 'municao') as any[];
@@ -3795,17 +4965,33 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                            <div>
                               <div className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Arma Selecionada</div>
                               <div className="text-sm font-black text-white">{ammoSelectWeapon.nome}</div>
-                              <div className="text-[8px] text-amber-500 font-black mt-0.5">Pente: {ammoSelectWeapon.municaoCarregada || 0} / {ammoSelectWeapon.capacidadePente || 6}</div>
+                              <div className="text-[8px] text-amber-500 font-black mt-0.5">Pente: {ammoSelectWeapon.municaoCarregada || 0} / {getMaxCapacity(ammoSelectWeapon)}</div>
+                              <div className="text-[8px] text-zinc-400 font-bold mt-0.5">
+                                Durabilidade: {ammoSelectWeapon.durabilidade ?? 0}/{(ammoSelectWeapon.durabilidadeMaxUtil || ammoSelectWeapon.maxDurabilidade) ?? 0} (Estrutura: {ammoSelectWeapon.maxDurabilidade ?? 0})
+                              </div>
                            </div>
-                           <button 
-                            onClick={() => setSelectedAmmoWeaponId(null)} 
-                            className="p-1 px-3 bg-zinc-800 hover:bg-zinc-700 text-[10px] text-zinc-400 font-bold rounded-lg transition-colors border border-zinc-700"
-                           >
-                            Trocar
-                           </button>
+                           <div className="flex flex-col gap-1 items-end shrink-0">
+                             <button 
+                              onClick={() => setSelectedAmmoWeaponId(null)} 
+                              className="p-1 px-3 bg-zinc-800 hover:bg-zinc-700 text-[10px] text-zinc-400 font-bold rounded-lg transition-colors border border-zinc-700 w-full text-center"
+                             >
+                              Trocar
+                             </button>
+                             <button 
+                              onClick={async () => {
+                                const attacker = tokens.find(t => t.id === weaponSelectTokenId);
+                                if (attacker?.characterId) {
+                                  await handleMaintenance(attacker.characterId, ammoSelectWeapon.id);
+                                }
+                              }}
+                              className="p-1 px-3 bg-blue-600/20 hover:bg-blue-600/30 text-[9px] text-blue-400 font-bold rounded-lg transition-colors border border-blue-500/30 w-full text-center"
+                             >
+                              Manter
+                             </button>
+                           </div>
                         </div>
                         
-                        {ammoSelectWeapon.categoria === 'Arma de Fogo' ? (
+                        {isFirearmItem(ammoSelectWeapon) ? (
                           <div className="bg-zinc-950/50 p-3 rounded-xl border border-zinc-800 space-y-3">
                             <div className="flex items-center justify-between">
                               <div className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Recarregar Bala</div>
@@ -3837,7 +5023,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                               </div>
                             </div>
                             <div className="grid grid-cols-1 gap-1.5 max-h-[150px] overflow-y-auto pr-1 custom-scrollbar">
-                              {attackerChar?.compartimentos?.flatMap(comp => comp.itens).filter(i => (i as any).tipo === 'Munição' && i.nome.toLowerCase().includes('bala')).map(ammo => (
+                              {(attackerChar?.compartimentos?.flatMap(comp => comp.itens || []) || [])
+                                .filter(i => {
+                                  const lowerTipo = ((i as any).tipo || "").toLowerCase();
+                                  const lowerNome = (i.nome || "").toLowerCase();
+                                  if (lowerTipo === 'munição' || lowerTipo === 'municao') return true;
+                                  if (lowerTipo === 'arma' || lowerTipo === 'escudo' || lowerTipo === 'catalisador') return false;
+                                  return lowerNome.includes('bala') || lowerNome.includes('projet') || lowerNome.includes('cartucho') || lowerNome.includes('muniç');
+                                }).map(ammo => (
                                 <button
                                   key={ammo.id}
                                   onClick={() => setSelectedAmmoId(ammo.id)}
@@ -3900,7 +5093,6 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                                                key={t.type}
                                                onClick={async () => {
                                                   if (attackerChar) {
-                                                    const charRef = doc(db, 'characters', attackerChar.id);
                                                     const updatedCompartimentos = attackerChar.compartimentos.map(comp => ({
                                                       ...comp,
                                                       itens: comp.itens.map(item => {
@@ -3910,7 +5102,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                                                         return item;
                                                       })
                                                     }));
-                                                    await updateDoc(charRef, { compartimentos: updatedCompartimentos });
+                                                    await updateCharacterLocalAndRemote(attackerChar.id, { compartimentos: updatedCompartimentos });
                                                   }
                                                   
                                                   resolveCombat({
@@ -3949,12 +5141,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     ) : (
                       <>
                         {allWeapons.map((weapon, idx) => {
-                           const isRanged = weapon.nome.toLowerCase().includes('arco') || 
-                                           weapon.nome.toLowerCase().includes('besta') || 
-                                           weapon.nome.toLowerCase().includes('pistola') || 
-                                           weapon.nome.toLowerCase().includes('rifle') ||
-                                           weapon.categoria === 'Arco' ||
-                                           weapon.categoria === 'Arma de Fogo';
+                           const isRanged = isBowItem(weapon) || isFirearmItem(weapon);
 
                            const availTypes = [
                              { type: 'Corte', val: weapon.corte || 0 },
@@ -4050,13 +5237,9 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
                     {/* Monster Specialized Actions */}
                     {monsterActions.map(action => {
-                      const availTypes = [
-                        { type: 'Corte', val: attacker?.stats?.ataque ? (attacker.stats.ataque as any).corte : 0 },
-                        { type: 'Perfuração', val: attacker?.stats?.ataque ? (attacker.stats.ataque as any).perfuracao : 0 },
-                        { type: 'Impacto', val: attacker?.stats?.ataque ? (attacker.stats.ataque as any).impacto : 0 }
-                      ].filter(t => t.val > 0);
-
                       const isActionPhysical = ['Corte', 'Perfuração', 'Impacto'].includes(action.categoria);
+                      const levelKey = isActionPhysical ? getMapKey(action.categoria) : '';
+                      const lvl = isActionPhysical && attacker?.stats?.ataque ? (attacker.stats.ataque as any)[levelKey] || 0 : 0;
 
                       return (
                         <div key={action.id} className="bg-zinc-950 border border-red-900/30 rounded-xl overflow-hidden shadow-lg hover:border-red-500/30 transition-colors">
@@ -4075,27 +5258,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                           </div>
                           
                           <div className="flex bg-zinc-900/20">
-                            {isActionPhysical ? (
-                              availTypes.map(t => (
-                                <button
-                                  key={t.type}
-                                  onClick={() => {
-                                    resolveCombat(action, t.type as any);
-                                  }}
-                                  className="flex-1 py-2 text-[9px] font-black uppercase text-zinc-500 hover:text-white hover:bg-red-600/20 border-r last:border-r-0 border-zinc-800 transition-all flex flex-col items-center"
-                                >
-                                  <span>{t.type}</span>
-                                  <span className="text-red-500">Lvl {t.val}</span>
-                                </button>
-                              ))
-                            ) : (
-                               <button
-                                onClick={() => resolveCombat(action)}
-                                className="flex-1 py-3 text-[10px] font-black uppercase text-zinc-500 hover:text-white hover:bg-red-600 border-zinc-800 transition-all"
-                              >
-                                Executar {action.categoria}
-                              </button>
-                            )}
+                            <button
+                              onClick={() => {
+                                resolveCombat(action, isActionPhysical ? (action.categoria as any) : undefined);
+                              }}
+                              className="flex-1 py-3 text-[10px] font-black uppercase text-zinc-400 hover:text-white hover:bg-red-600/20 border-zinc-800 transition-all flex items-center justify-center gap-2"
+                            >
+                              <Swords size={12} /> Executar {action.categoria} {isActionPhysical ? `(Lvl ${lvl})` : ''}
+                            </button>
                           </div>
                           {action.description && (
                             <div className="p-2.5 text-[8px] text-zinc-500 italic border-t border-zinc-900/50 text-left bg-black/20">
@@ -4133,6 +5303,139 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold transition-all uppercase tracking-widest"
                >
                  Cancelar / Sair
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Defense Select Modal */}
+      {defenseSelectTokenId && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setDefenseSelectTokenId(null)}
+        >
+          <div 
+            className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/40">
+              <h3 className="text-sm font-black text-white uppercase tracking-widest">Postura de Defesa</h3>
+              <button onClick={() => setDefenseSelectTokenId(null)} className="text-zinc-500 hover:text-white p-1 hover:bg-zinc-800 rounded-full transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-4 max-h-[60vh] overflow-y-auto space-y-4 custom-scrollbar">
+              {(() => {
+                const token = tokens.find(t => t.id === defenseSelectTokenId);
+                if (!token) return <p className="text-xs text-zinc-500">Token não encontrado.</p>;
+                
+                const char = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
+                
+                const options: any[] = [];
+
+                if (char) {
+                  // Add weapons from sheet
+                  (char.armas || []).forEach((w: any) => {
+                    if (isFirearmItem(w)) return; // Exclude firearms
+                    options.push({
+                      id: w.id,
+                      nome: w.nome,
+                      desc: `Defesa - Corte: ${w.corte ?? 0} | Perf.: ${w.perfuracao ?? 0} | Imp.: ${w.impacto ?? 0} | Res.: ${w.resistencia ?? 0}. Durabilidade: ${w.durabilidade ?? 100}/${w.maxDurabilidade ?? 100}`,
+                      type: 'Weapon',
+                      weaponId: w.id,
+                      icon: <Swords size={16} className="text-blue-400" />,
+                      durability: w.durabilidade
+                    });
+                  });
+
+                  // Add shields and weapons from inventory compartments
+                  const inventoryItems = char.compartimentos?.flatMap((c: any) => c.itens || []) || [];
+                  inventoryItems.forEach((item: any) => {
+                    const lowerNome = (item.nome || "").toLowerCase();
+                    const isShield = item.tipo === 'Escudo' || lowerNome.includes('escudo') || lowerNome.includes('shield');
+                    const isWeapon = (item.tipo === 'Arma' || (item.tipo !== 'Munição' && (item.corte || item.perfuracao || item.impacto))) && !isFirearmItem(item);
+                    
+                    if (isShield) {
+                      options.push({
+                        id: item.id,
+                        nome: item.nome,
+                        desc: `Defesa - Corte: ${item.corte ?? 0} | Perf.: ${item.perfuracao ?? 0} | Imp.: ${item.impacto ?? 0} | Res.: ${item.resistencia ?? 0}. Durabilidade: ${item.durabilidade ?? 100}/${item.maxDurabilidade ?? 100}`,
+                        type: 'Shield',
+                        weaponId: item.id,
+                        icon: <Shield size={16} className="text-blue-500" />,
+                        durability: item.durabilidade
+                      });
+                    } else if (isWeapon) {
+                      // Avoid duplicates
+                      if (!options.some(opt => opt.id === item.id)) {
+                        options.push({
+                          id: item.id,
+                          nome: item.nome,
+                          desc: `Defesa - Corte: ${item.corte ?? 0} | Perf.: ${item.perfuracao ?? 0} | Imp.: ${item.impacto ?? 0} | Res.: ${item.resistencia ?? 0}. Durabilidade: ${item.durabilidade ?? 100}/${item.maxDurabilidade ?? 100}`,
+                          type: 'Weapon',
+                          weaponId: item.id,
+                          icon: <Swords size={16} className="text-zinc-300" />,
+                          durability: item.durabilidade
+                        });
+                      }
+                    }
+                  });
+                }
+
+                if (options.length === 0) {
+                  return (
+                    <div className="p-4 bg-red-950/20 border border-red-900/30 rounded-xl text-center space-y-2">
+                       <div className="flex justify-center">
+                         <AlertTriangle className="text-red-500" size={24} />
+                       </div>
+                       <p className="text-xs text-zinc-300 font-medium font-sans">
+                         Não existem armas ou escudos na ficha ou no inventário deste personagem para entrar em Postura de Defesa.
+                       </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-black text-zinc-500 uppercase tracking-wider mb-2">
+                      Selecione uma opção de defesa para <span className="text-white">{token.name}</span>:
+                    </p>
+                    {options.map((opt) => (
+                      <button
+                        key={opt.id}
+                        onClick={async () => {
+                          await handleSetDefense(token.id, opt.type, opt.weaponId);
+                          setDefenseSelectTokenId(null);
+                        }}
+                        className="w-full p-3 bg-zinc-950/40 hover:bg-zinc-800 border border-zinc-800/80 hover:border-zinc-700 rounded-xl transition-all flex items-start gap-3 text-left group"
+                      >
+                        <div className="mt-0.5 p-1.5 bg-zinc-900 border border-zinc-800 rounded-lg group-hover:border-zinc-600 transition-colors">
+                          {opt.icon}
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-xs font-black text-white group-hover:text-amber-500 transition-colors">{opt.nome}</div>
+                          <div className="text-[9px] text-zinc-400 font-medium mt-0.5">{opt.desc}</div>
+                          <div className="flex gap-2 mt-1.5">
+                            <span className="text-[8px] font-black px-1.5 py-0.5 bg-zinc-900 border border-zinc-800 text-zinc-400 rounded-md uppercase tracking-wide">
+                              Tipo: {opt.type === 'Shield' ? 'Escudo' : 'Arma (Bloqueio)'}
+                            </span>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+            
+            <div className="p-3 bg-zinc-950/50 border-t border-zinc-800">
+               <button 
+                onClick={() => setDefenseSelectTokenId(null)}
+                className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold transition-all uppercase tracking-widest"
+               >
+                 Cancelar
                </button>
             </div>
           </div>

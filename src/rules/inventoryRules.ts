@@ -37,6 +37,30 @@ export interface Compartment {
   externo?: boolean;
 }
 
+export const getArmorWeight = (armor: any): number => {
+  return Number(armor.peso) || 0;
+};
+
+export const getArmorVolume = (armor: any): number => {
+  return Number(armor.volume) || 0;
+};
+
+export const getItemPeso = (item: any): number => {
+  let w = Number(item.peso) || 0;
+  if (item.tipo === "Armadura") {
+    return getArmorWeight(item);
+  }
+  return w;
+};
+
+export const getItemVolume = (item: any): number => {
+  let v = Number(item.volume) || 0;
+  if (item.tipo === "Armadura") {
+    return getArmorVolume(item);
+  }
+  return v;
+};
+
 export const calculateInventoryTotals = (compartments: Compartment[] = []) => {
   let totalPeso = 0;
   let totalVolume = 0;
@@ -44,10 +68,14 @@ export const calculateInventoryTotals = (compartments: Compartment[] = []) => {
   (compartments || []).forEach(comp => {
     (comp.itens || []).forEach(item => {
       // Containers marked as external don't count towards the character's weight
+      const itemWeight = getItemPeso(item);
+      const itemVolume = getItemVolume(item);
+      const qty = item.quantidade !== undefined ? item.quantidade : 1;
+      
       if (!comp.externo) {
-        totalPeso += (item.peso || 0) * (item.quantidade || 0);
+        totalPeso += itemWeight * qty;
       }
-      totalVolume += (item.volume || 0) * (item.quantidade || 0);
+      totalVolume += itemVolume * qty;
     });
   });
 

@@ -12,7 +12,7 @@ import {
   getDocs,
   Timestamp
 } from 'firebase/firestore';
-import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType, isFirebaseQuotaExceeded } from '../lib/firebase';
 import { Character } from '../types';
 
 const CHARACTERS_COLLECTION = 'characters';
@@ -33,8 +33,29 @@ const deepClean = (obj: any): any => {
 };
 
 export const saveCharacterToFirestore = async (character: Character) => {
+  // Always update campaign cache locally first so updates are propagated instantly in VTT/Campaign
+  if (character.campaignId) {
+    try {
+      const { getLocalCampaignCharacters, saveLocalCampaignCharacters, notifyCampaignCharListeners } = await import('./campaignService');
+      const locals = getLocalCampaignCharacters(character.campaignId);
+      const updatedLocals = locals.map(c => c.id === character.id ? { ...c, ...character } : c);
+      if (!locals.some(c => c.id === character.id)) {
+        updatedLocals.push(character);
+      }
+      saveLocalCampaignCharacters(character.campaignId, updatedLocals);
+      notifyCampaignCharListeners(character.campaignId, updatedLocals);
+    } catch (e) {
+      console.error("Error updating campaign character local cache:", e);
+    }
+  }
+
   if (!auth.currentUser) {
     console.warn("⚠️ [Firestore] Tentativa de salvar sem usuário logado.");
+    return;
+  }
+
+  if (isFirebaseQuotaExceeded()) {
+    console.warn(`⚠️ [Firestore] Ignorando salvamento de "${character.nome}" pois o limite de cota diário foi atingido.`);
     return;
   }
 
@@ -69,13 +90,21 @@ export const saveCharacterToFirestore = async (character: Character) => {
     await Promise.race([savePromise, timeoutPromise]);
     console.log(`✅ [Firestore] Ficha ${character.nome} CONFIRMADA pelo servidor.`);
   } catch (error) {
-    console.error(`❌ [Firestore] Erro ao salvar ${character.nome}:`, error);
+    const isQuota = String(error?.message || error).toLowerCase().includes('quota') || 
+                    String(error?.message || error).toLowerCase().includes('resource-exhausted');
+    if (!isQuota) {
+      console.error(`❌ [Firestore] Erro ao salvar ${character.nome}:`, error);
+    }
     handleFirestoreError(error, OperationType.WRITE, `${CHARACTERS_COLLECTION}/${character.id}`);
   }
 };
 
 export const deleteCharacterFromFirestore = async (characterId: string) => {
   if (!auth.currentUser) return;
+  if (isFirebaseQuotaExceeded()) {
+    console.warn("⚠️ [Firestore] Ignorando deleção pois o limite de cota diário foi atingido.");
+    return;
+  }
 
   const charRef = doc(db, CHARACTERS_COLLECTION, characterId);
 

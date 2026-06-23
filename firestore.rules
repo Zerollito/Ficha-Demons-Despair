@@ -115,11 +115,7 @@ service cloud.firestore {
     }
 
     match /characters/{characterId} {
-      allow read: if isSignedIn() && (
-        resource.data.get('userId', '') == request.auth.uid ||
-        resource.data.get('userEmail', '') == request.auth.token.get('email', '') ||
-        resource.data.get('campaignId', '') != ''
-      );
+      allow read: if isSignedIn();
       
       allow create: if isSignedIn();
       
@@ -133,8 +129,7 @@ service cloud.firestore {
          (get(/databases/$(database)/documents/campaigns/$(resource.data.campaignId)).data.get('masterId', '') == request.auth.uid ||
           get(/databases/$(database)/documents/campaigns/$(resource.data.campaignId)).data.get('masterEmail', '') == request.auth.token.get('email', ''))) ||
         // Other players in same campaign can update combat stats and inventory (for looting)
-        (resource.data.get('campaignId', '') != '' && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['vidaAtual', 'efeitosNegativos', 'isDefending', 'defenseType', 'defenseWeaponId', 'defenseRounds', 'updatedAt', 'armas', 'catalisadores', 'armaduras', 'acessorios', 'compartimentos', 'dinheiro']))
+        (resource.data.get('campaignId', '') != '')
       );
 
       allow delete: if isSignedIn() && (
