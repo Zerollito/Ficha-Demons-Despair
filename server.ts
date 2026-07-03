@@ -78,7 +78,19 @@ async function startServer() {
   app.use(express.json({ limit: '10mb' }));
 
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", time: new Date().toISOString() });
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
+    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
+    
+    res.json({ 
+      status: "ok", 
+      time: new Date().toISOString(),
+      supabaseConfigured: !!(supabaseUrl && supabaseAnonKey && supabaseUrl !== "placeholder_url"),
+      supabaseUrlLength: supabaseUrl ? supabaseUrl.length : 0,
+      supabaseUrlPrefix: supabaseUrl ? supabaseUrl.substring(0, 15) : "",
+      geminiConfigured: !!geminiKey,
+      geminiLength: geminiKey ? geminiKey.length : 0
+    });
   });
 
   // chat oracle endpoint

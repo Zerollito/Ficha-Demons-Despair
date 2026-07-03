@@ -39,7 +39,8 @@ Este documento contém todas as regras lógicas e mecânicas do sistema para gar
   - `C`: 0.50x
   - `B`: 0.75x
   - `A`: 1.00x
-- **Dano Final**: `Roll(Dados da Arma) + floor(Bônus de Atributo * Multiplicador de Escala) + Bônus Manual`.
+- **Dano Final**: `Roll(Dados da Arma ou Dados da Munição) + floor(Bônus de Atributo * Multiplicador de Escala) + Bônus Manual`.
+  - **Armas de Fogo**: O dano base (dados de rolagem) não é fixo na arma de fogo, mas sim definido pelas propriedades da bala/munição atualmente carregada ou selecionada.
 - **Atributo de Escala**:
   - Armas Físicas: Usam `FOR` ou `DEX` conforme definido na arma (`atributoBase`).
   - Catalisadores/Spells: Geralmente usam `INT` ou `RIT`.
@@ -54,18 +55,18 @@ Este documento contém todas as regras lógicas e mecânicas do sistema para gar
 ### Defesa e Contra-Ataque
 - **Postura de Defesa**: Durante o turno, pode-se usar uma ação menor para preparar defesa.
 - **Defesa com Escudo**: Impõe **Desvantagem** ao atacante. 
-  - **Mecânica de Nivel de Escudo**: Se o nível de defesa do escudo que está defendendo for menor que o nível de ataque da arma atacante (mesmo se a arma atacante estiver fazendo uso de sua resistência/ressonância), o escudo só bloqueia **metade (50%) do dano** e perde **1 de Durabilidade** em caso de acerto. Se o nível de defesa do escudo for maior ou igual ao nível de ataque do agressor, o escudo bloqueia o ataque totalmente (100% de redução).
+  - **Mecânica de Nivel de Escudo**: Escudos não usam atributo de resistência. Se o nível de defesa do escudo for maior que o nível de ataque do agressor (Nível Defesa > Nível Ataque), o escudo bloqueia o ataque totalmente (100% de redução) e não perde durabilidade. Se o nível de ataque do agressor for igual ao nível de defesa do escudo, o escudo bloqueia totalmente o ataque, mas perde **1 de Durabilidade**. Se o nível de defesa do escudo for menor que o nível de ataque, o escudo só bloqueia **metade (50%) do dano** e perde **1 de Durabilidade** em caso de acerto.
   - Se o ataque falhar e o atacante rolar pelo menos dois dados com valor **"1"**, o defensor pode realizar um **Contra-Ataque**.
-- **Defesa com Arma**: O defensor rola **3d8**. Bloqueia o ataque se o resultado for **Atacante + 3**. 
+- **Defesa com Arma**: O defensor rola **3d8**. Bloqueia o ataque se o resultado for **Atacante + 3**. Armas continuam usando resistência.
   - **Contra-Ataque**: Se o bloqueio for bem-sucedido e o defensor rolar pelo menos um **"8"**, pode realizar um contra-ataque.
   - **Restrições**: 
     - **Lanças**: Só podem defender se o atacante estiver a pelo menos **2 metros**.
     - **Adagas/Facas**: Não podem defender contra **Armas Pesadas** (Machados de Guerra, Martelos de Guerra, Espadas Grandes, Porretes, Maças de Guerra, Montantes).
     - **Projéteis/Magia**: Armas não podem defender ataques à distância ou mágicos; apenas escudos podem.
 - **Regras de Nível para Defesa Passiva (Armaduras e Proteção Corporal)**:
-  - **Nível Defensor >= Nível Atacante**: Bloqueio automático bem-sucedido.
-  - **Nível Defensor + Resistência >= Nível Atacante**: Bloqueio bem-sucedido, mas o item de defesa perde **1 de Durabilidade**.
-  - **Nível Defensor + Resistência < Nível Atacante**: O bloqueio falha, o defensor recebe o dano e o item de defesa ainda perde **1 de Durabilidade**.
+  - Armaduras não usam atributo de resistência.
+  - **Nível Defesa > Nível Ataque**: Bloqueio bem-sucedido e a armadura **não** recebe dano na durabilidade.
+  - **Nível Defesa <= Nível Ataque**: O bloqueio falha ou é parcial, e a armadura **recebe dano na durabilidade** (perde **1 de Durabilidade**).
 - **Erro Crítico**: Se um ataque falhar (errou o alvo ou foi bloqueado) e o atacante rolar pelo menos dois dados com valor **"1"**, a arma perde **1 de Durabilidade** obrigatoriamente, mesmo que os níveis de dano/defesa fossem compatíveis. Alvo também ganha oportunidade de Contra-Ataque.
 
 ### Localização de Dano (1d6)
@@ -208,17 +209,18 @@ Certos materiais possuem propriedades que, embora úteis para jogadores em conte
 
 ## 8. Munições
 
-Munições são consumíveis necessários para o uso de armas à distância (arcos, bestas, armas de fogo). Elas possuem propriedades específicas de dano (Perfuração, Impacto) e resistência que podem ser somadas ou substituir as da arma conforme a regra específica.
+Munições são consumíveis necessários para o uso de armas à distância (arcos, bestas, armas de fogo). Elas agora carregam a propriedade de **Dano** diretamente (removendo o dano fixo das armas de fogo). Ao disparar uma arma de fogo, o dano da bala/munição ativa é usado para a rolagem de combate.
 
-### Propriedades Base de Munição
-| Tipo de Munição | Peso (Un) | Volume (Un) |
-| :--- | :--- | :--- |
-| **Balas** | 0.1 | 0.3 |
-| **Flechas (Arco Curto)** | 0.5 | 0.9 |
-| **Flechas (Arco Longo)** | 0.6 | 1.3 |
+### Propriedades Base e Presets de Munição
+| Tipo de Munição | Peso (Un) | Volume (Un) | Dano Base |
+| :--- | :--- | :--- | :--- |
+| **Balas** | 0.1 | 0.3 | `2d6` |
+| **Flechas (Arco Curto)** | 0.5 | 0.9 | `1d6` |
+| **Flechas (Arco Longo)** | 0.6 | 1.3 | `1d8` |
 
 ### Integração VTT
 - O sistema de VTT permite selecionar a munição carregada para cada arma compatível.
+- O dano do ataque em combate é obtido diretamente da munição ativamente carregada (magazine/cylinder) no VTT.
 - A quantidade de munição é reduzida automaticamente a cada disparo realizado no VTT.
 
 ---

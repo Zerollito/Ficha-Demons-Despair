@@ -127,6 +127,8 @@ export interface TableConfig {
   };
   weather?: string;
   events?: CalendarEvent[];
+  updatedAt?: string;
+  lastCombatRoll?: any;
 }
 
 export interface MonsterAction {
@@ -256,6 +258,7 @@ export interface Character {
   userId: string;
   userEmail?: string;
   campaignId?: string;
+  isRemoteSynced?: boolean;
   nome: string;
   etnia: string;
   dinheiro: {

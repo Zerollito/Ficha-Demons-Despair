@@ -6,7 +6,7 @@ import { registerSW } from 'virtual:pwa-register';
 
 registerSW({ immediate: true });
 
-console.log("%c RPG DEMONS DESPAIR - V4.2 LOADED ", "background: #10b981; color: #000; font-weight: bold; padding: 4px; border-radius: 4px;");
+console.log("%c RPG DEMONS DESPAIR - V4.5 LOADED ", "background: #10b981; color: #000; font-weight: bold; padding: 4px; border-radius: 4px;");
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

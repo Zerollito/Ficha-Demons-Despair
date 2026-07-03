@@ -1,5 +1,7 @@
 export type Season = 'Primavera' | 'Verão' | 'Outono' | 'Inverno';
 
+export type MoonPhase = 'Nova' | 'Crescente' | 'Quarto Crescente' | 'Gibosa Crescente' | 'Cheia' | 'Gibosa Minguante' | 'Quarto Minguante' | 'Minguante';
+
 export const MONTHS = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
@@ -31,6 +33,34 @@ export const getSeasonIcon = (season: Season) => {
     case 'Outono': return '🍂';
     case 'Inverno': return '❄️';
   }
+};
+
+export const getMoonPhase = (day: number): { name: string; icon: string; description: string } => {
+  // Fantasy 28-day lunar cycle
+  const cycleDay = (day % 28) || 28;
+  
+  if (cycleDay === 1 || cycleDay === 28) {
+    return { name: "Lua Nova", icon: "🌑", description: "Céu escuro, ideal para furtividade." };
+  }
+  if (cycleDay >= 2 && cycleDay <= 6) {
+    return { name: "Lua Crescente", icon: "🌒", description: "Fina foice de luz crescendo no céu." };
+  }
+  if (cycleDay === 7) {
+    return { name: "Quarto Crescente", icon: "🌓", description: "Metade da face direita iluminada." };
+  }
+  if (cycleDay >= 8 && cycleDay <= 13) {
+    return { name: "Gibosa Crescente", icon: "🌔", description: "Quase totalmente iluminada, noite clara." };
+  }
+  if (cycleDay === 14) {
+    return { name: "Lua Cheia", icon: "🌕", description: "Brilho máximo! Criaturas noturnas ficam agitadas." };
+  }
+  if (cycleDay >= 15 && cycleDay <= 20) {
+    return { name: "Gibosa Minguante", icon: "🌖", description: "O brilho começa a decrescer gradualmente." };
+  }
+  if (cycleDay === 21) {
+    return { name: "Quarto Minguante", icon: "🌗", description: "Metade da face esquerda iluminada." };
+  }
+  return { name: "Lua Minguante", icon: "🌘", description: "A luz está quase se apagando no céu." };
 };
 
 export const formatTime = (hour: number, minute: number) => {

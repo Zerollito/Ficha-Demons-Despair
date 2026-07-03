@@ -35,12 +35,16 @@ export function useCharacterState() {
     [state.characters, state.activeCharacterId]
   );
 
-  const updateChar = useCallback((updates: Partial<Character>) => {
+  const updateChar = useCallback((updates: Partial<Character> | ((c: Character) => Partial<Character>)) => {
     setState(prev => ({
       ...prev,
-      characters: prev.characters.map(c => 
-        c.id === prev.activeCharacterId ? { ...c, ...updates } : c
-      )
+      characters: prev.characters.map(c => {
+        if (c.id === prev.activeCharacterId) {
+          const resolved = typeof updates === 'function' ? updates(c) : updates;
+          return { ...c, ...resolved };
+        }
+        return c;
+      })
     }));
   }, []);
 

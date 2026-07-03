@@ -1,17 +1,4 @@
-import { 
-  collection, 
-  doc, 
-  setDoc as firestoreSetDoc, 
-  updateDoc as firestoreUpdateDoc, 
-  deleteDoc, 
-  onSnapshot,
-  query,
-  orderBy,
-  limit,
-  addDoc,
-  serverTimestamp
-} from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, isFirebaseQuotaExceeded } from '../lib/firebase';
+import { supabase, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, onSnapshot } from '../lib/supabase';
 import { TableToken, TableConfig } from '../types';
 
 // Helper to generate IDs
@@ -103,25 +90,59 @@ const notifyLogListeners = (campaignId: string, logs: any[]) => {
   }
 };
 
-// Subscriptions
+// Subscriptions using Supabase Realtime
 export const subscribeToTokens = (campaignId: string, onUpdate: (tokens: TableToken[]) => void) => {
   if (!tokenListeners.has(campaignId)) {
     tokenListeners.set(campaignId, new Set());
   }
   tokenListeners.get(campaignId)!.add(onUpdate);
 
-  // Load from local storage immediately so VTT works without latency & under quota limits
+  // Load from local storage immediately so VTT works with zero latency
   const localTokens = getLocalTokens(campaignId);
   onUpdate(localTokens);
 
-  const tokensRef = collection(db, 'campaigns', campaignId, 'tokens');
-  const unsubFirestore = onSnapshot(tokensRef, (snapshot) => {
-    const tokens = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TableToken));
-    saveLocalTokens(campaignId, tokens);
-    notifyTokenListeners(campaignId, tokens);
+  if (isFirebaseQuotaExceeded()) {
+    console.warn("⚠️ [VTT] Firestore quota exceeded. Skipping snapshot listener for tokens.");
+    return () => {
+      const listeners = tokenListeners.get(campaignId);
+      if (listeners) {
+        listeners.delete(onUpdate);
+        if (listeners.size === 0) {
+          tokenListeners.delete(campaignId);
+        }
+      }
+    };
+  }
+
+  let active = true;
+
+  const q = query(
+    collection(db, 'tokens'),
+    where('campaign_id', '==', campaignId)
+  );
+
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    if (!active) return;
+    try {
+      const tokens: TableToken[] = [];
+      snapshot.forEach((doc) => {
+        const docData = doc.data();
+        if (docData && docData.data) {
+          tokens.push(docData.data as TableToken);
+        }
+      });
+      saveLocalTokens(campaignId, tokens);
+      notifyTokenListeners(campaignId, tokens);
+    } catch (e) {
+      console.error("[subscribeToTokens onSnapshot] Error:", e);
+    }
   }, (error) => {
-    console.warn(`[vttService] Firestore subscribeToTokens error on campaign ${campaignId} (normal if offline/over quota):`, error);
-    handleFirestoreError(error, OperationType.LIST, `campaigns/${campaignId}/tokens`);
+    console.error("[subscribeToTokens onSnapshot] Listener error:", error);
+    try {
+      handleFirestoreError(error, 'get', 'tokens');
+    } catch (err) {
+      // Ignora erro relançado para não quebrar a aplicação
+    }
   });
 
   return () => {
@@ -132,7 +153,8 @@ export const subscribeToTokens = (campaignId: string, onUpdate: (tokens: TableTo
         tokenListeners.delete(campaignId);
       }
     }
-    unsubFirestore();
+    active = false;
+    unsubscribe();
   };
 };
 
@@ -146,36 +168,73 @@ export const subscribeToTableConfig = (campaignId: string, onUpdate: (config: Ta
   const localConfig = getLocalConfig(campaignId);
   onUpdate(localConfig);
 
-  const mainRef = doc(db, 'campaigns', campaignId, 'config', 'main');
-  const mapRef = doc(db, 'campaigns', campaignId, 'config', 'map');
+  if (isFirebaseQuotaExceeded()) {
+    console.warn("⚠️ [VTT] Firestore quota exceeded. Skipping snapshot listener for table config.");
+    return () => {
+      const listeners = configListeners.get(campaignId);
+      if (listeners) {
+        listeners.delete(onUpdate);
+        if (listeners.size === 0) {
+          configListeners.delete(campaignId);
+        }
+      }
+    };
+  }
 
+  let active = true;
   let mainData: Partial<TableConfig> = { gridSize: 50, showGrid: true, masterFog: false };
   let mapData: Partial<TableConfig> = { mapUrl: '' };
 
   const mergeAndNotify = () => {
-    const merged = { ...getLocalConfig(campaignId), ...mainData, ...mapData } as TableConfig;
+    const local = getLocalConfig(campaignId);
+    
+    // Compare updatedAt. If local is newer than mainData/mapData, we keep local's time/date/weather/etc.
+    const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
+    const mainTime = mainData.updatedAt ? new Date(mainData.updatedAt).getTime() : 0;
+    const mapTime = mapData.updatedAt ? new Date(mapData.updatedAt).getTime() : 0;
+
+    let merged: TableConfig;
+    if (localTime > Math.max(mainTime, mapTime)) {
+      // Local is newer! Merge server data but keep local values as they are most fresh.
+      merged = { ...mainData, ...mapData, ...local } as TableConfig;
+    } else {
+      // Server is newer, use server values
+      merged = { ...local, ...mainData, ...mapData } as TableConfig;
+    }
+
     saveLocalConfig(campaignId, merged);
     notifyConfigListeners(campaignId, merged);
   };
 
-  const unsubMain = onSnapshot(mainRef, (snapshot) => {
-    if (snapshot.exists()) {
-      mainData = { ...mainData, ...snapshot.data() };
-    }
-    mergeAndNotify();
-  }, (error) => {
-    console.warn(`[vttService] Firestore subscribeToTableConfig main error (handled):`, error);
-    handleFirestoreError(error, OperationType.GET, `campaigns/${campaignId}/config/main`);
-  });
+  const q = query(
+    collection(db, 'campaign_configs'),
+    where('campaign_id', '==', campaignId)
+  );
 
-  const unsubMap = onSnapshot(mapRef, (snapshot) => {
-    if (snapshot.exists()) {
-      mapData = { ...mapData, ...snapshot.data() };
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    if (!active) return;
+    try {
+      snapshot.forEach((doc) => {
+        const docData = doc.data();
+        if (docData) {
+          if (docData.config_id === 'main') {
+            mainData = docData.data || {};
+          } else if (docData.config_id === 'map') {
+            mapData = docData.data || {};
+          }
+        }
+      });
+      mergeAndNotify();
+    } catch (e) {
+      console.error("[subscribeToTableConfig onSnapshot] Error:", e);
     }
-    mergeAndNotify();
   }, (error) => {
-    console.warn(`[vttService] Firestore subscribeToTableConfig map error (handled):`, error);
-    handleFirestoreError(error, OperationType.GET, `campaigns/${campaignId}/config/map`);
+    console.error("[subscribeToTableConfig onSnapshot] Listener error:", error);
+    try {
+      handleFirestoreError(error, 'get', 'campaign_configs');
+    } catch (err) {
+      // Ignora erro relançado para não quebrar a aplicação
+    }
   });
 
   return () => {
@@ -186,8 +245,8 @@ export const subscribeToTableConfig = (campaignId: string, onUpdate: (config: Ta
         configListeners.delete(campaignId);
       }
     }
-    unsubMain();
-    unsubMap();
+    active = false;
+    unsubscribe();
   };
 };
 
@@ -201,16 +260,63 @@ export const subscribeToCombatLogs = (campaignId: string, onUpdate: (logs: any[]
   const localLogs = getLocalLogs(campaignId);
   onUpdate(localLogs);
 
-  const logsRef = collection(db, 'campaigns', campaignId, 'vtt_logs');
-  const q = query(logsRef, orderBy('timestamp', 'desc'), limit(25));
-  
-  const unsubFirestore = onSnapshot(q, (snapshot) => {
-    const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    saveLocalLogs(campaignId, logs);
-    notifyLogListeners(campaignId, logs);
+  if (isFirebaseQuotaExceeded()) {
+    console.warn("⚠️ [VTT] Firestore quota exceeded. Skipping snapshot listener for combat logs.");
+    return () => {
+      const listeners = logListeners.get(campaignId);
+      if (listeners) {
+        listeners.delete(onUpdate);
+        if (listeners.size === 0) {
+          logListeners.delete(campaignId);
+        }
+      }
+    };
+  }
+
+  let active = true;
+
+  const q = query(
+    collection(db, 'vtt_logs'),
+    where('campaign_id', '==', campaignId)
+  );
+
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    if (!active) return;
+    try {
+      const logs: any[] = [];
+      snapshot.forEach((doc) => {
+        const docData = doc.data();
+        if (docData) {
+          const timestampSecs = docData.created_at ? Math.floor(new Date(docData.created_at).getTime() / 1000) : Math.floor(Date.now() / 1000);
+          logs.push({
+            id: doc.id,
+            timestamp: { seconds: timestampSecs, nanoseconds: 0 },
+            created_at: docData.created_at,
+            ...docData.data
+          });
+        }
+      });
+
+      // Sort in memory by created_at descending (or timestamp descending)
+      logs.sort((a, b) => {
+        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return timeB - timeA;
+      });
+
+      const slicedLogs = logs.slice(0, 25);
+      saveLocalLogs(campaignId, slicedLogs);
+      notifyLogListeners(campaignId, slicedLogs);
+    } catch (e) {
+      console.error("[subscribeToCombatLogs onSnapshot] Error:", e);
+    }
   }, (error) => {
-    console.warn(`[vttService] Firestore subscribeToCombatLogs error (handled):`, error);
-    handleFirestoreError(error, OperationType.LIST, `campaigns/${campaignId}/vtt_logs`);
+    console.error("[subscribeToCombatLogs onSnapshot] Listener error:", error);
+    try {
+      handleFirestoreError(error, 'get', 'vtt_logs');
+    } catch (err) {
+      // Ignora erro relançado para não quebrar a aplicação
+    }
   });
 
   return () => {
@@ -221,11 +327,12 @@ export const subscribeToCombatLogs = (campaignId: string, onUpdate: (logs: any[]
         logListeners.delete(campaignId);
       }
     }
-    unsubFirestore();
+    active = false;
+    unsubscribe();
   };
 };
 
-// Writes with local-first instant dispatch and dynamic Firebase failover
+// Writes with local-first instant dispatch and dynamic Supabase sync
 export const updateTokenPosition = async (campaignId: string, tokenId: string, updates: Partial<TableToken>) => {
   // Always apply change locally first and dispatch UI updates instantly!
   const currentTokens = getLocalTokens(campaignId);
@@ -233,19 +340,24 @@ export const updateTokenPosition = async (campaignId: string, tokenId: string, u
   saveLocalTokens(campaignId, updatedTokens);
   notifyTokenListeners(campaignId, updatedTokens);
 
-  if (isFirebaseQuotaExceeded()) {
-    console.log(`📡 [VTT Mode Local] Token ${tokenId} atualizado offline.`);
-    return;
-  }
+  const matchedToken = updatedTokens.find(t => t.id === tokenId);
+  if (!matchedToken) return;
 
-  const tokenRef = doc(db, 'campaigns', campaignId, 'tokens', tokenId);
   try {
-    const cleanUpdates = Object.fromEntries(
-      Object.entries(updates).filter(([_, v]) => v !== undefined)
-    );
-    await firestoreUpdateDoc(tokenRef, cleanUpdates);
+    const { error } = await supabase
+      .from('tokens')
+      .upsert({
+        id: tokenId,
+        campaign_id: campaignId,
+        data: matchedToken,
+        updated_at: new Date().toISOString()
+      });
+
+    if (error) {
+      console.error("[Supabase updateTokenPosition] Error:", error);
+    }
   } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, `campaigns/${campaignId}/tokens/${tokenId}`);
+    console.error("[Supabase updateTokenPosition] Exception:", error);
   }
 };
 
@@ -256,19 +368,21 @@ export const addToken = async (campaignId: string, token: TableToken) => {
   saveLocalTokens(campaignId, updatedTokens);
   notifyTokenListeners(campaignId, updatedTokens);
 
-  if (isFirebaseQuotaExceeded()) {
-    console.log(`📡 [VTT Mode Local] Token ${token.id} adicionado offline.`);
-    return;
-  }
-
-  const tokenRef = doc(db, 'campaigns', campaignId, 'tokens', token.id);
   try {
-    const cleanToken = Object.fromEntries(
-      Object.entries(token).filter(([_, v]) => v !== undefined)
-    );
-    await firestoreSetDoc(tokenRef, cleanToken);
+    const { error } = await supabase
+      .from('tokens')
+      .upsert({
+        id: token.id,
+        campaign_id: campaignId,
+        data: token,
+        updated_at: new Date().toISOString()
+      });
+
+    if (error) {
+      console.error("[Supabase addToken] Error:", error);
+    }
   } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, `campaigns/${campaignId}/tokens/${token.id}`);
+    console.error("[Supabase addToken] Exception:", error);
   }
 };
 
@@ -279,51 +393,64 @@ export const removeToken = async (campaignId: string, tokenId: string) => {
   saveLocalTokens(campaignId, updatedTokens);
   notifyTokenListeners(campaignId, updatedTokens);
 
-  if (isFirebaseQuotaExceeded()) {
-    console.log(`📡 [VTT Mode Local] Token ${tokenId} removido offline.`);
-    return;
-  }
-
-  const tokenRef = doc(db, 'campaigns', campaignId, 'tokens', tokenId);
   try {
-    await deleteDoc(tokenRef);
+    const { error } = await supabase
+      .from('tokens')
+      .delete()
+      .eq('id', tokenId);
+
+    if (error) {
+      console.error("[Supabase removeToken] Error:", error);
+    }
   } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, `campaigns/${campaignId}/tokens/${tokenId}`);
+    console.error("[Supabase removeToken] Exception:", error);
   }
 };
 
 export const updateTableConfig = async (campaignId: string, config: Partial<TableConfig>) => {
   if (!campaignId) return;
 
+  const nowStr = new Date().toISOString();
   // Always apply change locally first and dispatch UI updates instantly!
   const currentConfig = getLocalConfig(campaignId);
-  const updatedConfig = { ...currentConfig, ...config } as TableConfig;
+  const updatedConfig = { ...currentConfig, ...config, updatedAt: nowStr } as TableConfig;
   saveLocalConfig(campaignId, updatedConfig);
   notifyConfigListeners(campaignId, updatedConfig);
-
-  if (isFirebaseQuotaExceeded()) {
-    console.log(`📡 [VTT Mode Local] Configuração atualizada offline.`);
-    return;
-  }
   
   const { mapUrl, ...rest } = config;
   try {
     if (Object.keys(rest).length > 0) {
-      const mainRef = doc(db, 'campaigns', campaignId, 'config', 'main');
-      const cleanRest = Object.fromEntries(
-        Object.entries(rest).filter(([_, v]) => v !== undefined)
-      );
-      if (Object.keys(cleanRest).length > 0) {
-        await firestoreSetDoc(mainRef, cleanRest, { merge: true });
-      }
+      // Get exact stored local main config to merge
+      const fullLocal = getLocalConfig(campaignId);
+      const { mapUrl: _, ...localMain } = fullLocal;
+      const mergedMain = { ...localMain, ...rest, updatedAt: nowStr };
+
+      const { error } = await supabase
+        .from('campaign_configs')
+        .upsert({
+          campaign_id: campaignId,
+          config_id: 'main',
+          data: mergedMain,
+          updated_at: nowStr
+        });
+
+      if (error) console.error("[Supabase updateTableConfig main] Error:", error);
     }
     
     if (mapUrl !== undefined) {
-      const mapRef = doc(db, 'campaigns', campaignId, 'config', 'map');
-      await firestoreSetDoc(mapRef, { mapUrl }, { merge: true });
+      const { error } = await supabase
+        .from('campaign_configs')
+        .upsert({
+          campaign_id: campaignId,
+          config_id: 'map',
+          data: { mapUrl, updatedAt: nowStr },
+          updated_at: nowStr
+        });
+
+      if (error) console.error("[Supabase updateTableConfig map] Error:", error);
     }
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, `campaigns/${campaignId}/config`);
+    console.error("[Supabase updateTableConfig] Exception:", error);
   }
 };
 
@@ -335,22 +462,24 @@ export const addCombatLog = async (campaignId: string, log: any) => {
     ...log 
   };
   const currentLogs = getLocalLogs(campaignId);
-  const updatedLogs = [logWithId, ...currentLogs].slice(0, 50); // Mantenha últimos 50
+  const updatedLogs = [logWithId, ...currentLogs].slice(0, 50); // Mantenha os últimos 50
   saveLocalLogs(campaignId, updatedLogs);
   notifyLogListeners(campaignId, updatedLogs);
 
-  if (isFirebaseQuotaExceeded()) {
-    console.log(`📡 [VTT Mode Local] Novo registro de combate adicionado offline.`);
-    return;
-  }
-
-  const logRef = collection(db, 'campaigns', campaignId, 'vtt_logs');
   try {
-    await addDoc(logRef, {
-      ...log,
-      timestamp: serverTimestamp()
-    });
+    const { error } = await supabase
+      .from('vtt_logs')
+      .insert({
+        id: logWithId.id,
+        campaign_id: campaignId,
+        data: log,
+        created_at: new Date().toISOString()
+      });
+
+    if (error) {
+      console.error("[Supabase addCombatLog] Error:", error);
+    }
   } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, `campaigns/${campaignId}/vtt_logs`);
+    console.error("[Supabase addCombatLog] Exception:", error);
   }
 };

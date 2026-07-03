@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { 
   Plus, 
   Trash2, 
@@ -26,20 +26,22 @@ import { BestiaryMonster, MonsterAction } from "../types";
 import { 
   saveMonsterToBestiary, 
   deleteMonsterFromBestiary, 
-  subscribeToBestiary 
+  subscribeToBestiary,
+  saveMonstersBatch
 } from "../services/bestiaryService";
 import { DEFAULT_MONSTERS } from "../constants/defaultMonsters";
 import { compressImageDataUrl } from "../lib/imageUtils";
 import { cn } from "../lib/utils";
-import { auth } from "../lib/firebase";
+import { auth } from "../lib/supabase";
 import { generateId } from "../lib/random";
 
 interface BestiaryProps {
   onMonsterSelect?: (monster: BestiaryMonster) => void;
   isSelectionMode?: boolean;
+  onEditMonsterSheet?: (monsterId: string) => void;
 }
 
-export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, isSelectionMode = false }) => {
+export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, isSelectionMode = false, onEditMonsterSheet }) => {
   const [monsters, setMonsters] = useState<BestiaryMonster[]>([]);
   const [editingMonster, setEditingMonster] = useState<BestiaryMonster | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -47,8 +49,14 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const hasSeededRef = useRef(false);
+
   useEffect(() => {
-    const unsubscribe = subscribeToBestiary((monstersData) => {
+    if (!auth.currentUser?.uid) {
+      setMonsters([]);
+      return;
+    }
+    const unsubscribe = subscribeToBestiary(auth.currentUser.uid, (monstersData) => {
       setMonsters(monstersData);
       
       // Auto-migration: If monsters exist but don't have images, and they match default names
@@ -75,20 +83,20 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
       }
 
       // Auto-seed if empty and user is logged in
-      if (monstersData.length === 0 && auth.currentUser) {
+      if (monstersData.length === 0 && auth.currentUser && !hasSeededRef.current) {
+        hasSeededRef.current = true;
         (async () => {
-          for (const monster of DEFAULT_MONSTERS) {
-            await saveMonsterToBestiary({
-              ...monster,
-              id: generateId(),
-              masterId: auth.currentUser!.uid
-            } as BestiaryMonster);
-          }
+          const monstersToSeed = DEFAULT_MONSTERS.map(monster => ({
+            ...monster,
+            id: generateId(),
+            masterId: auth.currentUser!.uid
+          } as BestiaryMonster));
+          await saveMonstersBatch(monstersToSeed);
         })();
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [auth.currentUser?.uid]);
 
   // Removed local generateId as it's now imported
 
@@ -134,7 +142,16 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
   const seedDefaults = async () => {
     if (!auth.currentUser) return;
     for (const monster of DEFAULT_MONSTERS) {
-      if (!monsters.some(m => m.name === monster.name)) {
+      const existing = monsters.find(m => m.name === monster.name);
+      if (existing) {
+        // Overwrite existing monster with updated base stats while maintaining its original ID and masterId
+        await saveMonsterToBestiary({
+          ...existing,
+          ...monster,
+          id: existing.id,
+          masterId: existing.masterId
+        } as BestiaryMonster);
+      } else {
         await saveMonsterToBestiary({
           ...monster,
           id: generateId(),
@@ -142,7 +159,7 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
         } as BestiaryMonster);
       }
     }
-    alert("Monstros base sincronizados com sucesso!");
+    alert("Monstros base sincronizados e atualizados com sucesso!");
   };
 
   const handleSave = async () => {
@@ -238,7 +255,20 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
     });
   };
 
-  const filteredMonsters = monsters.filter(m => 
+  const uniqueMonsters = useMemo(() => {
+    const unique: BestiaryMonster[] = [];
+    const seen = new Set<string>();
+    for (const m of monsters) {
+      const nameKey = (m.name || "").toLowerCase().trim();
+      if (!seen.has(nameKey)) {
+        seen.add(nameKey);
+        unique.push(m);
+      }
+    }
+    return unique;
+  }, [monsters]);
+
+  const filteredMonsters = uniqueMonsters.filter(m => 
     m.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -317,15 +347,47 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-[9px] font-bold uppercase tracking-widest text-zinc-500">
-                <div className="flex justify-between border-b border-zinc-800 pb-1">
-                    <span>Ataque Corte:</span>
-                    <span className="text-white">{monster.ataque.corte}</span>
-                </div>
-                <div className="flex justify-between border-b border-zinc-800 pb-1">
-                    <span>Defesa Corte:</span>
-                    <span className="text-white">{monster.defesa.corte}</span>
-                </div>
+            <div className="bg-zinc-950/40 border border-zinc-800/50 rounded-xl p-2.5 text-[10px] space-y-1 font-sans">
+              <div className="grid grid-cols-3 gap-1 font-black uppercase text-zinc-500 text-[8px] tracking-wider pb-1 border-b border-zinc-800/80">
+                <span>Atributo</span>
+                <span className="text-center text-red-400">Ataque</span>
+                <span className="text-center text-blue-400">Defesa</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1 items-center">
+                <span className="font-bold text-zinc-400">Corte</span>
+                <span className="text-center font-mono text-zinc-200">{monster.ataque?.corte ?? 0}</span>
+                <span className="text-center font-mono text-zinc-200">{monster.defesa?.corte ?? 0}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1 items-center">
+                <span className="font-bold text-zinc-400">Perfuração</span>
+                <span className="text-center font-mono text-zinc-200">{monster.ataque?.perfuracao ?? 0}</span>
+                <span className="text-center font-mono text-zinc-200">{monster.defesa?.perfuracao ?? 0}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1 items-center">
+                <span className="font-bold text-zinc-400">Impacto</span>
+                <span className="text-center font-mono text-zinc-200">{monster.ataque?.impacto ?? 0}</span>
+                <span className="text-center font-mono text-zinc-200">{monster.defesa?.impacto ?? 0}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1 items-center">
+                <span className="font-bold text-zinc-400">Feitiço</span>
+                <span className="text-center font-mono text-zinc-200">{monster.ataque?.feitico ?? 0}</span>
+                <span className="text-center font-mono text-zinc-200">{monster.defesa?.feitico ?? 0}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1 items-center">
+                <span className="font-bold text-zinc-400">Elemental</span>
+                <span className="text-center font-mono text-zinc-200">{monster.ataque?.elemental ?? 0}</span>
+                <span className="text-center font-mono text-zinc-200">{monster.defesa?.elemental ?? 0}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1 items-center">
+                <span className="font-bold text-zinc-400">Magia Negra</span>
+                <span className="text-center font-mono text-zinc-200">{monster.ataque?.magiaNegra ?? 0}</span>
+                <span className="text-center font-mono text-zinc-200">{monster.defesa?.magiaNegra ?? 0}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1 items-center pt-1 border-t border-zinc-800/50 text-[9px]">
+                <span className="font-black text-amber-500 uppercase">Res/Pot</span>
+                <span className="text-center font-mono text-amber-400">{monster.ataque?.resistencia ?? 0} / {monster.ataque?.potencial ?? 0}</span>
+                <span className="text-center text-zinc-500">-</span>
+              </div>
             </div>
 
             {isSelectionMode ? (
@@ -360,9 +422,19 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
                     <button 
                       onClick={() => setEditingMonster(monster)}
                       className="flex-1 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-xs font-bold uppercase transition-all"
+                      title="Editar informações básicas e atributos do bestiário"
                     >
-                      Editar Ficha
+                      Básico
                     </button>
+                    {onEditMonsterSheet && (
+                      <button 
+                        onClick={() => onEditMonsterSheet(monster.id)}
+                        className="flex-1 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl text-xs font-bold uppercase transition-all text-white flex items-center justify-center gap-1"
+                        title="Ver e editar ficha de jogo completa do demônio"
+                      >
+                        <FileText size={14} /> Ficha
+                      </button>
+                    )}
                     <button 
                       onClick={() => {
                         console.log("Clicou no lixo para:", monster.id);
@@ -484,10 +556,16 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
                             {MONSTER_SIZES.map(s => (
                                 <button
                                     key={s.value}
+                                    type="button"
                                     onClick={() => setEditingMonster({ ...editingMonster, size: s.value })}
                                     className={cn(
                                         "py-2 rounded-lg text-[10px] font-black uppercase transition-all",
-                                        (editingMonster.size || 1) === s.value ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" : "text-zinc-500 hover:text-zinc-300"
+                                        ((s.value === 0.5 && (editingMonster.size || 1) <= 0.7) ||
+                                         (s.value === 1.0 && (editingMonster.size || 1) > 0.7 && (editingMonster.size || 1) <= 1.3) ||
+                                         (s.value === 2.0 && (editingMonster.size || 1) > 1.3 && (editingMonster.size || 1) <= 3.0) ||
+                                         (s.value === 4.0 && (editingMonster.size || 1) > 3.0))
+                                        ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" 
+                                        : "text-zinc-500 hover:text-zinc-300"
                                     )}
                                 >
                                     {s.label}

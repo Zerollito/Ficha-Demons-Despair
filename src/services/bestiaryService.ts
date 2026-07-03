@@ -1,76 +1,135 @@
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  deleteDoc, 
-  onSnapshot, 
-  query, 
-  where,
-  Timestamp,
-  orderBy
-} from "firebase/firestore";
-import { db, auth, handleFirestoreError, OperationType, isFirebaseQuotaExceeded } from "../lib/firebase";
+import { supabase, auth } from "../lib/supabase";
 import { BestiaryMonster } from "../types";
-
-const COLLECTION_NAME = "bestiary";
 
 export const saveMonsterToBestiary = async (monster: BestiaryMonster) => {
   if (!auth.currentUser) return;
-  if (isFirebaseQuotaExceeded()) {
-    console.warn("⚠️ [Firestore] Não é possível salvar monstro: Limite de cota diário excedido.");
-    return;
-  }
   
-  const monsterRef = doc(db, COLLECTION_NAME, monster.id);
-  const monsterData = {
-    ...monster,
-    masterId: auth.currentUser.uid,
-    createdAt: monster.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-
   try {
-    // Clean undefined values
-    const cleanData = Object.fromEntries(
-      Object.entries(monsterData).filter(([_, v]) => v !== undefined)
-    );
-    await setDoc(monsterRef, cleanData);
+    const { error } = await supabase
+      .from('bestiary')
+      .upsert({
+        id: monster.id,
+        master_id: auth.currentUser.uid,
+        name: monster.name || 'Sem Nome',
+        data: {
+          ...monster,
+          masterId: auth.currentUser.uid,
+          createdAt: monster.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        },
+        updated_at: new Date().toISOString()
+      });
+
+    if (error) {
+      console.error("[Supabase saveMonsterToBestiary] Error:", error);
+      throw error;
+    }
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, `${COLLECTION_NAME}/${monster.id}`);
+    console.error("[Supabase saveMonsterToBestiary] Failed:", error);
   }
 };
 
 export const deleteMonsterFromBestiary = async (monsterId: string) => {
   if (!auth.currentUser) return;
-  if (isFirebaseQuotaExceeded()) {
-    console.warn("⚠️ [Firestore] Não é possível excluir monstro: Limite de cota diário excedido.");
-    return;
-  }
-  const monsterRef = doc(db, COLLECTION_NAME, monsterId);
+
   try {
-    await deleteDoc(monsterRef);
+    const { error } = await supabase
+      .from('bestiary')
+      .delete()
+      .eq('id', monsterId);
+
+    if (error) {
+      console.error("[Supabase deleteMonsterFromBestiary] Error:", error);
+      throw error;
+    }
   } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, `${COLLECTION_NAME}/${monsterId}`);
+    console.error("[Supabase deleteMonsterFromBestiary] Failed:", error);
+    throw error;
   }
 };
 
-export const subscribeToBestiary = (callback: (monsters: BestiaryMonster[]) => void) => {
-  if (!auth.currentUser) {
+export const subscribeToBestiary = (masterId: string, callback: (monsters: BestiaryMonster[]) => void) => {
+  if (!masterId) {
     callback([]);
     return () => {};
   }
 
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    where("masterId", "==", auth.currentUser.uid),
-    orderBy("name", "asc")
-  );
+  let active = true;
 
-  return onSnapshot(q, (snapshot) => {
-    const monsters = snapshot.docs.map(doc => doc.data() as BestiaryMonster);
-    callback(monsters);
-  }, (error) => {
-    handleFirestoreError(error, OperationType.LIST, COLLECTION_NAME);
-    callback([]);
-  });
+  const fetchAndNotify = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('bestiary')
+        .select('data')
+        .eq('master_id', masterId)
+        .order('name', { ascending: true });
+
+      if (error) {
+        console.warn("[Supabase subscribeToBestiary] Info fetching:", error);
+        return;
+      }
+
+      if (active && data) {
+        const monsters = data.map(item => item.data as BestiaryMonster);
+        callback(monsters);
+      }
+    } catch (e) {
+      console.warn("[Supabase subscribeToBestiary] Exception handled gracefully:", e);
+    }
+  };
+
+  fetchAndNotify();
+
+  const channel = supabase
+    .channel(`bestiary_sync_${masterId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'bestiary',
+        filter: `master_id=eq.${masterId}`
+      },
+      () => {
+        fetchAndNotify();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    active = false;
+    supabase.removeChannel(channel);
+  };
+};
+
+export const saveMonstersBatch = async (monsters: BestiaryMonster[]) => {
+  if (!auth.currentUser) return;
+  const masterId = auth.currentUser.uid;
+  
+  try {
+    const itemsToInsert = monsters.map(monster => ({
+      id: monster.id,
+      master_id: masterId,
+      name: monster.name || 'Sem Nome',
+      data: {
+        ...monster,
+        masterId,
+        createdAt: monster.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      updated_at: new Date().toISOString()
+    }));
+
+    const { error } = await supabase
+      .from('bestiary')
+      .upsert(itemsToInsert);
+
+    if (error) {
+      console.error("[Supabase saveMonstersBatch] Error:", error);
+      throw error;
+    }
+  } catch (error) {
+    console.error("[Supabase saveMonstersBatch] Failed:", error);
+    throw error;
+  }
 };

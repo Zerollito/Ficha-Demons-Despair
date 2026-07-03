@@ -169,9 +169,55 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "nome", "masterId"]
+    },
+    "CustomItem": {
+      "title": "Custom Item",
+      "description": "Custom items created by Game Masters",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nome": { "type": "string" },
+        "peso": { "type": "number" },
+        "volume": { "type": "number" },
+        "quantidade": { "type": "number" },
+        "tipo": { "type": "string" },
+        "durabilidade": { "type": "number" },
+        "maxDurabilidade": { "type": "number" },
+        "descricao": { "type": "string" },
+        "masterId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "nome", "masterId", "tipo"]
+    },
+    "CustomSpell": {
+      "title": "Custom Spell",
+      "description": "Custom spells created by Game Masters",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nome": { "type": "string" },
+        "escola": { "type": "string" },
+        "tipo": { "type": "string" },
+        "escala": { "type": "string" },
+        "efeito": { "type": "string" },
+        "dano": { "type": "string" },
+        "mana": { "type": "number" },
+        "acerto": { "type": "number" },
+        "masterId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "nome", "masterId", "escola", "tipo"]
     }
   },
   "firestore": {
+    "custom_spells/{spellId}": {
+      "schema": "CustomSpell",
+      "description": "Custom spells library"
+    },
+    "custom_items/{itemId}": {
+      "schema": "CustomItem",
+      "description": "Custom items library"
+    },
     "users/{userId}": {
       "schema": "UserProfile",
       "description": "User profiles"

@@ -1,27 +1,12 @@
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  updateDoc, 
-  deleteDoc, 
-  onSnapshot, 
-  query, 
-  where, 
-  or,
-  serverTimestamp,
-  getDocs,
-  Timestamp
-} from 'firebase/firestore';
-import { db, auth, handleFirestoreError, OperationType, isFirebaseQuotaExceeded } from '../lib/firebase';
+import { supabase, auth, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, or, onSnapshot } from '../lib/supabase';
 import { Character } from '../types';
 
-const CHARACTERS_COLLECTION = 'characters';
+const CHARACTERS_TABLE = 'characters';
 
 const deepClean = (obj: any): any => {
   if (obj === null || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(deepClean);
   
-  // Only recurse into plain objects to avoid breaking Firestore-specific types (Timestamp, FieldValue, etc.)
   const proto = Object.getPrototypeOf(obj);
   if (proto !== null && proto !== Object.prototype) return obj;
 
@@ -50,91 +35,106 @@ export const saveCharacterToFirestore = async (character: Character) => {
   }
 
   if (!auth.currentUser) {
-    console.warn("⚠️ [Firestore] Tentativa de salvar sem usuário logado.");
+    console.warn("⚠️ [Supabase] Tentativa de salvar sem usuário logado.");
     return;
   }
 
-  if (isFirebaseQuotaExceeded()) {
-    console.warn(`⚠️ [Firestore] Ignorando salvamento de "${character.nome}" pois o limite de cota diário foi atingido.`);
-    return;
-  }
-
-  // Se o personagem tem o mesmo e-mail do usuário atual, forçamos o vínculo com o UID atual.
-  // Isso resolve casos de migração de sessão ou mudança de UID (ex: trocar de provedor de login).
   const isOwnEmail = character.userEmail === auth.currentUser.email;
   const targetUserId = isOwnEmail ? auth.currentUser.uid : (character.userId || auth.currentUser.uid);
   const targetUserEmail = character.userEmail || auth.currentUser.email || "";
 
-  console.log(`💾 [Firestore] Salvando ficha: ${character.nome} (${character.id}) para UID: ${targetUserId} e Email: ${targetUserEmail}`);
-  const charRef = doc(db, CHARACTERS_COLLECTION, character.id);
-  
-  const data = {
-    ...character,
-    userId: targetUserId,
-    userEmail: targetUserEmail,
-    updatedAt: serverTimestamp(),
-  };
+  console.log(`💾 [Supabase] Salvando ficha: ${character.nome} (${character.id})`);
 
   try {
-    const cleanData = deepClean(data);
-    const dataSize = JSON.stringify(cleanData).length;
-    console.log(`⏳ [Firestore] Pushing ${character.nome} (${dataSize} bytes) to server...`);
-    
-    // Usando uma promessa com timeout para detectar se o Firestore ficar "engatado"
-    // Sem persistência, setDoc deve retornar apenas quando o servidor confirmar.
-    const savePromise = setDoc(charRef, cleanData, { merge: true });
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error(`Timeout ao salvar ${character.nome}: Servidor não respondeu em 20s.`)), 20000)
-    );
+    const cleanCharacter = deepClean(character);
+    const { error } = await supabase
+      .from(CHARACTERS_TABLE)
+      .upsert({
+        id: character.id,
+        user_id: targetUserId,
+        user_email: targetUserEmail,
+        campaign_id: character.campaignId || null,
+        data: cleanCharacter,
+        updated_at: new Date().toISOString()
+      });
 
-    await Promise.race([savePromise, timeoutPromise]);
-    console.log(`✅ [Firestore] Ficha ${character.nome} CONFIRMADA pelo servidor.`);
-  } catch (error) {
-    const isQuota = String(error?.message || error).toLowerCase().includes('quota') || 
-                    String(error?.message || error).toLowerCase().includes('resource-exhausted');
-    if (!isQuota) {
-      console.error(`❌ [Firestore] Erro ao salvar ${character.nome}:`, error);
+    if (error) {
+      console.error(`❌ [Supabase] Erro ao salvar ${character.nome}:`, error);
+      throw error;
     }
-    handleFirestoreError(error, OperationType.WRITE, `${CHARACTERS_COLLECTION}/${character.id}`);
+    console.log(`✅ [Supabase] Ficha ${character.nome} CONFIRMADA pelo servidor.`);
+  } catch (error) {
+    console.error(`❌ [Supabase] Exception ao salvar ${character.nome}:`, error);
   }
 };
 
 export const deleteCharacterFromFirestore = async (characterId: string) => {
   if (!auth.currentUser) return;
-  if (isFirebaseQuotaExceeded()) {
-    console.warn("⚠️ [Firestore] Ignorando deleção pois o limite de cota diário foi atingido.");
-    return;
-  }
-
-  const charRef = doc(db, CHARACTERS_COLLECTION, characterId);
 
   try {
-    await deleteDoc(charRef);
+    const { error } = await supabase
+      .from(CHARACTERS_TABLE)
+      .delete()
+      .eq('id', characterId);
+
+    if (error) {
+      console.error("[Supabase deleteCharacter] Error:", error);
+      throw error;
+    }
   } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, `${CHARACTERS_COLLECTION}/${characterId}`);
+    console.error("[Supabase deleteCharacter] Failed:", error);
   }
 };
 
-export const subscribeToUserCharacters = (onUpdate: (characters: Character[], metadata: { hasPendingWrites: boolean, fromCache: boolean }) => void) => {
-  if (!auth.currentUser) return () => {};
+export const subscribeToUserCharacters = (
+  userId: string,
+  userEmail: string,
+  onUpdate: (characters: Character[], metadata: { hasPendingWrites: boolean, fromCache: boolean }) => void
+) => {
+  if (!userId) return () => {};
 
-  // Busca tanto por UID quanto por Email para garantir sincronização entre dispositivos
-  const q = query(
-    collection(db, CHARACTERS_COLLECTION),
-    or(
-      where("userId", "==", auth.currentUser.uid),
-      where("userEmail", "==", auth.currentUser.email)
-    )
-  );
+  if (isFirebaseQuotaExceeded()) {
+    console.warn("⚠️ [Character] Firestore quota exceeded. Skipping snapshot listener.");
+    return () => {};
+  }
 
-  return onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
-    const characters = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Character));
-    console.log(`📡 [Sync] Snapshot: ${snapshot.docs.length} docs, fromCache: ${snapshot.metadata.fromCache}, pendingWrites: ${snapshot.metadata.hasPendingWrites}`);
-    onUpdate(characters, { 
-      hasPendingWrites: snapshot.metadata.hasPendingWrites, 
-      fromCache: snapshot.metadata.fromCache 
-    });
+  let active = true;
+
+  const q = userEmail
+    ? query(
+        collection(db, CHARACTERS_TABLE),
+        or(where('user_id', '==', userId), where('user_email', '==', userEmail))
+      )
+    : query(
+        collection(db, CHARACTERS_TABLE),
+        where('user_id', '==', userId)
+      );
+
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    if (!active) return;
+    try {
+      const characters: Character[] = [];
+      snapshot.forEach((doc) => {
+        const docData = doc.data();
+        if (docData && docData.data) {
+          characters.push(docData.data as Character);
+        }
+      });
+      onUpdate(characters, { hasPendingWrites: false, fromCache: false });
+    } catch (e) {
+      console.error("[subscribeToUserCharacters onSnapshot] Error:", e);
+    }
   }, (error) => {
-    handleFirestoreError(error, OperationType.LIST, CHARACTERS_COLLECTION);
+    console.error("[subscribeToUserCharacters onSnapshot] Listener error:", error);
+    try {
+      handleFirestoreError(error, 'get', CHARACTERS_TABLE);
+    } catch (err) {
+      // Ignora erro relançado para não quebrar a aplicação
+    }
   });
+
+  return () => {
+    active = false;
+    unsubscribe();
+  };
 };

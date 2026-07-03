@@ -1,28 +1,13 @@
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  updateDoc, 
-  deleteDoc, 
-  onSnapshot, 
-  query, 
-  where, 
-  getDocs,
-  serverTimestamp,
-  addDoc
-} from 'firebase/firestore';
-import { db, auth, handleFirestoreError, OperationType, isFirebaseQuotaExceeded } from '../lib/firebase';
+import { supabase, auth, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, onSnapshot } from '../lib/supabase';
 import { Campaign, Character } from '../types';
 import { generateInviteCode } from '../lib/random';
 
-const CAMPAIGNS_COLLECTION = 'campaigns';
-const CHARACTERS_COLLECTION = 'characters';
+const CAMPAIGNS_TABLE = 'campaigns';
+const CHARACTERS_TABLE = 'characters';
 
 export const createCampaign = async (name: string) => {
-  if (!auth.currentUser) return null;
-  if (isFirebaseQuotaExceeded()) {
-    console.warn("⚠️ [Firestore] Não é possível criar campanhas: Limite de cota diário excedido.");
-    return null;
+  if (!auth.currentUser) {
+    throw new Error("Você precisa estar autenticado para criar uma campanha.");
   }
 
   const inviteCode = generateInviteCode();
@@ -31,92 +16,151 @@ export const createCampaign = async (name: string) => {
     masterId: auth.currentUser.uid,
     masterEmail: auth.currentUser.email,
     inviteCode,
-    createdAt: serverTimestamp()
+    createdAt: new Date().toISOString()
   };
 
   try {
-    const docRef = await addDoc(collection(db, CAMPAIGNS_COLLECTION), campaignData);
-    return { id: docRef.id, ...campaignData };
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, CAMPAIGNS_COLLECTION);
-    return null;
+    const id = "camp_" + Math.random().toString(36).substring(2, 11);
+    const { error } = await supabase
+      .from(CAMPAIGNS_TABLE)
+      .insert({
+        id,
+        master_id: auth.currentUser.uid,
+        master_email: auth.currentUser.email || "",
+        name,
+        invite_code: inviteCode,
+        data: campaignData,
+        updated_at: new Date().toISOString()
+      });
+
+    if (error) throw error;
+    return { id, ...campaignData } as Campaign;
+  } catch (error: any) {
+    console.error("[Supabase createCampaign] Error:", error);
+    throw new Error(error?.message || "Erro desconhecido ao criar campanha.");
   }
 };
 
 export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => void) => {
   if (!auth.currentUser) return () => {};
 
-  // Em cenários de mudança de UID, permitimos busca por ID ou Email
-  const q = query(
-    collection(db, CAMPAIGNS_COLLECTION),
-    where('masterEmail', '==', auth.currentUser.email)
-  );
+  const userId = auth.currentUser.uid;
+  const userEmail = auth.currentUser.email || "";
+  let active = true;
 
-  return onSnapshot(q, (snapshot) => {
-    const campaigns = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Campaign));
-    onUpdate(campaigns);
-  }, (error) => {
-    const isQuota = String(error?.message || error).toLowerCase().includes('quota') || 
-                    String(error?.message || error).toLowerCase().includes('resource-exhausted');
-    if (isQuota) {
-      handleFirestoreError(error, OperationType.LIST, CAMPAIGNS_COLLECTION);
-      return;
-    }
-    // Fallback para masterId se masterEmail falhar ou não retornar nada (campanhas antigas)
-    if (auth.currentUser) {
-      const qFallback = query(
-        collection(db, CAMPAIGNS_COLLECTION),
-        where('masterId', '==', auth.currentUser.uid)
-      );
-      return onSnapshot(qFallback, (snapshot) => {
-        const campaigns = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Campaign));
+  const fetchAndNotify = async () => {
+    try {
+      let queryBuilder = supabase.from(CAMPAIGNS_TABLE).select('id, data');
+      if (userEmail) {
+        queryBuilder = queryBuilder.or(`master_email.eq.${userEmail},master_id.eq.${userId}`);
+      } else {
+        queryBuilder = queryBuilder.eq('master_id', userId);
+      }
+
+      const { data, error } = await queryBuilder;
+
+      if (error) {
+        console.warn("[Supabase subscribeToMasterCampaigns] Info/Error:", error);
+        return;
+      }
+
+      if (active && data) {
+        const campaigns = data.map(row => ({ id: row.id, ...row.data } as Campaign));
         onUpdate(campaigns);
-      }, (err) => {
-        handleFirestoreError(err, OperationType.LIST, CAMPAIGNS_COLLECTION);
-      });
+      }
+    } catch (e) {
+      console.warn("[Supabase subscribeToMasterCampaigns] Exception handled gracefully:", e);
     }
-  });
+  };
+
+  fetchAndNotify();
+
+  const channel = supabase
+    .channel(`campaigns_master_${userId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: CAMPAIGNS_TABLE
+      },
+      () => {
+        fetchAndNotify();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    active = false;
+    supabase.removeChannel(channel);
+  };
 };
 
 export const joinCampaign = async (characterId: string, inviteCode: string) => {
-  if (isFirebaseQuotaExceeded()) {
-    throw new Error('Não é possível entrar na campanha: O limite diário de gravação do banco de dados foi atingido.');
-  }
-
-  // Find campaign with invite code
-  const q = query(collection(db, CAMPAIGNS_COLLECTION), where('inviteCode', '==', inviteCode));
-  const snapshot = await getDocs(q);
+  const { data, error } = await supabase
+    .from(CAMPAIGNS_TABLE)
+    .select('id')
+    .eq('invite_code', inviteCode);
   
-  if (snapshot.empty) {
+  if (error || !data || data.length === 0) {
     throw new Error('Código de convite inválido.');
   }
 
-  const campaignId = snapshot.docs[0].id;
+  const campaignId = data[0].id;
 
   try {
-    const charRef = doc(db, CHARACTERS_COLLECTION, characterId);
-    await updateDoc(charRef, { 
+    const { data: charData, error: charError } = await supabase
+      .from(CHARACTERS_TABLE)
+      .select('data')
+      .eq('id', characterId)
+      .single();
+
+    if (charError || !charData) {
+      throw new Error('Personagem não encontrado.');
+    }
+
+    const updatedChar = { 
+      ...charData.data, 
       campaignId, 
       userEmail: auth.currentUser?.email || null,
-      updatedAt: serverTimestamp() 
-    });
+      updatedAt: new Date().toISOString() 
+    };
+
+    const { error: updateError } = await supabase
+      .from(CHARACTERS_TABLE)
+      .upsert({
+        id: characterId,
+        user_id: auth.currentUser?.uid || charData.data.userId,
+        user_email: auth.currentUser?.email || null,
+        campaign_id: campaignId,
+        data: updatedChar,
+        updated_at: new Date().toISOString()
+      });
+
+    if (updateError) throw updateError;
     return campaignId;
   } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, `${CHARACTERS_COLLECTION}/${characterId}`);
+    console.error("[Supabase joinCampaign] Failed:", error);
+    throw error;
   }
 };
 
 export const deleteCampaign = async (campaignId: string) => {
   if (!auth.currentUser) return;
-  if (isFirebaseQuotaExceeded()) {
-    console.warn("⚠️ [Firestore] Não é possível excluir a campanha: Limite de cota diário excedido.");
-    return;
-  }
 
   try {
-    await deleteDoc(doc(db, CAMPAIGNS_COLLECTION, campaignId));
+    const { error } = await supabase
+      .from(CAMPAIGNS_TABLE)
+      .delete()
+      .eq('id', campaignId);
+
+    if (error) {
+      console.error("[Supabase deleteCampaign] Error:", error);
+      throw error;
+    }
   } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, `${CAMPAIGNS_COLLECTION}/${campaignId}`);
+    console.error("[Supabase deleteCampaign] Failed:", error);
+    throw error;
   }
 };
 
@@ -126,19 +170,50 @@ export const subscribeToCampaignsByIds = (campaignIds: string[], onUpdate: (camp
     return () => {};
   }
 
-  // Firestore "in" query limited to 10 elements. 
-  // If more than 10, we'd need to chunk it, but usually a player isn't in 10+ campaigns at once.
-  const q = query(
-    collection(db, CAMPAIGNS_COLLECTION),
-    where('__name__', 'in', campaignIds.slice(0, 10))
-  );
+  let active = true;
 
-  return onSnapshot(q, (snapshot) => {
-    const campaigns = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Campaign));
-    onUpdate(campaigns);
-  }, (error) => {
-    handleFirestoreError(error, OperationType.LIST, CAMPAIGNS_COLLECTION);
-  });
+  const fetchAndNotify = async () => {
+    try {
+      const { data, error } = await supabase
+        .from(CAMPAIGNS_TABLE)
+        .select('id, data')
+        .in('id', campaignIds);
+
+      if (error) {
+        console.warn("[Supabase subscribeToCampaignsByIds] Info/Error:", error);
+        return;
+      }
+
+      if (active && data) {
+        const campaigns = data.map(row => ({ id: row.id, ...row.data } as Campaign));
+        onUpdate(campaigns);
+      }
+    } catch (e) {
+      console.warn("[Supabase subscribeToCampaignsByIds] Exception handled gracefully:", e);
+    }
+  };
+
+  fetchAndNotify();
+
+  const channel = supabase
+    .channel(`campaigns_by_ids_${campaignIds.slice(0, 5).join('_')}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: CAMPAIGNS_TABLE
+      },
+      () => {
+        fetchAndNotify();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    active = false;
+    supabase.removeChannel(channel);
+  };
 };
 
 const campaignCharListeners = new Map<string, Set<(characters: Character[]) => void>>();
@@ -180,18 +255,48 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
   const localChars = getLocalCampaignCharacters(campaignId);
   onUpdate(localChars);
 
+  if (isFirebaseQuotaExceeded()) {
+    console.warn("⚠️ [Campaign] Firestore quota exceeded. Skipping snapshot listener for campaign characters.");
+    return () => {
+      const listeners = campaignCharListeners.get(campaignId);
+      if (listeners) {
+        listeners.delete(onUpdate);
+        if (listeners.size === 0) {
+          campaignCharListeners.delete(campaignId);
+        }
+      }
+    };
+  }
+
+  let active = true;
+
   const q = query(
-    collection(db, CHARACTERS_COLLECTION),
-    where('campaignId', '==', campaignId)
+    collection(db, CHARACTERS_TABLE),
+    where('campaign_id', '==', campaignId)
   );
 
-  const unsubFirestore = onSnapshot(q, (snapshot) => {
-    const characters = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Character));
-    saveLocalCampaignCharacters(campaignId, characters);
-    notifyCampaignCharListeners(campaignId, characters);
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    if (!active) return;
+    try {
+      const characters: Character[] = [];
+      snapshot.forEach((doc) => {
+        const docData = doc.data();
+        if (docData && docData.data) {
+          characters.push(docData.data as Character);
+        }
+      });
+      saveLocalCampaignCharacters(campaignId, characters);
+      notifyCampaignCharListeners(campaignId, characters);
+    } catch (e) {
+      console.error("[subscribeToCampaignCharacters onSnapshot] Error:", e);
+    }
   }, (error) => {
-    console.warn("[campaignService] Error in subscribeToCampaignCharacters (handled):", error);
-    handleFirestoreError(error, OperationType.LIST, CHARACTERS_COLLECTION);
+    console.error("[subscribeToCampaignCharacters onSnapshot] Listener error:", error);
+    try {
+      handleFirestoreError(error, 'get', CHARACTERS_TABLE);
+    } catch (err) {
+      // Ignora erro relançado para não quebrar a aplicação
+    }
   });
 
   return () => {
@@ -202,6 +307,7 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
         campaignCharListeners.delete(campaignId);
       }
     }
-    unsubFirestore();
+    active = false;
+    unsubscribe();
   };
 };

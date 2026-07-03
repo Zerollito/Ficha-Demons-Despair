@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { 
   Plus, 
   Minus,
@@ -54,6 +54,7 @@ import { cn } from "../lib/utils";
 import { compressImageDataUrl } from "../lib/imageUtils";
 import { subscribeToBestiary } from "../services/bestiaryService";
 import { DEFAULT_MONSTERS } from "../constants/defaultMonsters";
+import { auth } from "../lib/supabase";
 
 // Mini component identical to custom inputs
 const TocaInput = ({
@@ -781,6 +782,7 @@ interface TocaManagerProps {
   cutItem?: any;
   setCutItem?: (item: any) => void;
   showToast?: (msg: string, type?: "success" | "error" | "info" | "warning") => void;
+  onEditCreatureSheet?: (creatureId: string) => void;
 }
 
 export const TocaManager: React.FC<TocaManagerProps> = React.memo(({ 
@@ -788,7 +790,8 @@ export const TocaManager: React.FC<TocaManagerProps> = React.memo(({
   updateChar,
   cutItem,
   setCutItem,
-  showToast
+  showToast,
+  onEditCreatureSheet
 }) => {
   const [editingCreature, setEditingCreature] = useState<TocaCreature | null>(null);
 
@@ -869,11 +872,15 @@ export const TocaManager: React.FC<TocaManagerProps> = React.memo(({
 
   // Subscribe to Bestiary
   useEffect(() => {
-    const unsub = subscribeToBestiary((monsters) => {
+    if (!auth.currentUser?.uid) {
+      setCustomBestiary([]);
+      return;
+    }
+    const unsub = subscribeToBestiary(auth.currentUser.uid, (monsters) => {
       setCustomBestiary(monsters);
     });
     return unsub;
-  }, []);
+  }, [auth.currentUser?.uid]);
 
   const creatures = activeChar.tocaCreatures || [];
 
@@ -1349,10 +1356,22 @@ export const TocaManager: React.FC<TocaManagerProps> = React.memo(({
   };
 
   // Merge build-in system default monsters + user saved monsters from database
-  const combinedBestiary = [
-    ...DEFAULT_MONSTERS.map(m => m as BestiaryMonster),
-    ...customBestiary
-  ];
+  const combinedBestiary = useMemo(() => {
+    const rawList = [
+      ...DEFAULT_MONSTERS.map(m => m as BestiaryMonster),
+      ...customBestiary
+    ];
+    const unique: BestiaryMonster[] = [];
+    const seen = new Set<string>();
+    for (const m of rawList) {
+      const nameKey = (m.name || "").toLowerCase().trim();
+      if (!seen.has(nameKey)) {
+        seen.add(nameKey);
+        unique.push(m);
+      }
+    }
+    return unique;
+  }, [customBestiary]);
 
   const filteredBestiary = combinedBestiary.filter(m => 
     m.name?.toLowerCase().includes(bestiarySearch.toLowerCase())
@@ -1534,6 +1553,18 @@ export const TocaManager: React.FC<TocaManagerProps> = React.memo(({
                           ))}
                         </div>
                       )}
+
+                      {/* Full Sheet Button */}
+                      {onEditCreatureSheet && (
+                        <motion.button
+                          type="button"
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => onEditCreatureSheet(creature.id)}
+                          className="w-full mt-3 flex items-center justify-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all cursor-pointer shadow-md shadow-amber-500/10"
+                        >
+                          <BookOpen size={12} /> Abrir Ficha Completa
+                        </motion.button>
+                      )}
                     </div>
                   </div>
                 );
@@ -1559,13 +1590,25 @@ export const TocaManager: React.FC<TocaManagerProps> = React.memo(({
                     {isAdding ? "Modelar Novo Companheiro" : `Painel de Ficha: ${editingCreature.name}`}
                   </h3>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setEditingCreature(null)}
-                  className="p-1 hover:bg-zinc-900 rounded-lg text-zinc-500 hover:text-zinc-200 transition-colors"
-                >
-                  <X size={18} />
-                </button>
+                <div className="flex items-center gap-2">
+                  {!isAdding && onEditCreatureSheet && (
+                    <motion.button
+                      type="button"
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => onEditCreatureSheet(editingCreature.id)}
+                      className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 px-3 py-1 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all cursor-pointer shadow-md shadow-amber-500/10"
+                    >
+                      <BookOpen size={12} /> Ficha Completa
+                    </motion.button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setEditingCreature(null)}
+                    className="p-1 hover:bg-zinc-900 rounded-lg text-zinc-500 hover:text-zinc-200 transition-colors"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
 
               {/* Form Navigation Tabs */}

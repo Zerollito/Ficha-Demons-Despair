@@ -10,6 +10,7 @@ export interface Item {
   durabilidade: number;
   maxDurabilidade: number;
   descricao: string;
+  preco?: number;
   // Campos de Arma
   dano?: string;
   acerto?: number;

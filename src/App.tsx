@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useRef,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   Plus,
   Trash2,
@@ -63,6 +64,8 @@ import {
   Sparkles,
   PawPrint,
   ExternalLink,
+  LogOut,
+  Wand2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
@@ -70,7 +73,8 @@ import { twMerge } from "tailwind-merge";
 import { jsPDF } from "jspdf";
 import { DiceImage } from "./components/ui/DiceImage";
 import { diceBase64 } from "./diceIcons";
-import { auth, loginWithGoogle, logout as firebaseLogout, handleRedirectResult, clearFirestoreCache, isFirebaseQuotaExceeded } from "./lib/firebase";
+import { auth, loginWithGoogle, logout as firebaseLogout, handleRedirectResult, clearFirestoreCache, isFirebaseQuotaExceeded, onAuthStateChanged } from "./lib/supabase";
+import type { FirebaseUserLike as User } from "./lib/supabase";
 import { subscribeToUserCharacters, saveCharacterToFirestore, deleteCharacterFromFirestore } from "./services/characterService";
 import { 
   createCampaign, 
@@ -88,16 +92,18 @@ import {
   updateTableConfig,
   updateTokenPosition 
 } from "./services/vttService";
-import { onAuthStateChanged, User } from "firebase/auth";
 
 import { randomInt, randomElement, generateId, secureRandom } from './lib/random';
-import { Character, AppState, ArmorPiece, Campaign, TableToken, TableConfig, BestiaryMonster, NegativeEffect, CalendarEvent } from "./types";
+import { Character, AppState, ArmorPiece, Campaign, TableToken, TableConfig, BestiaryMonster, NegativeEffect, CalendarEvent, Spell } from "./types";
 import { VTTBoard } from "./components/VTTBoard";
 import { Bestiary } from "./components/Bestiary";
 import { TocaManager } from "./components/TocaManager";
 import { MaterialManagement } from "./components/MaterialManagement";
 import { OracleTab } from "./components/OracleTab";
+import { ItemLibrary } from "./components/ItemLibrary";
+import { SpellLibrary } from "./components/SpellLibrary";
 import { subscribeToMaterials, saveMaterial, deleteMaterial } from "./services/materialService";
+import { subscribeToBestiary, saveMonsterToBestiary } from "./services/bestiaryService";
 import { MaterialData } from "./data/materials";
 import { DEFAULT_MONSTERS } from "./constants/defaultMonsters";
 import { compressImageDataUrl } from "./lib/imageUtils";
@@ -113,7 +119,7 @@ import {
   getCargaMaxima,
   getDeslocamentoBase,
 } from "./rules/statusRules";
-import { getSeason, getSeasonIcon, formatTime, formatDate, getDaysInMonth, generateWeather } from "./rules/timeRules";
+import { getSeason, getSeasonIcon, formatTime, formatDate, getDaysInMonth, generateWeather, getMoonPhase } from "./rules/timeRules";
 import {
   Item,
   calculateInventoryTotals,
@@ -542,6 +548,8 @@ function App() {
 
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(() => (state as any).activeCampaignId || null);
 
+  const [isLoadingSync, setIsLoadingSync] = useState(true);
+
   const [isQuotaExceeded, setIsQuotaExceeded] = useState(() => isFirebaseQuotaExceeded());
 
   useEffect(() => {
@@ -573,11 +581,12 @@ function App() {
     [],
   );
   const [activePage, setActivePage] = useState<
-    "sheet" | "notes" | "dice" | "gallery" | "master" | "table" | "bestiary" | "library" | "materials" | "oracle" | "toca"
+    "sheet" | "notes" | "dice" | "gallery" | "master" | "table" | "bestiary" | "library" | "materials" | "oracle" | "toca" | "items" | "spells"
   >("sheet");
   const [customMaterials, setCustomMaterials] = useState<MaterialData[]>([]);
   const [masterCampaigns, setMasterCampaigns] = useState<Campaign[]>([]);
   const [joinedCampaigns, setJoinedCampaigns] = useState<Campaign[]>([]);
+  const [isCampaignsLoaded, setIsCampaignsLoaded] = useState(false);
   const campaigns = useMemo(() => {
     const combined = [...masterCampaigns, ...joinedCampaigns];
     const seen = new Set();
@@ -587,6 +596,12 @@ function App() {
       return true;
     });
   }, [masterCampaigns, joinedCampaigns]);
+  const orphanedCampaignIds = useMemo(() => {
+    if (isLoadingSync) return [];
+    const allCampaignIds = new Set(campaigns.map(c => c.id));
+    const idsInChars = Array.from(new Set(state.characters.map(c => c.campaignId).filter(id => !!id)));
+    return idsInChars.filter(id => !allCampaignIds.has(id));
+  }, [state.characters, campaigns, isLoadingSync]);
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([]);
   const [tokens, setTokens] = useState<TableToken[]>([]);
   const [tableConfig, setTableConfig] = useState<TableConfig>({ gridSize: 50, showGrid: true, masterFog: false });
@@ -763,7 +778,7 @@ function App() {
     setIsLoadingSync(true);
     lastSyncedRef.current = {}; // Limpa cache ao trocar de usuário
 
-    const unsubscribe = subscribeToUserCharacters((fireChars, metadata) => {
+    const unsubscribe = subscribeToUserCharacters(user.uid, user.email || "", (fireChars, metadata) => {
       console.log(`📡 [Sync] ${fireChars.length} personagens carregados (${metadata.fromCache ? 'Cache' : 'Servidor'}). Pendentes: ${metadata.hasPendingWrites}`);
       
       // Só paramos o loading principal quando recebemos dados do servidor (ou se o cache estiver vazio e carregado)
@@ -782,7 +797,7 @@ function App() {
       // Sanitize characters from Firestore and exclude those deleted locally
       const sanitizedFireChars = fireChars
         .filter(fc => !deletedCharsRef.current.has(fc.id))
-        .map(fc => sanitizeCharacter(fc));
+        .map(fc => ({ ...sanitizeCharacter(fc), isRemoteSynced: true }));
 
       setState(prev => {
         const dirtyIds = new Set(prev.dirtyCharacterIds || []);
@@ -813,17 +828,17 @@ function App() {
                 dirtyIds.delete(localMatch.id);
               }
               lastSyncedRef.current[fChar.id] = charJson;
-              return fChar;
+              return { ...fChar, isRemoteSynced: true };
             } else {
               // Se a local está suja (tem alteração não salva), preservamos a local por enquanto
               console.log(`⚠️ [Sync] Preservando alteração local de ${fChar.nome}`);
-              return localMatch;
+              return { ...localMatch, isRemoteSynced: true };
             }
           }
           
           // Nova ficha vinda do servidor
           lastSyncedRef.current[fChar.id] = charJson;
-          return fChar;
+          return { ...fChar, isRemoteSynced: true };
         });
 
         // Adicionar fichas que só existem localmente (novas criadas off-line ou em processamento)
@@ -837,12 +852,12 @@ function App() {
             return !isRemote && !deletedCharsRef.current.has(lc.id);
           }
 
-          // Se lastSyncedRef tem ela, ela já foi pro servidor alguma vez.
-          const wasPreviouslySynced = !!lastSyncedRef.current[lc.id];
+          // Se lastSyncedRef ou lc.isRemoteSynced tem ela, ela já foi pro servidor alguma vez.
+          const wasPreviouslySynced = lc.isRemoteSynced || !!lastSyncedRef.current[lc.id];
           const isDeletedLocally = deletedCharsRef.current.has(lc.id);
           
           // Se não está no servidor agora, mas sabemos que já esteve (e não fomos nós que apagamos agora localmente)
-          // Então ela foi apagada remotamente em outro dispositivo/aba.
+          // Então ela foi apagada remotamente em outro dispositivo/aba ou pelo próprio usuário.
           if (!isRemote && wasPreviouslySynced && !isDeletedLocally) {
              console.log(`🗑️ [Sync] Removendo ficha ${lc.nome} (deletada remotamente)`);
              delete lastSyncedRef.current[lc.id];
@@ -857,7 +872,7 @@ function App() {
           const isOwn = lc.userId === user.uid || (lc.userEmail && lc.userEmail === user.email) || (!lc.userId && !lc.userEmail);
           if (!isOwn) return; // Não tenta subir fichas de outros usuários
 
-          const wasPreviouslySynced = !!lastSyncedRef.current[lc.id];
+          const wasPreviouslySynced = lc.isRemoteSynced || !!lastSyncedRef.current[lc.id];
           if (!wasPreviouslySynced && !dirtyIds.has(lc.id)) {
             console.log(`📡 [Sync] Agendando upload de ficha local nova: ${lc.nome}`);
             dirtyIds.add(lc.id);
@@ -922,6 +937,7 @@ function App() {
     if (!user?.uid) return;
     const unsubscribe = subscribeToMasterCampaigns((camps) => {
       setMasterCampaigns(camps);
+      setIsCampaignsLoaded(true);
     });
     return () => unsubscribe();
   }, [user?.uid]);
@@ -948,6 +964,17 @@ function App() {
     };
   }, [user, joinedCampaignIdsKey]);
 
+  // Validate activeCampaignId against current campaigns to auto-deselect if deleted/invalid
+  useEffect(() => {
+    if (user?.uid && activeCampaignId && !isLoadingSync && isCampaignsLoaded) {
+      const exists = campaigns.some(c => c.id === activeCampaignId);
+      if (!exists) {
+        console.log("🧹 Clearing stale/orphan activeCampaignId because it does not exist in campaigns:", activeCampaignId);
+        setActiveCampaignIdWithSync(null);
+      }
+    }
+  }, [campaigns, activeCampaignId, user?.uid, isLoadingSync, isCampaignsLoaded]);
+
   // Campaign Characters & Tokens Effect
   useEffect(() => {
     if (!activeCampaignId) {
@@ -964,7 +991,9 @@ function App() {
       if (chars.length > 0) {
         console.log(`[Campaign] Sample IDs: ${chars.slice(0, 3).map(c => c.id).join(', ')}`);
       }
-      const sanitizedChars = chars.map(c => sanitizeCharacter(c));
+      const sanitizedChars = chars
+        .filter(c => !deletedCharsRef.current.has(c.id))
+        .map(c => sanitizeCharacter(c));
       setCampaignCharacters(sanitizedChars);
     });
     
@@ -1010,7 +1039,7 @@ function App() {
         return lc;
       });
 
-      const newFromCampaign = campaignCharacters.filter(rc => !currentIds.has(rc.id));
+      const newFromCampaign = campaignCharacters.filter(rc => !currentIds.has(rc.id) && !deletedCharsRef.current.has(rc.id));
       if (newFromCampaign.length > 0) {
         hasChanges = true;
         updatedStateChars.push(...newFromCampaign);
@@ -1021,18 +1050,67 @@ function App() {
     });
   }, [campaignCharacters, activeCampaignId, user?.uid]);
 
-  const [isLoadingSync, setIsLoadingSync] = useState(true);
+  const [tocaEditingCreatureId, setTocaEditingCreatureId] = useState<string | null>(null);
+  const [bestiaryEditingMonsterId, setBestiaryEditingMonsterId] = useState<string | null>(null);
+  const [bestiaryMonsters, setBestiaryMonsters] = useState<BestiaryMonster[]>([]);
+  const [isVttSheetOpen, setIsVttSheetOpen] = useState(false);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setBestiaryMonsters([]);
+      return;
+    }
+    const unsub = subscribeToBestiary(user.uid, (data) => {
+      setBestiaryMonsters(data);
+    });
+    return unsub;
+  }, [user?.uid]);
+
+  useEffect(() => {
+    setTocaEditingCreatureId(null);
+    setBestiaryEditingMonsterId(null);
+  }, [state.activeCharacterId]);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const sideMenuRef = useRef<HTMLDivElement>(null);
   const deletedCharsRef = useRef<Set<string>>(new Set());
 
   const activeChar = useMemo(() => {
+    if (tocaEditingCreatureId) {
+      for (const parent of state.characters) {
+        const found = (parent.tocaCreatures || []).find(tc => tc.id === tocaEditingCreatureId);
+        if (found) {
+          const empty = createEmptyCharacter();
+          const f = found as any;
+          return {
+            ...empty,
+            ...f,
+            nome: f.nome || f.name || "Criatura da Toca",
+            imagem: f.imagem || f.imageUrl || "",
+            vidaAtual: f.vidaAtual !== undefined ? f.vidaAtual : (f.hpAtual !== undefined ? f.hpAtual : (Number(f.maxHp) || 15)),
+          } as unknown as Character;
+        }
+      }
+    }
+    if (bestiaryEditingMonsterId) {
+      const found = bestiaryMonsters.find(m => m.id === bestiaryEditingMonsterId);
+      if (found) {
+        const empty = createEmptyCharacter();
+        const f = found as any;
+        return {
+          ...empty,
+          ...f,
+          nome: f.name || f.nome || "Demônio do Bestiário",
+          imagem: f.imageUrl || f.imagem || "",
+          vidaAtual: f.vidaAtual !== undefined ? f.vidaAtual : (f.hpAtual !== undefined ? f.hpAtual : (Number(f.maxHp) || 20)),
+        } as unknown as Character;
+      }
+    }
     const char = state.characters.find((c) => c.id === state.activeCharacterId);
     if (char) return char;
     if (state.characters.length > 0) return state.characters[0];
     return null;
-  }, [state]);
+  }, [state, tocaEditingCreatureId, bestiaryEditingMonsterId, bestiaryMonsters]);
 
   // Ensure there is at least one character
   useEffect(() => {
@@ -1111,6 +1189,60 @@ function App() {
     combatNote?: string;
   } | null>(null);
 
+  const getDetailedCombatTitle = useCallback((roll: any) => {
+    if (!roll || !roll.isCombat) return "";
+    
+    if (roll.detailedTitle) return roll.detailedTitle;
+
+    // If it has combatStatus, use it
+    if (roll.combatStatus) {
+      if (roll.combatStatus === 'miss') return "Errou o Golpe";
+      if (roll.combatStatus === 'armor_blocked') return "Armadura defendeu";
+      if (roll.combatStatus === 'weapon_blocked') return "Arma defendeu totalmente";
+      if (roll.combatStatus === 'weapon_blocked_half_damage') return "Arma defendeu mas recebeu dano";
+      if (roll.combatStatus === 'shield_blocked') return "Escudo defendeu totalmente";
+      if (roll.combatStatus === 'shield_blocked_half_damage') return "Escudo defendeu mas recebeu dano";
+      if (roll.combatStatus === 'hit_with_effect') {
+        return roll.effectType ? `Acerto (com efeito de "${roll.effectType}")` : "Acerto (com efeito)";
+      }
+      if (roll.combatStatus === 'hit_resisted_effect') return "Acerto (Resistiu ao efeito)";
+      return "Acerto";
+    }
+
+    // Fallback using text parsing from notes/formulas
+    if (roll.hitSucceeded === false) {
+      const note = (roll.combatNote || "").toLowerCase();
+      if (note.includes("bloqueio por nível") || note.includes("bloqueado por nível") || note.includes("armadura")) {
+        return "Armadura defendeu";
+      }
+      if (note.includes("bloqueado por escudo")) {
+        return "Escudo defendeu totalmente";
+      }
+      if (note.includes("bloqueado com arma")) {
+        return "Arma defendeu totalmente";
+      }
+      return "Errou o Golpe";
+    }
+
+    const note = (roll.combatNote || "").toLowerCase();
+    if (note.includes("escudo sobrepujado") || note.includes("escudo defendeu mas recebeu dano")) {
+      return "Escudo defendeu mas recebeu dano";
+    }
+    if (note.includes("defesa falhou por nível") || note.includes("recebe meio dano") || note.includes("arma defendeu mas recebeu dano")) {
+      return "Arma defendeu mas recebeu dano";
+    }
+    if (note.includes("novo efeito:") || note.includes("membro arrancado") || note.includes("hemorragia fatal")) {
+      const match = (roll.combatNote || "").match(/Novo Efeito:\s*([^\]]+)/i);
+      const effectName = match ? match[1].trim() : "";
+      return effectName ? `Acerto (com efeito de "${effectName}")` : "Acerto (com efeito)";
+    }
+    if (note.includes("resistiu")) {
+      return "Acerto (Resistiu ao efeito)";
+    }
+
+    return "Acerto";
+  }, []);
+
   const handleRollResult = useCallback((res: any) => {
     setLastRoll(res);
     setDiceHistory((prev) =>
@@ -1123,7 +1255,59 @@ function App() {
         ...prev,
       ].slice(0, 50),
     );
-  }, []);
+
+    if (activeCampaignId && res) {
+      updateTableConfig(activeCampaignId, {
+        lastCombatRoll: {
+          ...res,
+          rollId: generateId(),
+          timestamp: Date.now()
+        }
+      });
+    }
+  }, [activeCampaignId]);
+
+  // Sincronizar ataques e defesas do VTT em tempo real para todos na mesa
+  const lastRollIdRef = useRef<string | null>(null);
+  const isFirstCombatRollRef = useRef(true);
+
+  useEffect(() => {
+    lastRollIdRef.current = null;
+    isFirstCombatRollRef.current = true;
+  }, [activeCampaignId]);
+
+  useEffect(() => {
+    if (tableConfig.lastCombatRoll) {
+      const roll = tableConfig.lastCombatRoll;
+      if (roll.rollId && roll.rollId !== lastRollIdRef.current) {
+        lastRollIdRef.current = roll.rollId;
+        
+        // Only pop up if it is not the first load, AND the roll is extremely recent (e.g., within 20 seconds)
+        // to prevent old attacks popping up when entering/re-entering campaigns.
+        const isRecent = roll.timestamp ? (Math.abs(Date.now() - roll.timestamp) < 20000) : false;
+        const shouldPopup = !isFirstCombatRollRef.current && isRecent;
+        isFirstCombatRollRef.current = false;
+
+        if (shouldPopup) {
+          setLastRoll(roll);
+        }
+
+        setDiceHistory((prev) => {
+          if (prev.some(h => h.id === roll.rollId || (h.timestamp === roll.timestamp && (h as any).attackerName === roll.attackerName))) {
+            return prev;
+          }
+          return [
+            {
+              id: roll.rollId || generateId(),
+              timestamp: roll.timestamp || Date.now(),
+              ...roll,
+            },
+            ...prev,
+          ].slice(0, 50);
+        });
+      }
+    }
+  }, [tableConfig.lastCombatRoll]);
 
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<number | null>(null);
   const [newEventTitle, setNewEventTitle] = useState("");
@@ -1149,6 +1333,21 @@ function App() {
       setActiveCampaignId(id);
       setState(prev => ({ ...prev, activeCampaignId: id }));
     };
+
+  // Sync activeCampaignId with active character's campaignId to allow real-time campaign configuration (clock, weather, tokens) updates for players
+  useEffect(() => {
+    if (activeChar?.campaignId) {
+      if (activeCampaignId !== activeChar.campaignId) {
+        console.log(`[Campaign Sync] Automatically switching activeCampaignId to ${activeChar.campaignId} to match active character ${activeChar.nome}`);
+        setActiveCampaignIdWithSync(activeChar.campaignId);
+      }
+    } else if (activeCampaignId && !masterCampaigns.some(c => c.id === activeCampaignId)) {
+      // If the active character has no campaignId, and we are not the master of the current active campaign,
+      // then we shouldn't be in an active campaign. Clear it.
+      console.log(`[Campaign Sync] Clearing activeCampaignId because active character has no campaign and user is not GM of campaign`);
+      setActiveCampaignIdWithSync(null);
+    }
+  }, [activeChar?.campaignId, activeCampaignId, masterCampaigns]);
 
   const advanceTime = useCallback(async (minutes: number) => {
     if (!activeCampaignId) {
@@ -1485,7 +1684,21 @@ function App() {
     const totalDmgBonus = scalingBonus + (bonusManual || 0);
 
     // 4. Roll Damage using the robust utility
-    const rollData = parseAndRollDice(arma.dano || "1d6");
+    let bulletDano = "1d6";
+    if (arma.categoria === 'Arma de Fogo') {
+      if (arma.magazineAmmo && arma.magazineAmmo.length > 0) {
+        bulletDano = arma.magazineAmmo[0].dano || "1d6";
+      } else {
+        const loadedBullet = (activeChar.compartimentos || [])
+          .filter((c: any) => !c.externo)
+          .flatMap((c: any) => (c.itens || []))
+          .find((i: any) => i.id === arma.bulletId);
+        if (loadedBullet && loadedBullet.dano) {
+          bulletDano = loadedBullet.dano;
+        } 
+      }
+    }
+    const rollData = parseAndRollDice(arma.categoria === 'Arma de Fogo' ? bulletDano : (arma.dano || "1d6"));
     
     // Add the scaling/manual bonus to the total
     const finalDmgTotal = rollData.total + totalDmgBonus;
@@ -2048,14 +2261,6 @@ function App() {
       if (selectedItems.has(i.id))
         items.push({ type: "Catalisador", data: { ...i } });
     });
-    char.magias.forEach((i) => {
-      if (selectedItems.has(i.id))
-        items.push({ type: "Magia", data: { ...i } });
-    });
-    char.habilidades.forEach((i) => {
-      if (selectedItems.has(i.id))
-        items.push({ type: "Habilidade", data: { ...i } });
-    });
     char.compartimentos?.forEach((c) => {
       c.itens.forEach((i) => {
         if (selectedItems.has(i.id))
@@ -2235,8 +2440,88 @@ function App() {
   const updateChar = useCallback((updatesOrFn: Partial<Character> | ((c: Character) => Partial<Character>), characterId?: string) => {
     setState(prev => {
       const characters = [...prev.characters];
-      const targetId = characterId || prev.activeCharacterId;
       
+      if (tocaEditingCreatureId) {
+        const parentIndex = characters.findIndex(c => (c.tocaCreatures || []).some(tc => tc.id === tocaEditingCreatureId));
+        if (parentIndex !== -1) {
+          const parentChar = characters[parentIndex];
+          const companionIndex = (parentChar.tocaCreatures || []).findIndex(tc => tc.id === tocaEditingCreatureId);
+          if (companionIndex !== -1) {
+            const companion = parentChar.tocaCreatures![companionIndex];
+            const empty = createEmptyCharacter();
+            const comp = companion as any;
+            const mockChar = {
+              ...empty,
+              ...comp,
+              nome: comp.nome || comp.name || "Criatura da Toca",
+              imagem: comp.imagem || comp.imageUrl || "",
+              vidaAtual: comp.vidaAtual !== undefined ? comp.vidaAtual : (comp.hpAtual !== undefined ? comp.hpAtual : (Number(comp.maxHp) || 15)),
+            } as unknown as Character;
+
+            const updates = typeof updatesOrFn === 'function' ? updatesOrFn(mockChar) : updatesOrFn;
+            
+            const finalCompanion = {
+              ...companion,
+              ...updates,
+            } as any;
+            if (updates.nome !== undefined) finalCompanion.name = updates.nome;
+            if (updates.imagem !== undefined) finalCompanion.imageUrl = updates.imagem;
+            if (updates.vidaAtual !== undefined) {
+              finalCompanion.hpAtual = updates.vidaAtual;
+            }
+            
+            const updatedToca = [...parentChar.tocaCreatures!];
+            updatedToca[companionIndex] = finalCompanion;
+            
+            const updatedParent = {
+              ...parentChar,
+              tocaCreatures: updatedToca as any
+            };
+            characters[parentIndex] = updatedParent;
+            
+            return {
+              ...prev,
+              characters,
+              dirtyCharacterIds: Array.from(new Set([...(prev.dirtyCharacterIds || []), parentChar.id]))
+            };
+          }
+        }
+      }
+
+      if (bestiaryEditingMonsterId) {
+        const foundIndex = bestiaryMonsters.findIndex(m => m.id === bestiaryEditingMonsterId);
+        if (foundIndex !== -1) {
+          const monster = bestiaryMonsters[foundIndex];
+          const empty = createEmptyCharacter();
+          const f = monster as any;
+          const mockChar = {
+            ...empty,
+            ...f,
+            nome: f.name || f.nome || "Demônio do Bestiário",
+            imagem: f.imageUrl || f.imagem || "",
+            vidaAtual: f.vidaAtual !== undefined ? f.vidaAtual : (f.hpAtual !== undefined ? f.hpAtual : (Number(f.maxHp) || 20)),
+          } as unknown as Character;
+
+          const updates = typeof updatesOrFn === 'function' ? updatesOrFn(mockChar) : updatesOrFn;
+
+          const finalMonster = {
+            ...monster,
+            ...updates,
+          } as any;
+
+          if (updates.nome !== undefined) finalMonster.name = updates.nome;
+          if (updates.imagem !== undefined) finalMonster.imageUrl = updates.imagem;
+          if (updates.vidaAtual !== undefined) {
+            finalMonster.vidaAtual = updates.vidaAtual;
+            finalMonster.hpAtual = updates.vidaAtual;
+          }
+
+          saveMonsterToBestiary(finalMonster).catch(err => console.error("Error updating bestiary monster:", err));
+        }
+        return prev;
+      }
+
+      const targetId = characterId || prev.activeCharacterId;
       const charIndex = characters.findIndex(c => c.id === targetId);
       
       if (charIndex === -1) {
@@ -2303,7 +2588,44 @@ function App() {
         dirtyCharacterIds: Array.from(new Set([...(prev.dirtyCharacterIds || []), updatedChar.id]))
       };
     });
-  }, []); // auth.currentUser is imported from lib/firebase so it's always fresh enough
+  }, [tocaEditingCreatureId, bestiaryEditingMonsterId, bestiaryMonsters]); // auth.currentUser is imported from lib/firebase so it's always fresh enough
+
+  const handleAddItemToCharacterCompartment = useCallback((characterId: string, compartmentId: string, item: Item) => {
+    updateChar(char => {
+      const comps = char.compartimentos || [];
+      const compIdx = comps.findIndex(c => c.id === compartmentId);
+      if (compIdx === -1) return {};
+      
+      const targetComp = comps[compIdx];
+      const newItens = [
+        ...(targetComp.itens || []),
+        {
+          ...item,
+          id: generateId()
+        }
+      ];
+      
+      return {
+        compartimentos: comps.map((c, i) => i === compIdx ? { ...c, itens: newItens } : c)
+      };
+    }, characterId);
+  }, [updateChar]);
+
+  const handleAddSpellToCharacter = useCallback((characterId: string, spell: Spell) => {
+    updateChar(char => {
+      const currentMagias = char.magias || [];
+      const newMagias = [
+        ...currentMagias,
+        {
+          ...spell,
+          id: generateId()
+        }
+      ];
+      return {
+        magias: newMagias
+      };
+    }, characterId);
+  }, [updateChar]);
 
   // Sync with Firestore Refs
   const lastSyncedRef = useRef<Record<string, string>>({}); // id -> JSON string
@@ -2351,7 +2673,8 @@ function App() {
     
     characters.forEach(char => {
       if (dirtyIds.has(char.id)) {
-        const isOwn = char.userId === user.uid || (char.userEmail && char.userEmail === user.email) || (!char.userId && !char.userEmail);
+        const isMasterOfCharCampaign = char.campaignId && campaigns.some(c => c.id === char.campaignId && c.masterId === user.uid);
+        const isOwn = char.userId === user.uid || (char.userEmail && char.userEmail === user.email) || (!char.userId && !char.userEmail) || isMasterOfCharCampaign;
         
         if (!isOwn) {
           // Se não é nossa ficha (e.g. criatura do mestre na campanha ou ficha de outro jogador),
@@ -2427,7 +2750,7 @@ function App() {
         dirtyCharacterIds: (prev.dirtyCharacterIds || []).filter(id => !missingCharacterIds.includes(id))
       }));
     }
-  }, [state.characters, state.dirtyCharacterIds, user]);
+  }, [state.characters, state.dirtyCharacterIds, user, campaigns]);
 
   // Global cleanup for unmount
   useEffect(() => {
@@ -2464,13 +2787,70 @@ function App() {
     onConfirm: () => void;
   } | null>(null);
 
+  // Helper to parse creature/monster stats from their bonus, hp, esquiva, acuracia
+  const parseMonsterStats = useCallback((bonusStr: string | undefined, maxHp: number, esquiva: number, acuracia: number) => {
+    const stats = { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 };
+    
+    // Base stats on Max HP (CON)
+    const conVal = Math.max(0, Math.floor((maxHp - 15) / 5));
+    stats.CON = conVal;
+    stats.RES = Math.max(0, Math.floor((maxHp - 15) / 10)); // approximate resistance
+
+    // Set DEX based on esquiva or acuracia
+    stats.DEX = Math.max(Number(esquiva) || 0, Number(acuracia) || 0) * 2;
+
+    if (bonusStr) {
+      const regex = /([+-]?\d+)\s+([A-Za-zÇçÁáÉéÍíÓóÚúâêîôûãõ]+)/g;
+      let match;
+      while ((match = regex.exec(bonusStr)) !== null) {
+        const val = parseInt(match[1]);
+        const name = match[2].toLowerCase();
+        if (name.includes("for") || name.includes("força")) {
+          stats.FOR = val;
+        } else if (name.includes("dex") || name.includes("destreza") || name.includes("agilidade")) {
+          stats.DEX = val;
+        } else if (name.includes("int") || name.includes("inteligência") || name.includes("conhecimento")) {
+          stats.INT = val;
+        } else if (name.includes("rit") || name.includes("ritual") || name.includes("magia")) {
+          stats.RIT = val;
+        } else if (name.includes("con") || name.includes("constituição") || name.includes("vida")) {
+          stats.CON = val;
+        } else if (name.includes("res") || name.includes("resistência") || name.includes("defesa")) {
+          stats.RES = val;
+        } else if (name.includes("men") || name.includes("mental") || name.includes("sanidade")) {
+          stats.MEN = val;
+        } else if (name.includes("apr") || name.includes("aprendizado")) {
+          stats.APR = val;
+        } else if (name.includes("adp") || name.includes("adaptação") || name.includes("clima")) {
+          stats.ADP = val;
+        }
+      }
+    }
+    return stats;
+  }, []);
+
+  const isCreatureMode = tocaEditingCreatureId !== null || bestiaryEditingMonsterId !== null;
+
   // Derived Values - Moved up before early returns to fix Rules of Hooks
   const { stats, vidaMax, manaMax, sanidadeMax, cargaMax, deslocamentoBase } = useMemo(() => {
-    const s = activeChar?.stats || createEmptyCharacter().stats;
+    let s = activeChar?.stats || createEmptyCharacter().stats;
+    let vMax = getVidaMaxima(s.CON);
+
+    if (activeChar && isCreatureMode) {
+      const maxHpNum = Number((activeChar as any).maxHp) || Number((activeChar as any).vidaMaxima) || 15;
+      const esq = Number((activeChar as any).esquiva) || 0;
+      const acur = Number((activeChar as any).acuracia) || 0;
+      const parsedStats = parseMonsterStats((activeChar as any).bonus, maxHpNum, esq, acur);
+      
+      // Merge parsedStats into stats
+      s = { ...s, ...parsedStats };
+      vMax = maxHpNum;
+    }
+
     const bonusCarga = activeChar?.bonusCarga || 0;
     return {
       stats: s,
-      vidaMax: getVidaMaxima(s.CON),
+      vidaMax: vMax,
       manaMax: getManaMaxima(s.APR),
       sanidadeMax: getSanidadeMaxima(s.MEN),
       cargaMax: getCargaMaxima(s.RES) + (bonusCarga * 10),
@@ -2483,7 +2863,7 @@ function App() {
         climateProficiency
       ) : 0
     };
-  }, [activeChar?.stats, activeChar?.fome, activeChar?.sede, activeChar?.clima, climateProficiency, activeChar?.efeitosNegativos, activeChar?.bonusCarga]);
+  }, [activeChar, isCreatureMode, climateProficiency, parseMonsterStats]);
 
   const compartimentos = activeChar?.compartimentos || [];
   const armas = activeChar?.armas || [];
@@ -2741,6 +3121,23 @@ function App() {
     
     if (idToDelete) {
       deletedCharsRef.current.add(idToDelete);
+      const charToDelete = state.characters.find(c => c.id === idToDelete);
+      const campaignId = charToDelete?.campaignId;
+      if (campaignId) {
+        try {
+          const storedKey = `campaign_characters_${campaignId}`;
+          const stored = localStorage.getItem(storedKey);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+              const filtered = parsed.filter((c: any) => c.id !== idToDelete);
+              localStorage.setItem(storedKey, JSON.stringify(filtered));
+            }
+          }
+        } catch (e) {
+          console.error("Error cleaning up deleted char from campaign cache:", e);
+        }
+      }
       // Cancel any pending sync timers before deleting to prevent race condition uploads
       if (syncTimersRef.current[idToDelete]) {
         console.log(`🛑 [deleteChar] Cancelando upload pendente do personagem de ID ${idToDelete} antes da remoção`);
@@ -2829,11 +3226,11 @@ function App() {
                     initial={{ x: -20, opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: -20, opacity: 0 }}
-                    className="absolute left-0 top-full mt-3 w-60 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-2 z-[60] space-y-1 max-h-[calc(100vh-100px)] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent"
+                    className="absolute left-0 top-full mt-3 w-60 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-2 z-[60] space-y-1 max-h-[calc(100vh-100px)] overflow-y-auto scrollbar-none"
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v13.10</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v16.4</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -2877,6 +3274,20 @@ function App() {
                         onClick={() => { setActivePage("toca"); setIsSideMenuOpen(false); }}
                         icon={<PawPrint size={20} />}
                         label="Toca"
+                        color="amber"
+                      />
+                      <MenuButton 
+                        active={activePage === "items"} 
+                        onClick={() => { setActivePage("items"); setIsSideMenuOpen(false); }}
+                        icon={<Package size={20} />}
+                        label="Itens"
+                        color="amber"
+                      />
+                      <MenuButton 
+                        active={activePage === "spells"} 
+                        onClick={() => { setActivePage("spells"); setIsSideMenuOpen(false); }}
+                        icon={<Wand2 size={20} />}
+                        label="Magias"
                         color="amber"
                       />
                       
@@ -2939,14 +3350,14 @@ function App() {
           <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
             <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
             <div className="w-[1px] h-3 bg-zinc-800" />
-            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v13.14</span>
+            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v18.2</span>
           </div>
 
           {/* Quick Active Page Status - desktop only */}
           <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
               <div className="flex flex-col">
                 <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v13.14</span>
+                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v18.2</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -2963,18 +3374,56 @@ function App() {
         <div className="flex items-center gap-2 relative" ref={menuRef}>
           {/* Real-time Game Clock (Global) */}
           {activeCampaignId && (
-            <div className="hidden md:flex items-center gap-3 px-4 py-1.5 bg-zinc-900/80 border border-zinc-800 rounded-2xl mr-4 shadow-lg backdrop-blur-sm">
-              <div className="flex flex-col items-end">
-                <span className="text-sm font-black text-white font-mono tracking-tighter">
+            <div className="hidden md:flex items-center gap-4 px-4 py-2 bg-zinc-950/95 border border-zinc-800/80 rounded-2xl mr-4 shadow-2xl backdrop-blur-md">
+              {/* Season & Weather */}
+              <div className="flex items-center gap-2 border-r border-zinc-800/60 pr-3">
+                <div 
+                  className="w-8 h-8 bg-zinc-900/50 rounded-lg flex items-center justify-center text-lg border border-zinc-800/50 shadow-inner cursor-help"
+                  title={`Estação: ${getSeason(tableConfig.date?.month || 1)}`}
+                >
+                  {getSeasonIcon(getSeason(tableConfig.date?.month || 1))}
+                </div>
+                <div 
+                  className="w-8 h-8 bg-zinc-900/50 rounded-lg flex items-center justify-center text-lg border border-zinc-800/50 shadow-inner cursor-help"
+                  title={`Clima Atual: ${tableConfig.weather || "Céu limpo"}`}
+                >
+                  {(() => {
+                    const w = tableConfig.weather || "Céu limpo";
+                    const h = tableConfig.time?.hour ?? 0;
+                    const isNight = h >= 18 || h < 6;
+                    if (w === 'Céu limpo') return isNight ? '🌌' : '☀️';
+                    if (w === 'Céu nublado') return '☁️';
+                    if (w === 'Chuvoso') return '🌧️';
+                    if (w === 'Onda de calor') return '🔥';
+                    return '❄️';
+                  })()}
+                </div>
+              </div>
+
+              {/* Time and Date */}
+              <div className="flex flex-col items-end border-r border-zinc-800/60 pr-3">
+                <span className="text-sm font-black text-amber-500 font-mono tracking-tighter flex items-center gap-1">
+                  <span className="text-zinc-500 text-[9px] uppercase font-black tracking-wider mr-0.5">Hora:</span>
                   {formatTime(tableConfig.time?.hour ?? 0, tableConfig.time?.minute ?? 0)}
                 </span>
-                <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">
+                <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest mt-0.5">
                   {formatDate(tableConfig.date?.day || 1, tableConfig.date?.month || 1, tableConfig.date?.year || 2024)}
                 </span>
               </div>
-              <div className="w-8 h-8 bg-zinc-950 rounded-lg flex items-center justify-center text-xl border border-zinc-800/50 shadow-inner">
-                {getSeasonIcon(getSeason(tableConfig.date?.month || 1))}
-              </div>
+
+              {/* Moon Phase */}
+              {(() => {
+                const moon = getMoonPhase(tableConfig.date?.day || 1);
+                return (
+                  <div className="flex items-center gap-2 cursor-help select-none" title={`${moon.name}: ${moon.description}`}>
+                    <span className="text-lg leading-none">{moon.icon}</span>
+                    <div className="flex flex-col">
+                      <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest leading-none">Lua</span>
+                      <span className="text-[10px] font-bold text-zinc-300 whitespace-nowrap mt-0.5">{moon.name}</span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -3388,8 +3837,55 @@ function App() {
           ? "flex-1 h-0 min-h-0 w-full overflow-hidden p-0"
           : "max-w-7xl mx-auto w-full p-4 md:p-6 pb-20 overflow-y-auto custom-scrollbar"
       )}>
-        {activePage === "sheet" ? (
-          <div className="max-w-4xl mx-auto w-full space-y-8 flex flex-col">
+        {(() => {
+          const renderSheetContent = () => (
+            <div className="max-w-4xl mx-auto w-full space-y-8 flex flex-col">
+            {tocaEditingCreatureId && (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-center gap-3">
+                <div className="flex items-center gap-2.5">
+                  <PawPrint className="text-amber-500 shrink-0" size={20} />
+                  <div>
+                    <p className="text-sm font-bold text-amber-500">Editando Ficha da Criatura</p>
+                    <p className="text-xs text-zinc-400">
+                      Você está editando a ficha completa de <strong>{activeChar?.nome}</strong>, companheiro/montaria da Toca.
+                    </p>
+                  </div>
+                </div>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    setTocaEditingCreatureId(null);
+                    setActivePage("toca");
+                  }}
+                  className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 rounded-lg text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-amber-500/20"
+                >
+                  Voltar para a Toca
+                </motion.button>
+              </div>
+            )}
+            {bestiaryEditingMonsterId && (
+              <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-center gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Skull className="text-purple-500 shrink-0" size={20} />
+                  <div>
+                    <p className="text-sm font-bold text-purple-500">Editando Ficha do Demônio</p>
+                    <p className="text-xs text-zinc-400">
+                      Você está editando a ficha de jogo completa de <strong>{activeChar?.nome}</strong> do Bestiário.
+                    </p>
+                  </div>
+                </div>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    setBestiaryEditingMonsterId(null);
+                    setActivePage("bestiary");
+                  }}
+                  className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-purple-600/20"
+                >
+                  Voltar para o Bestiário
+                </motion.button>
+              </div>
+            )}
             {/* All Sections Stacking Vertically */}
             <Section title="Personagem" icon={<UserIcon size={18} />} collapsible defaultCollapsed={false}>
                 <div className="space-y-4">
@@ -5857,19 +6353,6 @@ function App() {
                       Magias
                     </h4>
                     <div className="flex items-center gap-2">
-                      <motion.button
-                        whileTap={{ scale: 0.95 }}
-                        onClick={toggleSelectionMode}
-                        className={cn(
-                          "p-1.5 rounded transition-all flex items-center justify-center",
-                          selectionMode
-                            ? "bg-amber-500 text-zinc-950 shadow-[0_0_10px_rgba(245,158,11,0.3)]"
-                            : "bg-zinc-900 text-zinc-500 hover:text-zinc-300 border border-zinc-800",
-                        )}
-                        title="Seleção Múltipla"
-                      >
-                        <CheckSquare size={16} />
-                      </motion.button>
                       {multiClipboard.length > 0 &&
                         !selectionMode &&
                         multiClipboard.some((it) => it.type === "Magia") && (
@@ -5915,24 +6398,6 @@ function App() {
                       >
                         <div className="flex justify-between items-center">
                           <div className="flex items-center flex-1 min-w-0">
-                             {selectionMode && (
-                                <motion.button
-                                  whileTap={{ scale: 0.9 }}
-                                  onClick={() => toggleSelectItem(m.id)}
-                                  className={cn(
-                                    "p-1 rounded mr-2 transition-colors shrink-0",
-                                    selectedItems.has(m.id)
-                                      ? "bg-amber-500 text-zinc-950"
-                                      : "bg-zinc-800 text-zinc-500 hover:text-zinc-300 border border-zinc-700",
-                                  )}
-                                >
-                                  {selectedItems.has(m.id) ? (
-                                    <CheckSquare size={14} />
-                                  ) : (
-                                    <Square size={14} />
-                                  )}
-                                </motion.button>
-                              )}
                             <input
                               value={m.nome || ""}
                               onChange={(e) => {
@@ -6198,263 +6663,237 @@ function App() {
                 </div>
               </Section>
 
-              <Section
-                title="Habilidades"
-                icon={<Activity size={18} />}
-                collapsible
-                defaultCollapsed
-              >
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <h4 className="text-[10px] font-bold text-zinc-500 uppercase">
-                      Habilidades
-                    </h4>
-                    <div className="flex items-center">
-                      <motion.button
-                        whileTap={{ scale: 0.95 }}
-                        onClick={toggleSelectionMode}
-                        className={cn(
-                          "p-1.5 rounded transition-all mr-2 flex items-center justify-center",
-                          selectionMode
-                            ? "bg-amber-500 text-zinc-950 shadow-[0_0_10px_rgba(245,158,11,0.3)]"
-                            : "bg-zinc-900 text-zinc-500 hover:text-zinc-300 border border-zinc-800",
-                        )}
-                        title="Seleção Múltipla"
-                      >
-                        <CheckSquare size={16} />
-                      </motion.button>
-                      <motion.button
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() =>
-                          updateChar((c) => ({
-                            habilidades: [
-                              ...(c.habilidades || []),
-                              {
-                                id: generateId(),
-                                nome: "Nova Habilidade",
-                                efeito: "",
-                              },
-                            ],
-                          }))
-                        }
-                        className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
-                      >
-                        <Plus size={16} />
-                      </motion.button>
+              {!isCreatureMode && (
+                <Section
+                  title="Habilidades"
+                  icon={<Activity size={18} />}
+                  collapsible
+                  defaultCollapsed
+                >
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <h4 className="text-[10px] font-bold text-zinc-500 uppercase">
+                        Habilidades
+                      </h4>
+                      <div className="flex items-center">
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() =>
+                            updateChar((c) => ({
+                              habilidades: [
+                                ...(c.habilidades || []),
+                                {
+                                  id: generateId(),
+                                  nome: "Nova Habilidade",
+                                  efeito: "",
+                                },
+                              ],
+                            }))
+                          }
+                          className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-1.5 rounded transition-colors"
+                        >
+                          <Plus size={16} />
+                        </motion.button>
+                      </div>
+                    </div>
+
+                    {multiClipboard.length > 0 &&
+                      !selectionMode &&
+                      multiClipboard.some((it) => it.type === "Habilidade") && (
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={handlePasteSelected}
+                          className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all font-sans"
+                        >
+                          Colar Habilidades ({multiClipboard.filter(it => it.type === "Habilidade").length})
+                        </motion.button>
+                      )}
+                    <div className="space-y-3">
+                      {(activeChar?.habilidades || []).map((h, idx) => (
+                        <div
+                          key={h.id}
+                          className="bg-zinc-900 p-3 rounded-lg border border-zinc-800 text-xs relative group space-y-2"
+                        >
+                          <div className="flex justify-between items-center">
+                            <div className="flex items-center flex-1 min-w-0">
+                              <input
+                                value={h.nome || ""}
+                                onChange={(e) => {
+                                  const newHabs = [
+                                    ...(activeChar?.habilidades || []),
+                                  ];
+                                  newHabs[idx].nome = e.target.value;
+                                  updateChar((char) => ({ habilidades: newHabs }));
+                                }}
+                                className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
+                              />
+                            </div>
+                            <motion.button
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() =>
+                                updateChar({
+                                  habilidades: (
+                                    activeChar?.habilidades || []
+                                  ).filter((hab) => hab.id !== h.id),
+                                })
+                              }
+                              className="text-red-500 hover:text-red-400 p-1"
+                            >
+                              <Trash2 size={20} />
+                            </motion.button>
+                          </div>
+
+                          <TextArea
+                            label="Efeito"
+                            value={h.efeito}
+                            onChange={(v) => {
+                              const na = [...(activeChar?.habilidades || [])];
+                              na[idx].efeito = v;
+                              updateChar({ habilidades: na });
+                            }}
+                          />
+                        </div>
+                      ))}
                     </div>
                   </div>
-
-                  {multiClipboard.length > 0 &&
-                    !selectionMode &&
-                    multiClipboard.some((it) => it.type === "Habilidade") && (
-                      <motion.button
-                        whileTap={{ scale: 0.95 }}
-                        onClick={handlePasteSelected}
-                        className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all font-sans"
-                      >
-                        Colar Habilidades ({multiClipboard.filter(it => it.type === "Habilidade").length})
-                      </motion.button>
-                    )}
+                </Section>
+              )}
+              {!isCreatureMode && (
+                <Section
+                  title="Conhecimentos"
+                  icon={<BookOpen size={18} />}
+                  collapsible
+                  defaultCollapsed
+                >
                   <div className="space-y-3">
-                    {(activeChar?.habilidades || []).map((h, idx) => (
-                      <div
-                        key={h.id}
-                        className="bg-zinc-900 p-3 rounded-lg border border-zinc-800 text-xs relative group space-y-2"
-                      >
-                        <div className="flex justify-between items-center">
-                          <div className="flex items-center flex-1 min-w-0">
-                             {selectionMode && (
-                                <motion.button
-                                  whileTap={{ scale: 0.9 }}
-                                  onClick={() => toggleSelectItem(h.id)}
-                                  className={cn(
-                                    "p-1 rounded mr-2 transition-colors shrink-0",
-                                    selectedItems.has(h.id)
-                                      ? "bg-amber-500 text-zinc-950"
-                                      : "bg-zinc-800 text-zinc-500 hover:text-zinc-300 border border-zinc-700",
-                                  )}
-                                >
-                                  {selectedItems.has(h.id) ? (
-                                    <CheckSquare size={14} />
-                                  ) : (
-                                    <Square size={14} />
-                                  )}
-                                </motion.button>
-                              )}
-                            <input
-                              value={h.nome || ""}
-                              onChange={(e) => {
-                                const newHabs = [
-                                  ...(activeChar?.habilidades || []),
-                                ];
-                                newHabs[idx].nome = e.target.value;
-                                updateChar((char) => ({ habilidades: newHabs }));
-                              }}
-                              className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
-                            />
-                          </div>
-                          <motion.button
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() =>
-                              updateChar({
-                                habilidades: (
-                                  activeChar?.habilidades || []
-                                ).filter((hab) => hab.id !== h.id),
-                              })
-                            }
-                            className="text-red-500 hover:text-red-400 p-1"
-                          >
-                            <Trash2 size={20} />
-                          </motion.button>
-                        </div>
-
-                        <TextArea
-                          label="Efeito"
-                          value={h.efeito}
-                          onChange={(v) => {
-                            const na = [...(activeChar?.habilidades || [])];
-                            na[idx].efeito = v;
-                            updateChar({ habilidades: na });
-                          }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </Section>
-              <Section
-                title="Conhecimentos"
-                icon={<BookOpen size={18} />}
-                collapsible
-                defaultCollapsed
-              >
-                <div className="space-y-3">
-                  {(activeChar?.conhecimentos || []).map((k, idx) => {
-                    const isMaxLevel = k.nivel >= 5;
-                    return (
-                      <div
-                        key={k.name}
-                        className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50 space-y-2"
-                      >
-                        <div className="flex justify-between items-center gap-2">
-                          <span className="text-sm font-bold uppercase tracking-widest text-zinc-300 truncate safe-lock">
-                            {k.name}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-zinc-500 font-bold">
-                              NÍVEL
+                    {(activeChar?.conhecimentos || []).map((k, idx) => {
+                      const isMaxLevel = k.nivel >= 5;
+                      return (
+                        <div
+                          key={k.name}
+                          className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800/50 space-y-2"
+                        >
+                          <div className="flex justify-between items-center gap-2">
+                            <span className="text-sm font-bold uppercase tracking-widest text-zinc-300 truncate safe-lock">
+                              {k.name}
                             </span>
-                            <NumericInput
-                              value={k.nivel}
-                              onChange={(v) => {
-                                const newKs = [
-                                  ...(activeChar?.conhecimentos || []),
-                                ];
-                                newKs[idx].nivel = Math.min(5, v);
-                                updateChar(c => ({ conhecimentos: newKs }));
-                              }}
-                              className="w-20"
-                              size="sm"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="flex-1 h-3 bg-zinc-800 rounded-full overflow-hidden border border-zinc-700/50">
-                            <div
-                              className={cn(
-                                "h-full transition-all shadow-[0_0_10px_rgba(245,158,11,0.3)]",
-                                isMaxLevel
-                                  ? "bg-emerald-500 shadow-emerald-500/30"
-                                  : "bg-amber-500",
-                              )}
-                              style={{
-                                width: `${isMaxLevel ? 100 : (k.xp / getXpToNextLevel(k.nivel)) * 100}%`,
-                              }}
-                            />
-                          </div>
-                          <div className="flex items-center gap-1">
-                            {!isMaxLevel && (
-                              <>
-                                <motion.button
-                                  whileTap={{ scale: 0.95 }}
-                                  onClick={() => {
-                                    const newKs = [
-                                      ...(activeChar?.conhecimentos || []),
-                                    ];
-                                    newKs[idx].xp = Math.max(0, k.xp - 1);
-                                    updateChar(c => ({ conhecimentos: newKs }));
-                                  }}
-                                  className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded text-zinc-400 hover:text-white"
-                                >
-                                  <Minus size={12} />
-                                </motion.button>
-                                <NumericInput
-                                  value={k.xp}
-                                  onChange={(v) => {
-                                    const nextXp = getXpToNextLevel(k.nivel);
-                                    let updatedK = { ...k, xp: v };
-                                    if (v >= nextXp) {
-                                      updatedK.nivel = Math.min(
-                                        5,
-                                        updatedK.nivel + 1,
-                                      );
-                                      updatedK.xp = 0;
-                                    }
-                                    const newKs = [
-                                      ...(activeChar?.conhecimentos || []),
-                                    ];
-                                    newKs[idx] = updatedK;
-                                    updateChar({ conhecimentos: newKs });
-                                  }}
-                                  className="w-16"
-                                  size="sm"
-                                />
-                                <motion.button
-                                  whileTap={{ scale: 0.95 }}
-                                  onClick={() => {
-                                    const nextXp = getXpToNextLevel(k.nivel);
-                                    let updatedK = { ...k, xp: k.xp + 1 };
-                                    if (updatedK.xp >= nextXp) {
-                                      updatedK.nivel = Math.min(
-                                        5,
-                                        updatedK.nivel + 1,
-                                      );
-                                      updatedK.xp = 0;
-                                    }
-                                    const newKs = [
-                                      ...(activeChar?.conhecimentos || []),
-                                    ];
-                                    newKs[idx] = updatedK;
-                                    updateChar({ conhecimentos: newKs });
-                                  }}
-                                  className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded text-zinc-400 hover:text-white"
-                                >
-                                  <Plus size={12} />
-                                </motion.button>
-                                <span className="text-sm text-zinc-500 font-bold">
-                                  / {getXpToNextLevel(k.nivel)}
-                                </span>
-                              </>
-                            )}
-                            {isMaxLevel && (
-                              <span className="text-[10px] font-black text-emerald-500 uppercase tracking-tighter bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                                Máximo
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-zinc-500 font-bold">
+                                NÍVEL
                               </span>
-                            )}
+                              <NumericInput
+                                value={k.nivel}
+                                onChange={(v) => {
+                                  const newKs = [
+                                    ...(activeChar?.conhecimentos || []),
+                                  ];
+                                  newKs[idx].nivel = Math.min(5, v);
+                                  updateChar(c => ({ conhecimentos: newKs }));
+                                }}
+                                className="w-20"
+                                size="sm"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1 h-3 bg-zinc-800 rounded-full overflow-hidden border border-zinc-700/50">
+                              <div
+                                className={cn(
+                                  "h-full transition-all shadow-[0_0_10px_rgba(245,158,11,0.3)]",
+                                  isMaxLevel
+                                    ? "bg-emerald-500 shadow-emerald-500/30"
+                                    : "bg-amber-500",
+                                )}
+                                style={{
+                                  width: `${isMaxLevel ? 100 : (k.xp / getXpToNextLevel(k.nivel)) * 100}%`,
+                                }}
+                              />
+                            </div>
+                            <div className="flex items-center gap-1">
+                              {!isMaxLevel && (
+                                <>
+                                  <motion.button
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => {
+                                      const newKs = [
+                                        ...(activeChar?.conhecimentos || []),
+                                      ];
+                                      newKs[idx].xp = Math.max(0, k.xp - 1);
+                                      updateChar(c => ({ conhecimentos: newKs }));
+                                    }}
+                                    className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded text-zinc-400 hover:text-white"
+                                  >
+                                    <Minus size={12} />
+                                  </motion.button>
+                                  <NumericInput
+                                    value={k.xp}
+                                    onChange={(v) => {
+                                      const nextXp = getXpToNextLevel(k.nivel);
+                                      let updatedK = { ...k, xp: v };
+                                      if (v >= nextXp) {
+                                        updatedK.nivel = Math.min(
+                                          5,
+                                          updatedK.nivel + 1,
+                                        );
+                                        updatedK.xp = 0;
+                                      }
+                                      const newKs = [
+                                        ...(activeChar?.conhecimentos || []),
+                                      ];
+                                      newKs[idx] = updatedK;
+                                      updateChar({ conhecimentos: newKs });
+                                    }}
+                                    className="w-16"
+                                    size="sm"
+                                  />
+                                  <motion.button
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => {
+                                      const nextXp = getXpToNextLevel(k.nivel);
+                                      let updatedK = { ...k, xp: k.xp + 1 };
+                                      if (updatedK.xp >= nextXp) {
+                                        updatedK.nivel = Math.min(
+                                          5,
+                                          updatedK.nivel + 1,
+                                        );
+                                        updatedK.xp = 0;
+                                      }
+                                      const newKs = [
+                                        ...(activeChar?.conhecimentos || []),
+                                      ];
+                                      newKs[idx] = updatedK;
+                                      updateChar({ conhecimentos: newKs });
+                                    }}
+                                    className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded text-zinc-400 hover:text-white"
+                                  >
+                                    <Plus size={12} />
+                                  </motion.button>
+                                  <span className="text-sm text-zinc-500 font-bold">
+                                    / {getXpToNextLevel(k.nivel)}
+                                  </span>
+                                </>
+                              )}
+                              {isMaxLevel && (
+                                <span className="text-[10px] font-black text-emerald-500 uppercase tracking-tighter bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                                  Máximo
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </Section>
+                      );
+                    })}
+                  </div>
+                </Section>
+              )}
 
-              <Section
-                title="Escalas"
-                icon={<TrendingUp size={18} />}
-                collapsible
-                defaultCollapsed
-              >
+              {!isCreatureMode && (
+                <Section
+                  title="Escalas"
+                  icon={<TrendingUp size={18} />}
+                  collapsible
+                  defaultCollapsed
+                >
                 <div className="space-y-4">
                   <div className="flex justify-end">
                     <motion.button
@@ -6507,10 +6946,12 @@ function App() {
                             <input
                               value={s.nome}
                               onChange={(e) => {
-                                const newEscalas = [
-                                  ...(activeChar.escalas || []),
-                                ];
-                                newEscalas[idx].nome = e.target.value;
+                                const newEscalas = (activeChar.escalas || []).map((item, i) => {
+                                  if (i === idx) {
+                                    return { ...item, nome: e.target.value };
+                                  }
+                                  return item;
+                                });
                                 updateChar({ escalas: newEscalas });
                               }}
                               className="bg-transparent font-bold uppercase tracking-widest text-zinc-300 focus:outline-none flex-1 min-w-0 border-b border-transparent focus:border-amber-500/30 text-sm"
@@ -6538,10 +6979,12 @@ function App() {
                               <select
                                 value={s.bonus || "Força"}
                                 onChange={(e) => {
-                                  const newEscalas = [
-                                    ...(activeChar.escalas || []),
-                                  ];
-                                  newEscalas[idx].bonus = e.target.value;
+                                  const newEscalas = (activeChar.escalas || []).map((item, i) => {
+                                    if (i === idx) {
+                                      return { ...item, bonus: e.target.value };
+                                    }
+                                    return item;
+                                  });
                                   updateChar({ escalas: newEscalas });
                                 }}
                                 className="bg-black/60 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-amber-500 font-bold focus:outline-none focus:border-amber-500/50 ring-offset-black"
@@ -6601,10 +7044,12 @@ function App() {
                                             <button
                                               key={letter}
                                               onClick={() => {
-                                                const newEscalas = [
-                                                  ...(activeChar.escalas || []),
-                                                ];
-                                                newEscalas[idx].nivel = lIdx;
+                                                const newEscalas = (activeChar.escalas || []).map((item, i) => {
+                                                  if (i === idx) {
+                                                    return { ...item, nivel: lIdx };
+                                                  }
+                                                  return item;
+                                                });
                                                 updateChar({
                                                   escalas: newEscalas,
                                                 });
@@ -6651,13 +7096,12 @@ function App() {
                                   <motion.button
                                     whileTap={{ scale: 0.95 }}
                                     onClick={() => {
-                                      const newEscalas = [
-                                        ...(activeChar.escalas || []),
-                                      ];
-                                      newEscalas[idx].xp = Math.max(
-                                        0,
-                                        s.xp - 1,
-                                      );
+                                      const newEscalas = (activeChar.escalas || []).map((item, i) => {
+                                        if (i === idx) {
+                                          return { ...item, xp: Math.max(0, item.xp - 1) };
+                                        }
+                                        return item;
+                                      });
                                       updateChar({ escalas: newEscalas });
                                     }}
                                     className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded text-zinc-400 hover:text-white"
@@ -6674,13 +7118,14 @@ function App() {
                                           4,
                                           updatedS.nivel + 1,
                                         );
-                                        updatedS.xp =
-                                          updatedS.nivel === 4 ? 0 : 0;
+                                        updatedS.xp = 0;
                                       }
-                                      const newEscalas = [
-                                        ...(activeChar.escalas || []),
-                                      ];
-                                      newEscalas[idx] = updatedS;
+                                      const newEscalas = (activeChar.escalas || []).map((item, i) => {
+                                        if (i === idx) {
+                                          return updatedS;
+                                        }
+                                        return item;
+                                      });
                                       updateChar({ escalas: newEscalas });
                                     }}
                                     className="w-16"
@@ -6698,10 +7143,12 @@ function App() {
                                         );
                                         updatedS.xp = 0;
                                       }
-                                      const newEscalas = [
-                                        ...(activeChar.escalas || []),
-                                      ];
-                                      newEscalas[idx] = updatedS;
+                                      const newEscalas = (activeChar.escalas || []).map((item, i) => {
+                                        if (i === idx) {
+                                          return updatedS;
+                                        }
+                                        return item;
+                                      });
                                       updateChar({ escalas: newEscalas });
                                     }}
                                     className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded text-zinc-400 hover:text-white"
@@ -6726,10 +7173,18 @@ function App() {
                   </div>
                 </div>
               </Section>
+            )}
 
 
             </div>
-          ) : activePage === "dice" ? (
+          );
+
+          if (activePage === "sheet") {
+            return renderSheetContent();
+          }
+
+          const renderOtherPages = () => {
+            return activePage === "dice" ? (
           <div className="flex flex-col h-full w-full max-w-5xl mx-auto bg-zinc-950">
             {/* Tabs Header */}
             <div className="flex border-b border-zinc-800 bg-zinc-900/10">
@@ -6809,7 +7264,23 @@ function App() {
 
                         const totalHit = (acuraciaBonus || 0);
                         const weaponAcerto = (arma.acerto || 0);
-                        const danoStr = (arma.dano || "1d6").toLowerCase().replace(/\s+/g, "");
+                        let displayDano = arma.dano || "1d6";
+                        if (arma.categoria === 'Arma de Fogo') {
+                          if (arma.magazineAmmo && arma.magazineAmmo.length > 0) {
+                            displayDano = arma.magazineAmmo[0].dano || "1d6";
+                          } else {
+                            const loadedBullet = (activeChar.compartimentos || [])
+                              .filter((c: any) => !c.externo)
+                              .flatMap((c: any) => (c.itens || []))
+                              .find((i: any) => i.id === arma.bulletId);
+                            if (loadedBullet && loadedBullet.dano) {
+                              displayDano = loadedBullet.dano;
+                            } else {
+                              displayDano = "Falta Bala";
+                            }
+                          }
+                        }
+                        const danoStr = displayDano.toLowerCase().replace(/\s+/g, "");
 
                         return (
                           <motion.button
@@ -7277,11 +7748,23 @@ function App() {
                                 </div>
                               </div>
                             </div>
-                            {roll.isCombat && roll.hitSucceeded !== false && (
-                              <div className="bg-amber-500/10 px-2 py-1 rounded text-amber-500 text-[10px] font-black uppercase">
-                                {roll.dmgResult} Dano
+                            {roll.isCombat ? (
+                              <div className="flex flex-col items-end gap-1">
+                                {roll.hitSucceeded !== false && (
+                                  <div className="bg-amber-500/10 px-2 py-1 rounded text-amber-500 text-[10px] font-black uppercase leading-none">
+                                    {roll.dmgResult} Dano
+                                  </div>
+                                )}
+                                <div className={cn(
+                                  "px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider leading-none",
+                                  roll.hitSucceeded === false 
+                                    ? (getDetailedCombatTitle(roll).includes("defendeu") ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20")
+                                    : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                )}>
+                                  {getDetailedCombatTitle(roll)}
+                                </div>
                               </div>
-                            )}
+                            ) : null}
                           </div>
 
                           <div className="text-[9px] text-zinc-400/80 leading-tight">
@@ -7363,6 +7846,7 @@ function App() {
                     title={note.titulo || "Sem Título"}
                     icon={<FileText size={18} />}
                     collapsible
+                    defaultCollapsed={true}
                   >
                     <div className="space-y-4">
                       <div className="flex justify-between items-center gap-4">
@@ -7373,9 +7857,10 @@ function App() {
                           <input
                             value={note.titulo || ""}
                             onChange={(e) => {
-                              const newNotes = [...activeChar.anotacoes];
-                              newNotes[idx].titulo = e.target.value;
-                              updateChar(c => ({ anotacoes: newNotes }));
+                              const newNotes = (activeChar.anotacoes || []).map((n, i) =>
+                                i === idx ? { ...n, titulo: e.target.value } : n
+                              );
+                              updateChar({ anotacoes: newNotes });
                             }}
                             className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold"
                             placeholder="Digite o título..."
@@ -7402,8 +7887,9 @@ function App() {
                         <textarea
                           value={note.conteudo ?? ""}
                           onChange={(e) => {
-                            const newNotes = [...activeChar.anotacoes];
-                            newNotes[idx].conteudo = e.target.value;
+                            const newNotes = (activeChar.anotacoes || []).map((n, i) =>
+                              i === idx ? { ...n, conteudo: e.target.value } : n
+                            );
                             updateChar({ anotacoes: newNotes });
                           }}
                           rows={15}
@@ -7452,7 +7938,7 @@ function App() {
                     Biblioteca de Personagens
                   </h2>
                   <p className="text-zinc-500 text-sm">
-                    {state.characters.length} personagem(ns) sincronizados com a nuvem.
+                    {state.characters.filter(char => !user || !char.userId || char.userId === user.uid).length} personagem(ns) sincronizados com a nuvem.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -7590,6 +8076,21 @@ function App() {
                               e.stopPropagation();
                               if (charIdToDelete === char.id) {
                                 deletedCharsRef.current.add(char.id);
+                                if (char.campaignId) {
+                                  try {
+                                    const storedKey = `campaign_characters_${char.campaignId}`;
+                                    const stored = localStorage.getItem(storedKey);
+                                    if (stored) {
+                                      const parsed = JSON.parse(stored);
+                                      if (Array.isArray(parsed)) {
+                                        const filtered = parsed.filter((c: any) => c.id !== char.id);
+                                        localStorage.setItem(storedKey, JSON.stringify(filtered));
+                                      }
+                                    }
+                                  } catch (e) {
+                                    console.error("Error cleaning up deleted char from campaign cache:", e);
+                                  }
+                                }
                                 // Cancel any pending sync timers before deleting to prevent race condition uploads
                                 if (syncTimersRef.current[char.id]) {
                                   console.log(`🛑 [LibraryDelete] Cancelando upload pendente do personagem de ID ${char.id} antes da remoção`);
@@ -7815,7 +8316,12 @@ function App() {
                        <button 
                          onClick={async () => {
                            if (!newCampaignName) return;
-                           const camp = await createCampaign(newCampaignName);
+                           let camp = null;
+                            try {
+                              camp = await createCampaign(newCampaignName);
+                            } catch (err: any) {
+                              showToast(err.message || "Erro ao criar campanha.", "error");
+                            }
                            if (camp) {
                              showToast("Campanha criada!", "success");
                              setNewCampaignName("");
@@ -8042,12 +8548,14 @@ function App() {
                               const hasEvents = tableConfig.events?.some(e => e.day === day && e.month === tableConfig.date?.month);
                               const isSelected = selectedCalendarDay === day;
 
+                              const moon = getMoonPhase(day);
                               return (
                                 <button
                                   key={day}
                                   onClick={() => setSelectedCalendarDay(day)}
+                                  title={`${day} de ${new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date(2024, (tableConfig.date?.month || 1) - 1, 1))} - ${moon.name}: ${moon.description}`}
                                   className={cn(
-                                    "aspect-square rounded-lg text-[10px] font-bold flex flex-col items-center justify-center relative transition-all border",
+                                    "aspect-square rounded-lg text-[10px] font-bold flex flex-col items-center justify-between p-1 relative transition-all border",
                                     isToday 
                                       ? "bg-amber-500/20 border-amber-500 text-amber-500" 
                                       : isSelected
@@ -8055,9 +8563,10 @@ function App() {
                                       : "bg-zinc-900 border-zinc-800 text-zinc-600 hover:border-zinc-700 hover:text-zinc-400"
                                   )}
                                 >
-                                  {day}
+                                  <span className="self-start text-[8px] font-mono leading-none opacity-50">{day}</span>
+                                  <span className="text-sm select-none" title={moon.name}>{moon.icon}</span>
                                   {hasEvents && (
-                                    <div className="absolute bottom-1 w-1 h-1 rounded-full bg-amber-500" />
+                                    <div className="absolute bottom-1 right-1 w-1 h-1 rounded-full bg-amber-500" />
                                   )}
                                 </button>
                               );
@@ -8182,10 +8691,11 @@ function App() {
                                   try {
                                     await deleteCampaign(camp.id);
                                     if (activeCampaignId === camp.id) setActiveCampaignIdWithSync(null);
-                                    showToast("Campanha apagada.", "success");
+                                    showToast("Campanha apagada com sucesso.", "success");
                                     setCampaignToDelete(null);
                                   } catch (err: any) {
-                                    showToast("Erro ao apagar campanha.", "error");
+                                    console.error("Erro ao apagar campanha:", err);
+                                    showToast(`Erro ao apagar campanha: ${err.message || err}`, "error");
                                   }
                                 } else {
                                   setCampaignToDelete(camp.id);
@@ -8216,11 +8726,11 @@ function App() {
                         <UserIcon size={12} /> Campanhas que Participo
                       </h3>
                       <div className="space-y-2">
-                        {joinedCampaigns.map(camp => (
+                        {joinedCampaigns.filter(camp => camp.masterId !== user?.uid).map(camp => (
                           <div
                             key={camp.id}
                             className={cn(
-                              "group relative w-full p-4 rounded-2xl border transition-all flex flex-col gap-1 cursor-pointer",
+                              "group relative w-full p-4 rounded-2xl border transition-all flex flex-col gap-1 cursor-pointer pr-14",
                               activeCampaignId === camp.id
                                 ? "bg-blue-600/10 border-blue-500 text-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.1)]"
                                 : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700"
@@ -8233,13 +8743,61 @@ function App() {
                                Jogador
                             </div>
                             {activeCampaignId === camp.id && (
-                              <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                              <div className="absolute right-12 top-1/2 -translate-y-1/2">
                                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
                               </div>
                             )}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const linkedChars = state.characters.filter(c => c.campaignId === camp.id);
+                                linkedChars.forEach(char => {
+                                  updateChar({ campaignId: "" }, char.id);
+                                });
+                                if (activeCampaignId === camp.id) setActiveCampaignIdWithSync(null);
+                                showToast(`Você saiu da campanha "${camp.name}"!`, "success");
+                              }}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl bg-zinc-950 text-zinc-600 hover:text-red-500 hover:bg-zinc-800 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                              title="Sair da Campanha (Desvincular Fichas)"
+                            >
+                              <LogOut size={14} />
+                            </button>
                           </div>
                         ))}
-                        {joinedCampaigns.length === 0 && (
+                        
+                        {orphanedCampaignIds.map(orphanId => {
+                          const linkedChars = state.characters.filter(c => c.campaignId === orphanId);
+                          const charNames = linkedChars.map(c => c.nome).join(', ');
+                          return (
+                            <div
+                              key={orphanId}
+                              className="group relative w-full p-4 rounded-2xl border border-dashed border-red-900/40 bg-red-950/5 text-zinc-400 flex flex-col gap-1 pr-14"
+                            >
+                              <span className="font-bold text-red-400 text-sm">Campanha Perdida / Órfã</span>
+                              <span className="text-[9px] text-zinc-500 font-mono">ID: {orphanId}</span>
+                              {charNames && (
+                                <span className="text-[10px] text-zinc-500 mt-1">
+                                  Vinculado em: <strong className="text-zinc-400">{charNames}</strong>
+                                </span>
+                              )}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  linkedChars.forEach(char => {
+                                    updateChar({ campaignId: "" }, char.id);
+                                  });
+                                  showToast("Campanha fantasma desvinculada com sucesso!", "success");
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl bg-zinc-950 text-zinc-600 hover:text-red-500 hover:bg-zinc-800 transition-all"
+                                title="Limpar / Desvincular"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          );
+                        })}
+
+                        {joinedCampaigns.filter(camp => camp.masterId !== user?.uid).length === 0 && orphanedCampaignIds.length === 0 && (
                           <div className="text-center py-8 bg-zinc-900/50 border border-dashed border-zinc-800 rounded-2xl">
                              <p className="text-[10px] text-zinc-600 font-bold uppercase">Nenhuma campanha vinculada</p>
                           </div>
@@ -8251,7 +8809,7 @@ function App() {
                   {/* Fichas na Campanha */}
                   <div className="lg:col-span-8">
                     <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest px-1">Fichas na Selecionada</h3>
-                    {activeCampaignId ? (
+                    {activeCampaignId && campaigns.some(c => c.id === activeCampaignId) ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {campaignCharacters.map(char => (
                           <div 
@@ -8328,7 +8886,12 @@ function App() {
                 Gerencie as criaturas e inimigos que aparecerão em suas campanhas.
               </p>
             </div>
-            <Bestiary />
+            <Bestiary 
+              onEditMonsterSheet={(monsterId) => {
+                setBestiaryEditingMonsterId(monsterId);
+                setActivePage("sheet");
+              }}
+            />
           </div>
         ) : activePage === "toca" ? (
           <div className="max-w-6xl mx-auto">
@@ -8339,6 +8902,10 @@ function App() {
                 cutItem={cutItem} 
                 setCutItem={setCutItem} 
                 showToast={showToast} 
+                onEditCreatureSheet={(creatureId) => {
+                  setTocaEditingCreatureId(creatureId);
+                  setActivePage("sheet");
+                }}
               />
             ) : (
               <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/10 border border-dashed border-zinc-800 rounded-3xl">
@@ -8374,9 +8941,45 @@ function App() {
               }}
             />
           </div>
+        ) : activePage === "items" ? (
+          <div className="max-w-7xl mx-auto p-6">
+            <div className="mb-6">
+              <h1 className="text-3xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
+                <Package size={32} className="text-amber-500" /> Biblioteca de Itens
+              </h1>
+              <p className="text-zinc-500 text-sm mt-1">
+                Gerencie itens personalizados salvos no banco de dados e envie-os diretamente para a mochila dos personagens.
+              </p>
+            </div>
+            <ItemLibrary 
+              characters={state.characters}
+              activeCharId={state.activeCharacterId}
+              onAddItemToCharacter={handleAddItemToCharacterCompartment}
+              showToast={showToast}
+              user={user}
+            />
+          </div>
+        ) : activePage === "spells" ? (
+          <div className="max-w-7xl mx-auto p-6">
+            <div className="mb-6">
+              <h1 className="text-3xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
+                <Wand2 size={32} className="text-amber-500" /> Biblioteca de Magias
+              </h1>
+              <p className="text-zinc-500 text-sm mt-1">
+                Gerencie magias personalizadas salvas no banco de dados e envie-as diretamente para a lista de magias dos personagens.
+              </p>
+            </div>
+            <SpellLibrary 
+              characters={state.characters}
+              activeCharId={state.activeCharacterId}
+              onAddSpellToCharacter={handleAddSpellToCharacter}
+              showToast={showToast}
+              user={user}
+            />
+          </div>
         ) : activePage === "table" ? (
           <div className="flex-1 h-full overflow-hidden relative overscroll-none touch-none">
-            {activeCampaignId ? (
+            {activeCampaignId && campaigns.some(c => c.id === activeCampaignId) ? (
               <VTTBoard 
                 campaignId={activeCampaignId}
                 isMaster={campaigns.find(c => c.id === activeCampaignId)?.masterId === user?.uid}
@@ -8387,6 +8990,9 @@ function App() {
                 customMaterials={customMaterials}
                 showToast={showToast}
                 onUpdateCharacter={updateChar}
+                isVttSheetOpen={isVttSheetOpen}
+                setIsVttSheetOpen={setIsVttSheetOpen}
+                renderCharacterSheet={renderSheetContent}
                 onAddToken={async (t) => {
                   console.log("[App] onAddToken triggered:", t);
                   try {
@@ -8423,7 +9029,11 @@ function App() {
               />
             </div>
           </div>
-        ) : null}
+        ) : null;
+          };
+
+          return renderOtherPages();
+        })()}
 
         {/* Floating Action Bars for Multi-Copy/Paste */}
         <AnimatePresence>
@@ -8586,15 +9196,29 @@ function App() {
               <div className="w-full">
                 {/* Combat Banner */}
                 <div className={cn(
-                  "p-2 flex items-center justify-center gap-2",
-                  lastRoll.hitSucceeded === false ? "bg-zinc-800" : "bg-amber-500"
+                  "p-3 flex flex-col items-center justify-center text-center border-b border-zinc-800/60 rounded-t-[22px]",
+                  lastRoll.hitSucceeded === false 
+                    ? (
+                        getDetailedCombatTitle(lastRoll).includes("defendeu") 
+                          ? "bg-gradient-to-r from-blue-950/90 to-indigo-950/90 border-b border-blue-500/20" 
+                          : "bg-zinc-800"
+                      ) 
+                    : "bg-gradient-to-r from-amber-600 to-amber-500"
                 )}>
-                  <Sword size={16} className={lastRoll.hitSucceeded === false ? "text-red-500" : "text-zinc-950"} />
+                  <div className="flex items-center gap-2">
+                    <Sword size={12} className={lastRoll.hitSucceeded === false ? "text-blue-400" : "text-zinc-950"} />
+                    <span className={cn(
+                      "text-[9px] font-black uppercase tracking-widest opacity-85",
+                      lastRoll.hitSucceeded === false ? "text-zinc-400" : "text-zinc-900"
+                    )}>
+                      {lastRoll.armaNome || "Ataque"}
+                    </span>
+                  </div>
                   <span className={cn(
-                    "text-xs font-black uppercase tracking-widest",
-                    lastRoll.hitSucceeded === false ? "text-zinc-400" : "text-zinc-950"
+                    "text-xs font-black uppercase tracking-widest mt-1",
+                    lastRoll.hitSucceeded === false ? "text-zinc-100" : "text-zinc-950"
                   )}>
-                    {lastRoll.armaNome} {lastRoll.hitSucceeded === false ? "- FALHA" : ""}
+                    {getDetailedCombatTitle(lastRoll)}
                   </span>
                 </div>
 
@@ -9346,11 +9970,18 @@ const WeaponProperties = React.memo(({
       </div>
 
       <div className="grid grid-cols-2 gap-1.5">
-        <MiniInput
-          label="Dano"
-          value={item.dano || "0"}
-          onChange={(v) => onChange({ dano: v })}
-        />
+        {!isFirearm ? ( 
+          <MiniInput
+            label="Dano"
+            value={item.dano || "0"}
+            onChange={(v) => onChange({ dano: v })}
+          />
+        ) : (
+          <div className="flex flex-col gap-0.5 bg-zinc-950/30 p-1 rounded border border-dashed border-zinc-800/50 justify-center">
+            <span className="text-[7px] text-zinc-600 font-bold uppercase px-0.5">Dano Arma de Fogo</span>
+            <span className="text-[9px] text-amber-500 font-mono px-0.5">Definido pelas Balas</span>
+          </div>
+        )}
         <MiniInput
           label="Acerto"
           value={item.acerto || 0}
@@ -9464,7 +10095,7 @@ const WeaponProperties = React.memo(({
               const bullet = internalBullets.find(it => it.id === item.bulletId);
               if (bullet && bullet.quantidade > 0 && (item.municaoCarregada || 0) < (item.municaoTotal || 0) && updateCharacter) {
                 const amountToLoad = 1;
-                const bulletProperties = { perfuracao: bullet.perfuracao || 0, impacto: bullet.impacto || 0, resistencia: bullet.resistencia || 0, nome: bullet.nome };
+                const bulletProperties = { perfuracao: bullet.perfuracao || 0, impacto: bullet.impacto || 0, resistencia: bullet.resistencia || 0, nome: bullet.nome, dano: bullet.dano || "0" };
                 const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...bulletProperties, id: generateId() }));
                 updateCharacter((c: any) => {
                   const newCompartimentos = (c.compartimentos || []).map((comp: any) => ({ ...comp, itens: (comp.itens || []).map((i: any) => i.id === bullet.id ? { ...i, quantidade: Math.max(0, i.quantidade - amountToLoad) } : i) }));
@@ -9485,7 +10116,7 @@ const WeaponProperties = React.memo(({
               if (bullet && bullet.quantidade > 0 && (item.municaoCarregada || 0) < (item.municaoTotal || 0) && updateCharacter) {
                 const needed = (item.municaoTotal || 0) - (item.municaoCarregada || 0);
                 const amountToLoad = Math.min(bullet.quantidade, needed);
-                const bulletProperties = { perfuracao: bullet.perfuracao || 0, impacto: bullet.impacto || 0, resistencia: bullet.resistencia || 0, nome: bullet.nome };
+                const bulletProperties = { perfuracao: bullet.perfuracao || 0, impacto: bullet.impacto || 0, resistencia: bullet.resistencia || 0, nome: bullet.nome, dano: bullet.dano || "0" };
                 const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...bulletProperties, id: generateId() }));
                 updateCharacter((c: any) => {
                   const newCompartimentos = (c.compartimentos || []).map((comp: any) => ({ ...comp, itens: (comp.itens || []).map((i: any) => i.id === bullet.id ? { ...i, quantidade: Math.max(0, i.quantidade - amountToLoad) } : i) }));
@@ -9617,9 +10248,9 @@ const AmmunitionProperties = React.memo(({
   onChange: (updates: any) => void;
 }) => {
   const templates = [
-    { name: 'Bala', weight: 0.1, vol: 0.3 },
-    { name: 'Flecha (A. Curto)', weight: 0.5, vol: 0.9 },
-    { name: 'Flecha (A. Longo)', weight: 0.6, vol: 1.3 },
+    { name: 'Bala', weight: 0.1, vol: 0.3, dano: '2d6' },
+    { name: 'Flecha (A. Curto)', weight: 0.5, vol: 0.9, dano: '1d6' },
+    { name: 'Flecha (A. Longo)', weight: 0.6, vol: 1.3, dano: '1d8' },
   ];
 
   return (
@@ -9632,7 +10263,8 @@ const AmmunitionProperties = React.memo(({
             onClick={() => onChange({ 
               nome: item.nome === "Nova Munição" ? tmp.name : item.nome, 
               peso: tmp.weight, 
-              volume: tmp.vol 
+              volume: tmp.vol,
+              dano: tmp.dano
             })}
             className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-[7px] font-black uppercase text-zinc-400 border border-zinc-700 transition-colors"
           >
@@ -9642,6 +10274,11 @@ const AmmunitionProperties = React.memo(({
       </div>
 
       <div className="grid grid-cols-2 gap-2">
+        <MiniInput 
+          label="Dano (ex: 2d6, 1d10)" 
+          value={item.dano || ""} 
+          onChange={(v) => onChange({ dano: v })} 
+        />
         <MiniInput 
           label="Perf." 
           value={item.perfuracao || 0} 

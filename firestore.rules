@@ -15,7 +15,7 @@ service cloud.firestore {
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isSignedIn() { return request.auth != null; }
-    function isVerified() { return isSignedIn() && request.auth.token.get('email_verified', false) == true; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
     function isOwner(data) { return isSignedIn() && data.get('userId', '') == request.auth.uid; }
     function isMember() { return isSignedIn(); } // Simplified for reliability
 
@@ -39,19 +39,19 @@ service cloud.firestore {
     function isValidCharacter(data) {
       return data.get('id', '') != '' &&
              data.get('nome', '') != '' &&
-             (data.get('userId', '') != '' || data.get('userEmail', '') != '');
+             (data.get('user_id', '') != '' || data.get('user_email', '') != '');
     }
 
     // Helper for character ownership
     function isCharOwner(charId) {
       return isSignedIn() && (
         (exists(/databases/$(database)/documents/characters/$(charId)) && (
-          get(/databases/$(database)/documents/characters/$(charId)).data.userId == request.auth.uid ||
-          get(/databases/$(database)/documents/characters/$(charId)).data.userEmail == request.auth.token.email
+          get(/databases/$(database)/documents/characters/$(charId)).data.user_id == request.auth.uid ||
+          get(/databases/$(database)/documents/characters/$(charId)).data.user_email == request.auth.token.email
         )) ||
         (request.resource != null && (
-          request.resource.data.userId == request.auth.uid ||
-          request.resource.data.userEmail == request.auth.token.email
+          request.resource.data.user_id == request.auth.uid ||
+          request.resource.data.user_email == request.auth.token.email
         ))
       );
     }
@@ -71,23 +71,28 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow update, delete: if isSignedIn() && (
         resource.data.get('masterId', '') == request.auth.uid ||
-        resource.data.get('masterEmail', '') == request.auth.token.get('email', '')
+        resource.data.get('master_id', '') == request.auth.uid ||
+        resource.data.get('masterEmail', '') == request.auth.token.email ||
+        resource.data.get('master_email', '') == request.auth.token.email ||
+        (resource.data.get('data', null) != null && (
+          resource.data.data.get('masterId', '') == request.auth.uid ||
+          resource.data.data.get('masterEmail', '') == request.auth.token.email
+        ))
       );
 
       // VTT Tokens
       match /tokens/{tokenId} {
-        allow read, write: if isSignedIn();
+        allow read, write: if true;
       }
 
       // VTT Config
       match /config/{configId} {
-        allow read: if isSignedIn();
-        allow write: if isSignedIn();
+        allow read, write: if true;
       }
 
       // VTT Combat Logs
       match /vtt_logs/{logId} {
-        allow read, write: if isSignedIn();
+        allow read, write: if true;
       }
     }
 
@@ -96,7 +101,13 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow update, delete: if isSignedIn() && (
         resource.data.get('masterId', '') == request.auth.uid ||
-        resource.data.get('masterEmail', '') == request.auth.token.get('email', '')
+        resource.data.get('master_id', '') == request.auth.uid ||
+        resource.data.get('masterEmail', '') == request.auth.token.email ||
+        resource.data.get('master_email', '') == request.auth.token.email ||
+        (resource.data.get('data', null) != null && (
+          resource.data.data.get('masterId', '') == request.auth.uid ||
+          resource.data.data.get('masterEmail', '') == request.auth.token.email
+        ))
       );
     }
 
@@ -105,8 +116,57 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow update, delete: if isSignedIn() && (
         resource.data.get('masterId', '') == request.auth.uid ||
-        resource.data.get('masterEmail', '') == request.auth.token.get('email', '')
+        resource.data.get('master_id', '') == request.auth.uid ||
+        resource.data.get('masterEmail', '') == request.auth.token.email ||
+        resource.data.get('master_email', '') == request.auth.token.email ||
+        (resource.data.get('data', null) != null && (
+          resource.data.data.get('masterId', '') == request.auth.uid ||
+          resource.data.data.get('masterEmail', '') == request.auth.token.email
+        ))
       );
+    }
+
+    match /custom_items/{itemId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (
+        resource.data.get('masterId', '') == request.auth.uid ||
+        resource.data.get('master_id', '') == request.auth.uid ||
+        resource.data.get('masterEmail', '') == request.auth.token.email ||
+        resource.data.get('master_email', '') == request.auth.token.email ||
+        (resource.data.get('data', null) != null && (
+          resource.data.data.get('masterId', '') == request.auth.uid ||
+          resource.data.data.get('masterEmail', '') == request.auth.token.email
+        ))
+      );
+    }
+
+    match /custom_spells/{spellId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (
+        resource.data.get('masterId', '') == request.auth.uid ||
+        resource.data.get('master_id', '') == request.auth.uid ||
+        resource.data.get('masterEmail', '') == request.auth.token.email ||
+        resource.data.get('master_email', '') == request.auth.token.email ||
+        (resource.data.get('data', null) != null && (
+          resource.data.data.get('masterId', '') == request.auth.uid ||
+          resource.data.data.get('master_email', '') == request.auth.token.email ||
+          resource.data.data.get('masterEmail', '') == request.auth.token.email
+        ))
+      );
+    }
+
+    match /tokens/{tokenId} {
+      allow read, write: if true;
+    }
+
+    match /campaign_configs/{configId} {
+      allow read, write: if true;
+    }
+
+    match /vtt_logs/{logId} {
+      allow read, write: if true;
     }
 
     match /users/{userId} {
@@ -115,27 +175,7 @@ service cloud.firestore {
     }
 
     match /characters/{characterId} {
-      allow read: if isSignedIn();
-      
-      allow create: if isSignedIn();
-      
-      allow update: if isSignedIn() && (
-        // Owner can do everything
-        resource.data.get('userId', '') == request.auth.uid ||
-        resource.data.get('userEmail', '') == request.auth.token.get('email', '') ||
-        // Master can do everything
-        (resource.data.get('campaignId', '') != '' && 
-         exists(/databases/$(database)/documents/campaigns/$(resource.data.campaignId)) &&
-         (get(/databases/$(database)/documents/campaigns/$(resource.data.campaignId)).data.get('masterId', '') == request.auth.uid ||
-          get(/databases/$(database)/documents/campaigns/$(resource.data.campaignId)).data.get('masterEmail', '') == request.auth.token.get('email', ''))) ||
-        // Other players in same campaign can update combat stats and inventory (for looting)
-        (resource.data.get('campaignId', '') != '')
-      );
-
-      allow delete: if isSignedIn() && (
-        resource.data.get('userId', '') == request.auth.uid ||
-        resource.data.get('userEmail', '') == request.auth.token.get('email', '')
-      );
+      allow read, write: if isSignedIn();
     }
   }
 }
