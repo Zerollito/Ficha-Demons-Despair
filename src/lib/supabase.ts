@@ -9,14 +9,33 @@ export enum OperationType {
   WRITE = 'write',
 }
 
-// Read Supabase environment variables
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Read and sanitize Supabase environment variables
+let rawUrl = (import.meta.env.VITE_SUPABASE_URL || "").trim();
+if (rawUrl) {
+  // Fix common typo where "https" is accidentally concatenated at the end of the domain (e.g., fpidgwgounwjlzxforjl.supabase.cohttps)
+  if (rawUrl.endsWith("cohttps")) {
+    rawUrl = rawUrl.slice(0, -5);
+  } else if (rawUrl.includes("supabase.cohttps")) {
+    rawUrl = rawUrl.replace("supabase.cohttps", "supabase.co");
+  }
+  // Remove any trailing slash
+  if (rawUrl.endsWith("/")) {
+    rawUrl = rawUrl.slice(0, -1);
+  }
+  // Ensure it starts with https:// if it has only the domain name
+  if (rawUrl && !rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
+    rawUrl = 'https://' + rawUrl;
+  }
+}
+
+const supabaseUrl = rawUrl;
+const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim();
 
 const isConfigured = supabaseUrl && supabaseAnonKey && 
                       supabaseUrl !== "placeholder_url" && 
                       supabaseAnonKey !== "placeholder_key" &&
-                      supabaseUrl.startsWith('http');
+                      supabaseUrl.startsWith('http') &&
+                      supabaseUrl.includes('.supabase.co');
 
 export const realSupabaseClient = isConfigured 
   ? createClient(supabaseUrl, supabaseAnonKey)
