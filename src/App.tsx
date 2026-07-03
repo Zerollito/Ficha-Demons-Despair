@@ -3350,14 +3350,14 @@ function App() {
           <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
             <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
             <div className="w-[1px] h-3 bg-zinc-800" />
-            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v18.2</span>
+            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v18.3</span>
           </div>
 
           {/* Quick Active Page Status - desktop only */}
           <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
               <div className="flex flex-col">
                 <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v18.2</span>
+                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v18.3</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
