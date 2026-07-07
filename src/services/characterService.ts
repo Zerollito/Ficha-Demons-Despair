@@ -47,6 +47,9 @@ export const saveCharacterToFirestore = async (character: Character) => {
 
   try {
     const cleanCharacter = deepClean(character);
+    cleanCharacter.userId = targetUserId;
+    cleanCharacter.userEmail = targetUserEmail;
+
     const { error } = await supabase
       .from(CHARACTERS_TABLE)
       .upsert({
@@ -117,7 +120,10 @@ export const subscribeToUserCharacters = (
       snapshot.forEach((doc) => {
         const docData = doc.data();
         if (docData && docData.data) {
-          characters.push(docData.data as Character);
+          const char = { ...docData.data } as Character;
+          if (!char.userId && docData.user_id) char.userId = docData.user_id;
+          if (!char.userEmail && docData.user_email) char.userEmail = docData.user_email;
+          characters.push(char);
         }
       });
       onUpdate(characters, { hasPendingWrites: false, fromCache: false });

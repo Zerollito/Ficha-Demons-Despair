@@ -1982,13 +1982,13 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       const isBow = isBowItem(action);
       
       let actingBullet: any = null;
-      if (isFirearm && action.magazineAmmo && action.magazineAmmo.length > 0) {
+      if ((isFirearm || isBow) && action.magazineAmmo && action.magazineAmmo.length > 0) {
         actingBullet = action.magazineAmmo[0];
       }
 
-      if (isFirearm) {
+      if (isFirearm || isBow) {
         if ((action.municaoCarregada || 0) <= 0) {
-          const msg = `⚠️ A arma "${action.nome || action.name}" está descarregada!`;
+          const msg = `⚠️ O arco/arma "${action.nome || action.name}" está descarregado(a)!`;
           setCombatLog(prev => [{ msg, type: 'error' }, ...prev]);
           triggerScreenAlert(msg, 'warning');
           setIsAttackingMode(false);
@@ -1997,7 +1997,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           return;
         }
         if ((action.durabilidade || 0) <= 0 && (action.maxDurabilidade || 0) <= 0) {
-          const msg = `❌ A arma "${action.nome || action.name}" está quebrada e não pode mais disparar!`;
+          const msg = `❌ O arco/arma "${action.nome || action.name}" está quebrado(a) e não pode ser usado(a)!`;
           setCombatLog(prev => [{ msg, type: 'error' }, ...prev]);
           triggerScreenAlert(msg, 'error');
           setIsAttackingMode(false);
@@ -2018,7 +2018,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       // 1. Identify Attack Type, Level and Resistance/Potential
       let attackType: 'Corte' | 'Perfuração' | 'Impacto' | 'Elemental' | 'Magia Negra' = 'Corte';
       let attackLevel = 0;
-      let attackerResonance = 0;
+      let attackerResistencia = 0;
       
       const isPhysical = (type: string) => ['Corte', 'Perfuração', 'Impacto'].includes(type);
 
@@ -2036,7 +2036,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             return currVal > bestVal ? curr : best;
           }, null as any);
           attackLevel = bestCatalyst ? ((bestCatalyst as any)[katKey] || 0) : 0;
-          attackerResonance = bestCatalyst ? (bestCatalyst.potencial || 0) : 0;
+          attackerResistencia = bestCatalyst ? (bestCatalyst.potencial || 0) : 0;
         } else {
           let v: any = { 
             'Corte': getVal(action, 'Corte'), 
@@ -2059,10 +2059,10 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           }
 
           // If action has a category, prefer it
-          if (monsterAction.categoria && v[monsterAction.categoria] !== undefined) {
-            attackType = monsterAction.categoria as any;
-          } else if (forcedType && v[forcedType] > 0) {
+          if (forcedType && v[forcedType] > 0) {
             attackType = forcedType;
+          } else if (monsterAction.categoria && v[monsterAction.categoria] !== undefined) {
+            attackType = monsterAction.categoria as any;
           } else if (chosenAttackType) {
             const found = Object.keys(v).find(k => k.toLowerCase() === (typeof chosenAttackType === 'string' ? chosenAttackType.toLowerCase() : ''));
             if (found && v[found] > 0) attackType = found as any;
@@ -2072,19 +2072,25 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           }
 
           attackLevel = v[attackType] || 0;
-          attackerResonance = Number(action.resistencia) || 0;
+          attackerResistencia = Number(action.resistencia) || 0;
 
-          if (isFirearm && actingBullet) {
+          if ((isFirearm || isBow) && actingBullet) {
             const bv = {
               'Corte': getVal(actingBullet, 'Corte'),
               'Perfuração': getVal(actingBullet, 'Perfuração'),
               'Impacto': getVal(actingBullet, 'Impacto')
             };
-            const maxBV = Math.max(bv.Corte, bv['Perfuração'], bv.Impacto);
-            if (maxBV > 0) {
-                attackType = Object.entries(bv).reduce((a: any, b: any) => a[1] > b[1] ? a : b)[0] as any;
-                attackLevel = bv[attackType];
-                attackerResonance = Number(actingBullet.resistencia) || 0;
+            if (forcedType && bv[forcedType] > 0) {
+              attackType = forcedType;
+              attackLevel = bv[forcedType];
+              attackerResistencia = Number(actingBullet.resistencia) || 0;
+            } else {
+              const maxBV = Math.max(bv.Corte, bv['Perfuração'], bv.Impacto);
+              if (maxBV > 0) {
+                  attackType = Object.entries(bv).reduce((a: any, b: any) => a[1] > b[1] ? a : b)[0] as any;
+                  attackLevel = bv[attackType];
+                  attackerResistencia = Number(actingBullet.resistencia) || 0;
+              }
             }
           }
         }
@@ -2101,12 +2107,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           else if (chosenAttackType && (v as any)[chosenAttackType] > 0) attackType = chosenAttackType as any;
           else attackType = Object.entries(v).reduce((a: any, b: any) => a[1] > b[1] ? a : b)[0] as any;
           attackLevel = v[attackType];
-          attackerResonance = Number(action.resistencia) || 0;
+          attackerResistencia = Number(action.resistencia) || 0;
         } else {
           attackType = forcedType || chosenAttackType || action.categoria || 'Corte';
           const key = getMapKey(attackType);
           attackLevel = (attacker.stats.ataque as any)[key] || 0;
-          attackerResonance = isPhysical(attackType) 
+          attackerResistencia = isPhysical(attackType) 
             ? (attacker.stats.ataque.resistencia || 0) 
             : (attacker.stats.ataque.potencial || 0);
         }
@@ -2270,49 +2276,107 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     if (hitBaseCheckOk || isCriticalHit) {
       if (attackLevel >= targetDefenseLevel) {
         defenseLog = ` (Dano Direto - Nível ${attackLevel} vs ${targetDefenseLevel})`;
-      } else if (attackLevel + attackerResonance >= targetDefenseLevel) {
-        defenseLog = ` (Dano por Resistência - Nível ${attackLevel}+${attackerResonance} vs ${targetDefenseLevel})`;
+      } else if (attackLevel + attackerResistencia >= targetDefenseLevel) {
+        defenseLog = ` (Dano por Resistência - Nível ${attackLevel}+${attackerResistencia} vs ${targetDefenseLevel})`;
         attackerWeaponDurabilityDown = true;
       } else {
         blockSuccessful = true;
         attackerWeaponDurabilityDown = true;
-        defenseLog = ` (Bloqueio por Nível - Nível ${attackLevel}+${attackerResonance} vs ${targetDefenseLevel})`;
+        defenseLog = ` (Bloqueio por Nível - Nível ${attackLevel}+${attackerResistencia} vs ${targetDefenseLevel})`;
         combatStatus = 'armor_blocked';
       }
     }
 
     // Active Defense (Weapon Block)
-    if (!blockSuccessful && target.isDefending && target.defenseType === 'Weapon' && !isRangedOrMagic) {
-      const defR = roll3d8Value();
-      targetDefenseDiceRolls = defR.rolls;
-      targetDefenseDiceTotal = defR.total;
+    const isFirearmWeapon = isFirearmItem(actionOrWeapon);
+    const isBowWeapon = isBowItem(actionOrWeapon);
+    const isMagic = ['feitiço', 'elemental', 'magia negra', 'magia'].some(t => attackType.toLowerCase().includes(t.toLowerCase())) ||
+                    (actionOrWeapon?.tipo || "").toLowerCase() === 'magia' ||
+                    (actionOrWeapon?.tipo || "").toLowerCase() === 'habilidade';
 
-      if (defR.total >= attackerRawDiceTotal + 4) {
-        const defWeapon = targetChar ? [...targetChar.armas, ...targetChar.compartimentos.flatMap(c => c.itens)].find(i => i.id === target.defenseWeaponId) : null;
-        let defCompLevel = 0;
-        let defCompResist = 0;
-        if (defWeapon) {
-          defCompLevel = (defWeapon as any)[key] || 0;
-          defCompResist = (defWeapon as any).resistencia || 0;
-        } else if (target.type === 'creature' && target.stats) {
-          defCompLevel = (target.stats.defesa as any)[key] || 0;
-          defCompResist = Number(target.stats.ataque?.resistencia) || 0;
-        }
+    let canWeaponBlock = true;
+    let weaponBlockDisallowedReason = "";
 
-        if (defCompLevel >= attackLevel) {
-          blockSuccessful = true;
-          defenseLog = ` (Bloqueado com Arma! ${defR.total} vs ${attackerRawDiceTotal}+4)`;
-          combatStatus = 'weapon_blocked';
-        } else if (defCompLevel + defCompResist >= attackLevel) {
-          blockSuccessful = true;
-          targetDefenseItemDurabilityDown = true;
-          defenseLog = ` (Bloqueado com Resistência da Arma! ${defR.total} vs ${attackerRawDiceTotal}+4. Defesa Perde Durabilidade)`;
-          combatStatus = 'weapon_blocked';
-        } else {
-          damageMultiplier = 0.5;
-          targetDefenseItemDurabilityDown = true;
-          defenseLog = ` (Defesa Falhou por Nível! Recebe Meio Dano. Defesa Perde Durabilidade)`;
-          combatStatus = 'weapon_blocked_half_damage';
+    if (isFirearmWeapon) {
+      canWeaponBlock = false;
+      weaponBlockDisallowedReason = "Não é possível defender disparos de arma de fogo com a defesa com arma, apenas com escudo.";
+    } else if (isMagic) {
+      canWeaponBlock = false;
+      weaponBlockDisallowedReason = "Não é possível defender magias com a defesa com arma, apenas com escudo.";
+    } else if (isRangedOrMagic && !isBowWeapon) {
+      // Any other ranged attack (like arremesso) that is not a bow/crossbow
+      canWeaponBlock = false;
+      weaponBlockDisallowedReason = "Armas não podem defender este tipo de ataque à distância; apenas escudos podem.";
+    }
+
+    if (canWeaponBlock && target.isDefending && target.defenseType === 'Weapon') {
+      const defWeapon = targetChar ? [...targetChar.armas, ...targetChar.compartimentos.flatMap(c => c.itens)].find(i => i.id === target.defenseWeaponId) : null;
+      const defWeaponName = (defWeapon?.nome || "").toLowerCase();
+      const attackerWeaponName = (actionOrWeapon?.nome || actionOrWeapon?.name || "").toLowerCase();
+      const attackerWeaponCat = (actionOrWeapon?.categoria || "").toLowerCase();
+
+      // 1. Lance check (Spears can only parry if attacker is >= 2 meters away)
+      const isSpear = defWeaponName.includes("lança") || defWeaponName.includes("lanca");
+      const distanceMeters = getDistance(attacker, target) / config.gridSize;
+      if (isSpear && distanceMeters < 2.0) {
+        canWeaponBlock = false;
+        weaponBlockDisallowedReason = "Lanças só podem defender contra atacantes a pelo menos 2 metros.";
+      }
+
+      // 2. Dagger/Knife check (cannot defend against Heavy Weapons)
+      const isDaggerOrKnife = defWeaponName.includes("adaga") || defWeaponName.includes("faca") || defWeaponName.includes("punhal");
+      const heavyWeaponsKws = [
+        "machado de guerra", "machados de guerra",
+        "martelo de guerra", "martelos de guerra",
+        "espada grande", "espadas grandes",
+        "porrete", "porretes",
+        "maça de guerra", "maças de guerra",
+        "montante", "montantes"
+      ];
+      const isHeavyWeapon = heavyWeaponsKws.some(kw => attackerWeaponName.includes(kw) || attackerWeaponCat.includes(kw));
+      if (isDaggerOrKnife && isHeavyWeapon) {
+        canWeaponBlock = false;
+        weaponBlockDisallowedReason = "Adagas/Facas não podem defender contra Armas Pesadas.";
+      }
+    }
+
+    if (!blockSuccessful && target.isDefending && target.defenseType === 'Weapon') {
+      if (!canWeaponBlock) {
+        const reason = weaponBlockDisallowedReason || "Armas não podem defender ataques à distância ou mágicos.";
+        const msg = `🛡️ Defesa com Arma de ${target.name} anulada: ${reason}`;
+        setCombatLog(prev => [{ msg, type: 'info' }, ...prev]);
+      } else {
+        const defR = roll3d8Value();
+        targetDefenseDiceRolls = defR.rolls;
+        targetDefenseDiceTotal = defR.total;
+
+        if (defR.total >= attackerRawDiceTotal + 3) {
+          const defWeapon = targetChar ? [...targetChar.armas, ...targetChar.compartimentos.flatMap(c => c.itens)].find(i => i.id === target.defenseWeaponId) : null;
+          let defCompLevel = 0;
+          let defCompResist = 0;
+          if (defWeapon) {
+            defCompLevel = (defWeapon as any)[key] || 0;
+            defCompResist = (defWeapon as any).resistencia || 0;
+          } else if (target.type === 'creature' && target.stats) {
+            defCompLevel = (target.stats.defesa as any)[key] || 0;
+            defCompResist = Number(target.stats.ataque?.resistencia) || 0;
+          }
+
+          if (defCompLevel >= attackLevel) {
+            blockSuccessful = true;
+            defenseLog = ` (Bloqueado com Arma! ${defR.total} vs ${attackerRawDiceTotal}+3)`;
+            combatStatus = 'weapon_blocked';
+          } else if (defCompLevel + defCompResist >= attackLevel) {
+            blockSuccessful = true;
+            targetDefenseItemDurabilityDown = true;
+            defenseLog = ` (Bloqueado com Resistência da Arma! ${defR.total} vs ${attackerRawDiceTotal}+3. Defesa Perde Durabilidade)`;
+            combatStatus = 'weapon_blocked';
+          } else {
+            damageMultiplier = 0.5;
+            targetDefenseItemDurabilityDown = true;
+            defenseLog = ` (Defesa Falhou por Nível! Recebe Meio Dano. Defesa Perde Durabilidade)`;
+            combatStatus = 'weapon_blocked_half_damage';
+          }
         }
       }
     }
@@ -2330,8 +2394,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         shieldResist = Number(target.stats.ataque?.resistencia) || 0;
       }
 
-      const isAttackerUsingResist = (attackLevel < targetDefenseLevel) && (attackLevel + attackerResonance >= targetDefenseLevel);
-      const effectiveAttackerLevel = isAttackerUsingResist ? (attackLevel + attackerResonance) : attackLevel;
+      const isAttackerUsingResist = (attackLevel < targetDefenseLevel) && (attackLevel + attackerResistencia >= targetDefenseLevel);
+      const effectiveAttackerLevel = isAttackerUsingResist ? (attackLevel + attackerResistencia) : attackLevel;
 
       if (shieldLevel > effectiveAttackerLevel) {
         blockSuccessful = true;
@@ -2353,7 +2417,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     if (isCriticalErrorTrigger) attackerWeaponDurabilityDown = true;
     if (hitBaseCheckOk && !blockSuccessful) {
       if (armorItemToDegrade) {
-        targetArmorDurabilityDown = (targetDefenseLevel <= (attackLevel + attackerResonance));
+        targetArmorDurabilityDown = (targetDefenseLevel <= (attackLevel + attackerResistencia));
       } else {
         targetArmorDurabilityDown = true;
       }
@@ -2689,29 +2753,31 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         let charUpdates: any = {};
         let itemProcessed = false;
 
-        if (isFirearm) {
+        if (isFirearm || isBow) {
           let warningMsg: string | null = null;
           let errorMsg: string | null = null;
           let degradeMsg: string | null = null;
 
-          // Firearms always lose 1 point per shot
+          // Firearms always lose 1 point per shot; others (like bows) lose if attackerWeaponDurabilityDown is true
           charUpdates.armas = attackerChar.armas.map(w => {
             if (w.id === item.id) {
               itemProcessed = true;
               let newDur = w.durabilidade || 0;
               let newMaxDur = w.maxDurabilidade || 0;
               
-              if (newDur > 0) {
-                newDur -= 1;
-                if (newDur === 0) {
-                  warningMsg = `⚠️ A durabilidade útil de "${w.nome}" acabou! Desgaste total iniciado. Durabilidade total restante: ${newMaxDur}.`;
-                }
-              } else if (newMaxDur > 0) {
-                newMaxDur -= 1;
-                if (newMaxDur === 0) {
-                  errorMsg = `❌ A arma "${w.nome}" quebrou completamente e não pode mais ser disparada!`;
-                } else {
-                  degradeMsg = `⚠️ "${w.nome}" desgastando estrutura total! Durabilidade total restante: ${newMaxDur}.`;
+              if (isFirearm || attackerWeaponDurabilityDown) {
+                if (newDur > 0) {
+                  newDur -= 1;
+                  if (newDur === 0) {
+                    warningMsg = `⚠️ A durabilidade útil de "${w.nome}" acabou! Desgaste total iniciado. Durabilidade total restante: ${newMaxDur}.`;
+                  }
+                } else if (newMaxDur > 0) {
+                  newMaxDur -= 1;
+                  if (newMaxDur === 0) {
+                    errorMsg = `❌ A arma "${w.nome}" quebrou completamente!`;
+                  } else {
+                    degradeMsg = `⚠️ "${w.nome}" desgastando estrutura total! Durabilidade total restante: ${newMaxDur}.`;
+                  }
                 }
               }
               
@@ -2738,17 +2804,19 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                   let newDur = (i as any).durabilidade || 0;
                   let newMaxDur = (i as any).maxDurabilidade || 0;
                   
-                  if (newDur > 0) {
-                    newDur -= 1;
-                    if (newDur === 0) {
-                      warningMsg = `⚠️ A durabilidade útil de "${i.nome}" acabou! Desgaste total iniciado. Durabilidade total restante: ${newMaxDur}.`;
-                    }
-                  } else if (newMaxDur > 0) {
-                    newMaxDur -= 1;
-                    if (newMaxDur === 0) {
-                      errorMsg = `❌ A arma "${i.nome}" quebrou completamente e não pode mais ser disparada!`;
-                    } else {
-                      degradeMsg = `⚠️ "${i.nome}" desgastando estrutura total! Durabilidade total restante: ${newMaxDur}.`;
+                  if (isFirearm || attackerWeaponDurabilityDown) {
+                    if (newDur > 0) {
+                      newDur -= 1;
+                      if (newDur === 0) {
+                        warningMsg = `⚠️ A durabilidade útil de "${i.nome}" acabou! Desgaste total iniciado. Durabilidade total restante: ${newMaxDur}.`;
+                      }
+                    } else if (newMaxDur > 0) {
+                      newMaxDur -= 1;
+                      if (newMaxDur === 0) {
+                        errorMsg = `❌ A arma "${i.nome}" quebrou completamente!`;
+                      } else {
+                        degradeMsg = `⚠️ "${i.nome}" desgastando estrutura total! Durabilidade total restante: ${newMaxDur}.`;
+                      }
                     }
                   }
                   
@@ -5184,6 +5252,31 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                   }
                 });
 
+                const cleanMonsterActions = monsterActions.filter(action => {
+                  const actionName = ((action as any).name || (action as any).nome || "").toLowerCase().trim();
+                  const actionId = ((action as any).id || "").toString().toLowerCase().trim();
+                  return !allWeapons.some(w => {
+                    const wName = (w.nome || w.name || "").toLowerCase().trim();
+                    const wId = (w.id || "").toString().toLowerCase().trim();
+                    return (wId && wId === actionId) || (wName && wName === actionName);
+                  });
+                });
+
+                const allActions: any[] = [];
+                cleanMonsterActions.forEach(action => {
+                  if (!action) return;
+                  const name = ((action as any).nome || (action as any).name || "").toLowerCase().trim();
+                  const id = ((action as any).id || "").toString().toLowerCase().trim();
+                  const hasSeen = allActions.some(existing => {
+                    const existingId = (existing.id || "").toString().toLowerCase().trim();
+                    const existingName = ((existing as any).nome || (existing as any).name || "").toLowerCase().trim();
+                    return (id && existingId === id) || (name && existingName === name);
+                  });
+                  if (!hasSeen) {
+                    allActions.push(action);
+                  }
+                });
+
                 const allCatalysts: any[] = [];
                 const combinedCatalysts = [...catalysts, ...inventoryCatalysts];
                 combinedCatalysts.forEach(c => {
@@ -5197,6 +5290,21 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                   });
                   if (!hasSeen) {
                     allCatalysts.push(c);
+                  }
+                });
+
+                const allSpells: any[] = [];
+                spells.forEach(spell => {
+                  if (!spell) return;
+                  const name = (spell.nome || "").toLowerCase().trim();
+                  const id = (spell.id || "").toString().toLowerCase().trim();
+                  const hasSeen = allSpells.some(existing => {
+                    const existingId = (existing.id || "").toString().toLowerCase().trim();
+                    const existingName = (existing.nome || "").toLowerCase().trim();
+                    return (id && existingId === id) || (name && existingName === name);
+                  });
+                  if (!hasSeen) {
+                    allSpells.push(spell);
                   }
                 });
 
@@ -5303,10 +5411,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                            </div>
                         </div>
                         
-                        {isFirearmItem(ammoSelectWeapon) ? (
+                        {(isFirearmItem(ammoSelectWeapon) || isBowItem(ammoSelectWeapon)) ? (
                           <div className="bg-zinc-950/50 p-3 rounded-xl border border-zinc-800 space-y-3">
                             <div className="flex items-center justify-between">
-                              <div className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Recarregar Bala</div>
+                              <div className="text-[10px] font-black text-amber-500 uppercase tracking-widest">
+                                {isBowItem(ammoSelectWeapon) ? "Recarregar Flecha/Virote" : "Recarregar Bala"}
+                              </div>
                               <div className="flex gap-1 shrink-0">
                                 <button 
                                   onClick={async () => {
@@ -5341,6 +5451,11 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                                   const lowerNome = (i.nome || "").toLowerCase();
                                   if (lowerTipo === 'munição' || lowerTipo === 'municao') return true;
                                   if (lowerTipo === 'arma' || lowerTipo === 'escudo' || lowerTipo === 'catalisador') return false;
+                                  
+                                  const isBow = isBowItem(ammoSelectWeapon);
+                                  if (isBow) {
+                                    return lowerNome.includes('flecha') || lowerNome.includes('virote') || lowerNome.includes('munição') || lowerNome.includes('muniç');
+                                  }
                                   return lowerNome.includes('bala') || lowerNome.includes('projet') || lowerNome.includes('cartucho') || lowerNome.includes('muniç');
                                 }).map(ammo => (
                                 <button
@@ -5359,12 +5474,49 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                               ))}
                             </div>
                             
-                            <button 
-                              onClick={() => handleSelectAttack(ammoSelectWeapon)}
-                              className="w-full py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-red-600/20 transition-all flex items-center justify-center gap-2"
-                            >
-                               <Swords size={16} /> Atirar
-                            </button>
+                            {(() => {
+                              const preloadedAmmo = ammoSelectWeapon.magazineAmmo && ammoSelectWeapon.magazineAmmo.length > 0
+                                ? ammoSelectWeapon.magazineAmmo[0]
+                                : null;
+                              const loadedAvailTypes = preloadedAmmo ? [
+                                { type: 'Perfuração', val: preloadedAmmo.perfuracao || 0 },
+                                { type: 'Impacto', val: preloadedAmmo.impacto || 0 }
+                              ].filter(t => {
+                                const weaponVal = t.type === 'Perfuração' 
+                                  ? (ammoSelectWeapon.perfuracao || 0)
+                                  : (ammoSelectWeapon.impacto || 0);
+                                return t.val > 0 && weaponVal > 0;
+                              }) : [];
+
+                              const weaponAvailTypes = [
+                                { type: 'Perfuração', val: ammoSelectWeapon.perfuracao || 0 },
+                                { type: 'Impacto', val: ammoSelectWeapon.impacto || 0 }
+                              ].filter(t => t.val > 0);
+
+                              const displayedTypes = loadedAvailTypes.length > 0 ? loadedAvailTypes : weaponAvailTypes;
+
+                              return displayedTypes.length > 0 ? (
+                                <div className="flex gap-2">
+                                  {displayedTypes.map(t => (
+                                    <button
+                                      key={t.type}
+                                      onClick={() => handleSelectAttack(ammoSelectWeapon, t.type as any)}
+                                      className="flex-1 py-3 bg-red-600/10 hover:bg-red-600/20 text-red-500 hover:text-white border border-red-500/30 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-0.5"
+                                    >
+                                      <span>Atirar ({t.type})</span>
+                                      <span className="text-[10px] text-amber-500/80 font-bold">Lvl {t.val}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <button 
+                                  onClick={() => handleSelectAttack(ammoSelectWeapon)}
+                                  className="w-full py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-red-600/20 transition-all flex items-center justify-center gap-2"
+                                >
+                                   <Swords size={16} /> Atirar
+                                </button>
+                              );
+                            })()}
                           </div>
                         ) : (
                           <div className="space-y-2">
@@ -5386,10 +5538,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                                      if (isBow) return i.nome.toLowerCase().includes('flecha') || i.tipo === 'Munição' || i.tipo === 'municao';
                                      return i.tipo === 'Munição' || i.tipo === 'municao';
                                    }).map((ammo, idx) => {
-                                     const availTypes = [
+                                     const ammoAvailTypes = [
                                        { type: 'Perfuração', val: ammo.perfuracao || 0 },
                                        { type: 'Impacto', val: ammo.impacto || 0 }
-                                     ].filter(t => t.val > 0);
+                                     ].filter(t => {
+                                       const weaponVal = t.type === 'Perfuração' 
+                                         ? (ammoSelectWeapon.perfuracao || 0)
+                                         : (ammoSelectWeapon.impacto || 0);
+                                       return t.val > 0 && weaponVal > 0;
+                                     });
 
                                      return (
                                        <div key={`${ammo.id}-${idx}`} className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden group shadow-lg">
@@ -5399,40 +5556,48 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                                              <div className="text-[10px] text-zinc-500 font-medium">Estoque: {ammo.quantidade || 0} unidades</div>
                                            </div>
                                          </div>
-                                         <div className="flex bg-zinc-900/30 border-t border-zinc-800/50">
-                                           {availTypes.map(t => (
-                                             <button
-                                               key={t.type}
-                                               onClick={async () => {
-                                                  if (attackerChar) {
-                                                    const updatedCompartimentos = attackerChar.compartimentos.map(comp => ({
-                                                      ...comp,
-                                                      itens: comp.itens.map(item => {
-                                                        if (item.id === ammo.id) {
-                                                          return { ...item, quantidade: Math.max(0, (item.quantidade || 1) - 1) };
-                                                        }
-                                                        return item;
-                                                      })
-                                                    }));
-                                                    await updateCharacterLocalAndRemote(attackerChar.id, { compartimentos: updatedCompartimentos });
-                                                  }
-                                                  
-                                                  handleSelectAttack({
-                                                    ...ammoSelectWeapon,
-                                                    corte: 0,
-                                                    perfuracao: ammo.perfuracao || 0,
-                                                    impacto: ammo.impacto || 0,
-                                                    resistencia: ammo.resistencia || 0
-                                                  }, t.type as any);
-                                                  setSelectedAmmoWeaponId(null);
-                                               }}
-                                               className="flex-1 py-2.5 text-[9px] font-black uppercase text-zinc-400 hover:text-white hover:bg-amber-600/20 border-r last:border-r-0 border-zinc-800 transition-all flex flex-col items-center"
-                                             >
-                                               <span>{t.type}</span>
-                                               <span className="text-amber-500">Nível {t.val}</span>
-                                             </button>
-                                           ))}
-                                         </div>
+                                         {ammoAvailTypes.length === 0 ? (
+                                           <div className="flex bg-zinc-900/30 border-t border-zinc-800/50 py-2.5 px-3 justify-center items-center">
+                                             <span className="text-[9px] font-black uppercase text-red-500/60 italic">
+                                               Incompatível (Nível de ataque 0 na arma)
+                                             </span>
+                                           </div>
+                                         ) : (
+                                           <div className="flex bg-zinc-900/30 border-t border-zinc-800/50">
+                                             {ammoAvailTypes.map(t => (
+                                               <button
+                                                 key={t.type}
+                                                 onClick={async () => {
+                                                    if (attackerChar) {
+                                                      const updatedCompartimentos = attackerChar.compartimentos.map(comp => ({
+                                                        ...comp,
+                                                        itens: comp.itens.map(item => {
+                                                          if (item.id === ammo.id) {
+                                                            return { ...item, quantidade: Math.max(0, (item.quantidade || 1) - 1) };
+                                                          }
+                                                          return item;
+                                                        })
+                                                      }));
+                                                      await updateCharacterLocalAndRemote(attackerChar.id, { compartimentos: updatedCompartimentos });
+                                                    }
+                                                    
+                                                    handleSelectAttack({
+                                                      ...ammoSelectWeapon,
+                                                      corte: 0,
+                                                      perfuracao: ammo.perfuracao || 0,
+                                                      impacto: ammo.impacto || 0,
+                                                      resistencia: ammo.resistencia || 0
+                                                    }, t.type as any);
+                                                    setSelectedAmmoWeaponId(null);
+                                                 }}
+                                                 className="flex-1 py-2.5 text-[9px] font-black uppercase text-zinc-400 hover:text-white hover:bg-amber-600/20 border-r last:border-r-0 border-zinc-800 transition-all flex flex-col items-center"
+                                               >
+                                                 <span>{t.type}</span>
+                                                 <span className="text-amber-500">Nível {t.val}</span>
+                                               </button>
+                                             ))}
+                                           </div>
+                                         )}
                                        </div>
                                      );
                                    })
@@ -5469,20 +5634,29 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                                    <div className="text-[10px] text-zinc-500">
                                      Acerto Mín: {weapon.acerto} | Dano: {isFirearmItem(weapon) ? (weapon.magazineAmmo && weapon.magazineAmmo.length > 0 ? (weapon.magazineAmmo[0].dano || 'Sem Dano') : 'Falta Bala') : (weapon.dano || "0")}
                                    </div>
+                                   {availTypes.length > 0 && (
+                                     <div className="text-[9px] text-zinc-400 font-medium mt-0.5">
+                                       Níveis: {availTypes.map(t => `${t.type} Lvl ${t.val}`).join(' | ')}
+                                     </div>
+                                   )}
                                  </div>
                                  <div className="text-[8px] font-black bg-blue-600/10 text-blue-500 px-1.5 py-0.5 rounded border border-blue-500/20 uppercase shrink-0">
                                    Res {weapon.resistencia || 0}
                                  </div>
                                </div>
                                <div className="flex bg-zinc-900/30">
-                                 {isRanged ? (
+                                 {availTypes.length === 0 ? (
+                                   <div className="flex-1 py-3 text-[9px] font-black uppercase text-red-500/50 bg-red-500/5 border border-dashed border-red-500/10 transition-all text-center flex items-center justify-center gap-1.5">
+                                     <Skull size={10} /> Sem nível de ataque (Inutilizável)
+                                   </div>
+                                 ) : isRanged ? (
                                    <button
                                      onClick={() => setSelectedAmmoWeaponId(weapon.id)}
                                      className="flex-1 py-3 text-[9px] font-black uppercase text-blue-500 hover:text-white hover:bg-blue-600 transition-all flex items-center justify-center gap-2"
                                    >
                                      <Target size={12}/> Preparar Munir e Atacar
                                    </button>
-                                 ) : availTypes.length > 0 ? availTypes.map(t => (
+                                 ) : availTypes.map(t => (
                                    <button
                                      key={t.type}
                                      onClick={() => {
@@ -5493,14 +5667,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                                      <span className="opacity-50">{t.type}</span>
                                      <span className="text-blue-500">Lvl {t.val}</span>
                                    </button>
-                                 )) : (
-                                   <button
-                                     onClick={() => handleSelectAttack(weapon)}
-                                     className="flex-1 py-2 text-[9px] font-black uppercase text-zinc-400 hover:text-white hover:bg-blue-600/20 transition-all"
-                                   >
-                                     Desferir Ataque
-                                   </button>
-                                 )}
+                                 ))}
                                </div>
                              </div>
                            );
@@ -5529,7 +5696,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       </button>
                     ))}
 
-                    {spells.map(spell => (
+                    {allSpells.map(spell => (
                       <button
                         key={spell.id}
                         onClick={() => handleSelectAttack({...spell, categoria: spell.escola})}
@@ -5548,7 +5715,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     ))}
 
                     {/* Monster Specialized Actions */}
-                    {monsterActions.map(action => {
+                    {allActions.map(action => {
                       const isActionPhysical = ['Corte', 'Perfuração', 'Impacto'].includes(action.categoria);
                       const levelKey = isActionPhysical ? getMapKey(action.categoria) : '';
                       const lvl = isActionPhysical && attacker?.stats?.ataque ? (attacker.stats.ataque as any)[levelKey] || 0 : 0;
@@ -5589,7 +5756,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     })}
 
                     {/* Basic Attack fallback */}
-                    {allWeapons.length === 0 && monsterActions.length === 0 && (
+                    {allWeapons.length === 0 && allActions.length === 0 && (
                       <button
                         onClick={() => handleSelectAttack({ nome: "Soco/Ataque Básico", acerto: 0, dano: "1d4+0" })}
                         className="w-full flex items-center justify-between p-4 bg-zinc-950 border border-dashed border-zinc-800 hover:border-blue-500/50 rounded-2xl transition-all group"

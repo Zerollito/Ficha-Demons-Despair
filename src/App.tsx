@@ -73,7 +73,7 @@ import { twMerge } from "tailwind-merge";
 import { jsPDF } from "jspdf";
 import { DiceImage } from "./components/ui/DiceImage";
 import { diceBase64 } from "./diceIcons";
-import { auth, loginWithGoogle, logout as firebaseLogout, handleRedirectResult, clearFirestoreCache, isFirebaseQuotaExceeded, onAuthStateChanged } from "./lib/supabase";
+import { auth, loginWithGoogle, loginAsGuest, logout as firebaseLogout, handleRedirectResult, clearFirestoreCache, isFirebaseQuotaExceeded, onAuthStateChanged, syncLocalToCloud } from "./lib/supabase";
 import type { FirebaseUserLike as User } from "./lib/supabase";
 import { subscribeToUserCharacters, saveCharacterToFirestore, deleteCharacterFromFirestore } from "./services/characterService";
 import { 
@@ -380,7 +380,7 @@ const sanitizeCharacter = (char: any): Character => {
 
 const getSyncJson = (char: Character) => {
   const cleaned = sanitizeCharacter(char);
-  const { updatedAt, ...rest } = cleaned as any;
+  const { updatedAt, isRemoteSynced, isLocalOnly, userId, userEmail, campaignId, ...rest } = cleaned as any;
   
   const sortObject = (obj: any): any => {
     if (obj === null || typeof obj !== 'object') return obj;
@@ -609,7 +609,7 @@ function App() {
   const [newCampaignName, setNewCampaignName] = useState("");
   const [campaignToDelete, setCampaignToDelete] = useState<string | null>(null);
   const [charIdToDelete, setCharIdToDelete] = useState<string | null>(null);
-  const [selectedGalleryImage, setSelectedGalleryImage] = useState<string | null>(null);
+  const [selectedGalleryImage, setSelectedGalleryImage] = useState<{ id: string; url: string; titulo: string } | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -730,11 +730,15 @@ function App() {
 
     // Verificar se voltamos de um redirect de login
     const checkRedirect = async () => {
-      const redirectedUser = await handleRedirectResult();
-      if (redirectedUser && isSubscribed) {
-        console.log("Usuário recuperado do redirect:", redirectedUser.email);
-        setUser(redirectedUser);
-        setAuthLoading(false);
+      try {
+        const redirectedUser = await handleRedirectResult();
+        if (redirectedUser && isSubscribed) {
+          console.log("Usuário recuperado do redirect:", redirectedUser.email);
+          setUser(redirectedUser);
+          setAuthLoading(false);
+        }
+      } catch (err) {
+        console.error("Erro ao verificar redirect:", err);
       }
     };
     
@@ -766,6 +770,36 @@ function App() {
       unsubscribe();
     };
   }, []);
+
+  // Filter out other users' characters on login/logout state transitions
+  useEffect(() => {
+    if (user) {
+      setState(prev => {
+        const filtered = prev.characters.filter(char => {
+          const isOwn = !char.userId && !char.userEmail ||
+                        char.userId === user.uid ||
+                        (char.userEmail && char.userEmail === user.email);
+          return isOwn;
+        });
+        if (filtered.length === prev.characters.length) return prev;
+        return {
+          ...prev,
+          characters: filtered,
+          activeCharacterId: filtered.length > 0 ? (filtered.some(c => c.id === prev.activeCharacterId) ? prev.activeCharacterId : filtered[0].id) : ""
+        };
+      });
+    } else {
+      setState(prev => {
+        const filtered = prev.characters.filter(char => !char.userId && !char.userEmail);
+        if (filtered.length === prev.characters.length) return prev;
+        return {
+          ...prev,
+          characters: filtered,
+          activeCharacterId: filtered.length > 0 ? (filtered.some(c => c.id === prev.activeCharacterId) ? prev.activeCharacterId : filtered[0].id) : ""
+        };
+      });
+    }
+  }, [user]);
 
   // Firebase Sync Effect
   useEffect(() => {
@@ -934,7 +968,11 @@ function App() {
 
   // Master Campaigns Effect
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!user?.uid) {
+      setMasterCampaigns([]);
+      setIsCampaignsLoaded(false);
+      return;
+    }
     const unsubscribe = subscribeToMasterCampaigns((camps) => {
       setMasterCampaigns(camps);
       setIsCampaignsLoaded(true);
@@ -974,6 +1012,19 @@ function App() {
       }
     }
   }, [campaigns, activeCampaignId, user?.uid, isLoadingSync, isCampaignsLoaded]);
+
+  // Redirect to library if there are no characters (activeChar is null) and we are not on the DM/library/oracle pages
+  useEffect(() => {
+    if (!isLoadingSync && state.characters.length === 0) {
+      const allowedPagesWithoutChar = [
+        "library", "master", "bestiary", "toca", 
+        "materials", "items", "spells", "oracle"
+      ];
+      if (!allowedPagesWithoutChar.includes(activePage)) {
+        setActivePage("library");
+      }
+    }
+  }, [isLoadingSync, state.characters.length, activePage]);
 
   // Campaign Characters & Tokens Effect
   useEffect(() => {
@@ -1017,15 +1068,40 @@ function App() {
 
   // Sync campaign characters into state.characters
   useEffect(() => {
-    if (!activeCampaignId || !user?.uid || campaignCharacters.length === 0) return;
+    if (!activeCampaignId || !user?.uid) return;
     
     setState(prev => {
       let hasChanges = false;
+      const isMasterOfCampaign = campaigns.some(camp => camp.id === activeCampaignId && camp.masterId === user.uid);
+
+      // Clean up any leaked characters from other users that the player doesn't own
+      const cleanedCharacters = prev.characters.filter(lc => {
+        if (isMasterOfCampaign) return true; // GM can see everything
+        const isOwn = lc.userId === user.uid || (lc.userEmail && lc.userEmail === user.email) || (!lc.userId && !lc.userEmail);
+        if (!isOwn) {
+          hasChanges = true;
+          return false;
+        }
+        return true;
+      });
+
+      if (campaignCharacters.length === 0) {
+        if (hasChanges) {
+          return { ...prev, characters: cleanedCharacters };
+        }
+        return prev;
+      }
+
+      const filteredCampaignChars = campaignCharacters.filter(rc => {
+        if (isMasterOfCampaign) return true;
+        return rc.userId === user.uid || (rc.userEmail && rc.userEmail === user.email);
+      });
+
       const dirtyIds = new Set(prev.dirtyCharacterIds || []);
-      const currentIds = new Set(prev.characters.map(c => c.id));
+      const currentIds = new Set(cleanedCharacters.map(c => c.id));
       
-      const updatedStateChars = prev.characters.map(lc => {
-        const remoteMatch = campaignCharacters.find(rc => rc.id === lc.id);
+      const updatedStateChars = cleanedCharacters.map(lc => {
+        const remoteMatch = filteredCampaignChars.find(rc => rc.id === lc.id);
         
         if (remoteMatch && !dirtyIds.has(lc.id)) {
           const localJson = getSyncJson(lc);
@@ -1039,7 +1115,7 @@ function App() {
         return lc;
       });
 
-      const newFromCampaign = campaignCharacters.filter(rc => !currentIds.has(rc.id) && !deletedCharsRef.current.has(rc.id));
+      const newFromCampaign = filteredCampaignChars.filter(rc => !currentIds.has(rc.id) && !deletedCharsRef.current.has(rc.id));
       if (newFromCampaign.length > 0) {
         hasChanges = true;
         updatedStateChars.push(...newFromCampaign);
@@ -1048,7 +1124,7 @@ function App() {
       if (!hasChanges) return prev;
       return { ...prev, characters: updatedStateChars };
     });
-  }, [campaignCharacters, activeCampaignId, user?.uid]);
+  }, [campaignCharacters, activeCampaignId, user?.uid, campaigns]);
 
   const [tocaEditingCreatureId, setTocaEditingCreatureId] = useState<string | null>(null);
   const [bestiaryEditingMonsterId, setBestiaryEditingMonsterId] = useState<string | null>(null);
@@ -1685,9 +1761,11 @@ function App() {
 
     // 4. Roll Damage using the robust utility
     let bulletDano = "1d6";
-    if (arma.categoria === 'Arma de Fogo') {
+    const isFirearm = arma.categoria === 'Arma de Fogo';
+    const isBow = arma.categoria === 'Arco';
+    if (isFirearm || isBow) {
       if (arma.magazineAmmo && arma.magazineAmmo.length > 0) {
-        bulletDano = arma.magazineAmmo[0].dano || "1d6";
+        bulletDano = arma.magazineAmmo[0].dano || (isBow ? "1d6" : "2d6");
       } else {
         const loadedBullet = (activeChar.compartimentos || [])
           .filter((c: any) => !c.externo)
@@ -1695,10 +1773,12 @@ function App() {
           .find((i: any) => i.id === arma.bulletId);
         if (loadedBullet && loadedBullet.dano) {
           bulletDano = loadedBullet.dano;
-        } 
+        } else {
+          bulletDano = arma.dano || (isBow ? "1d6" : "2d6");
+        }
       }
     }
-    const rollData = parseAndRollDice(arma.categoria === 'Arma de Fogo' ? bulletDano : (arma.dano || "1d6"));
+    const rollData = parseAndRollDice((isFirearm || isBow) ? bulletDano : (arma.dano || "1d6"));
     
     // Add the scaling/manual bonus to the total
     const finalDmgTotal = rollData.total + totalDmgBonus;
@@ -1727,20 +1807,62 @@ function App() {
       hitLocation: locationName,
     });
 
-    if (isThrowable) {
-      updateChar((c) => {
-        const newArmas = c.armas.map((w) => {
-          if (w.id === arma.id) {
-            return {
-              ...w,
-              quantidade: Math.max(0, (w.quantidade || 1) - 1),
-            };
+    // 6. Handle Ammunition & Durability Degradation for the weapon used
+    updateChar((c: any) => {
+      let weaponProcessed = false;
+      const hasTwoOnes = hitRolls.filter(r => r === 1).length >= 2;
+
+      const updateWeaponProps = (w: any) => {
+        if (w.id !== arma.id) return w;
+        weaponProcessed = true;
+        
+        let newDur = w.durabilidade || 0;
+        let newMaxDur = w.maxDurabilidade || 0;
+        let newQtd = w.quantidade || 1;
+
+        if (isThrowable) {
+          newQtd = Math.max(0, newQtd - 1);
+        }
+        
+        // Firearms always degrade by 1 per shot; others degrade on critical error (two 1s)
+        if (isFirearm || hasTwoOnes) {
+          if (newDur > 0) {
+            newDur -= 1;
+          } else if (newMaxDur > 0) {
+            newMaxDur -= 1;
           }
-          return w;
-        });
-        return { armas: newArmas };
-      });
-    }
+        }
+        
+        let newMunCarregada = w.municaoCarregada;
+        let newMagAmmo = w.magazineAmmo || [];
+        if ((isFirearm || isBow) && (newMunCarregada || 0) > 0) {
+          newMunCarregada = Math.max(0, newMunCarregada - 1);
+          if (newMagAmmo.length > 0) {
+            newMagAmmo = newMagAmmo.slice(1);
+          }
+        }
+        
+        return {
+          ...w,
+          durabilidade: newDur,
+          maxDurabilidade: newMaxDur,
+          quantidade: newQtd,
+          municaoCarregada: newMunCarregada,
+          magazineAmmo: newMagAmmo
+        };
+      };
+
+      const newArmas = (c.armas || []).map(updateWeaponProps);
+      let newCompartimentos = c.compartimentos || [];
+      if (!weaponProcessed) {
+        newCompartimentos = newCompartimentos.map((comp: any) => ({
+          ...comp,
+          itens: (comp.itens || []).map(updateWeaponProps)
+        }));
+      }
+      
+      return { armas: newArmas, compartimentos: newCompartimentos };
+    });
   };
 
   useEffect(() => {
@@ -2975,7 +3097,7 @@ function App() {
     );
   }
 
-  if (!activeChar) {
+  if (!activeChar && isLoadingSync) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500" />
@@ -2984,6 +3106,7 @@ function App() {
   }
 
   const exportJSON = () => {
+    if (!activeChar) return;
     try {
       const jsonString = JSON.stringify(activeChar, null, 2);
       const blob = new Blob([jsonString], { type: "application/json" });
@@ -3079,6 +3202,7 @@ function App() {
   };
 
   const exportPDF = () => {
+    if (!activeChar) return;
     const doc = new jsPDF();
     doc.setFontSize(20);
     doc.text(`Ficha: ${activeChar.nome}`, 10, 20);
@@ -3098,6 +3222,7 @@ function App() {
   };
 
   const duplicateChar = () => {
+    if (!activeChar) return;
     const newChar = {
       ...activeChar,
       id: generateId(),
@@ -3116,6 +3241,7 @@ function App() {
   };
 
   const deleteChar = () => {
+    if (!activeChar) return;
     if (state.characters.length <= 1) return;
     const idToDelete = state.activeCharacterId;
     
@@ -3230,7 +3356,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v16.4</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v18.8</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -3350,14 +3476,14 @@ function App() {
           <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
             <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
             <div className="w-[1px] h-3 bg-zinc-800" />
-            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v18.3</span>
+            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v18.8</span>
           </div>
 
           {/* Quick Active Page Status - desktop only */}
           <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
               <div className="flex flex-col">
                 <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v18.3</span>
+                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v18.8</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -3537,11 +3663,21 @@ function App() {
 
             <motion.button
               whileTap={{ scale: 0.95 }}
-              onClick={() => {
-                // Clear dirty flags and force refresh from firestore by clearing lastSynced
-                lastSyncedRef.current = {};
-                setState(prev => ({ ...prev, dirtyCharacterIds: [] }));
-                window.location.reload();
+              onClick={async () => {
+                showToast("Recuperando e sincronizando fichas locais...", "info");
+                try {
+                  await syncLocalToCloud();
+                  showToast("Fichas recuperadas com sucesso!", "success");
+                  lastSyncedRef.current = {};
+                  setState(prev => ({ ...prev, dirtyCharacterIds: [] }));
+                  setTimeout(() => {
+                    window.location.reload();
+                  }, 1200);
+                } catch (err) {
+                  console.error("Erro na sincronização:", err);
+                  showToast("Erro ao sincronizar dados.", "error");
+                  window.location.reload();
+                }
               }}
               className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
             >
@@ -3663,7 +3799,7 @@ function App() {
             </div>
           )}
 
-          {showDeleteConfirm && (
+          {showDeleteConfirm && activeChar && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
@@ -3831,15 +3967,32 @@ function App() {
         </div>
       )}
 
-      <main key={activeChar.id} className={cn(
+      <main key={activeChar?.id || "no-char"} className={cn(
         "flex-1 overscroll-none flex flex-col min-h-0",
         activePage === "table" || activePage === "dice" || activePage === "master"
           ? "flex-1 h-0 min-h-0 w-full overflow-hidden p-0"
           : "max-w-7xl mx-auto w-full p-4 md:p-6 pb-20 overflow-y-auto custom-scrollbar"
       )}>
         {(() => {
-          const renderSheetContent = () => (
-            <div className="max-w-4xl mx-auto w-full space-y-8 flex flex-col">
+          const renderSheetContent = () => {
+            if (!activeChar) {
+              return (
+                <div className="flex flex-col items-center justify-center p-8 text-center bg-zinc-900 border border-zinc-850 rounded-2xl max-w-md mx-auto my-12">
+                  <UserIcon size={48} className="text-zinc-600 mb-3 animate-pulse" />
+                  <h3 className="text-lg font-bold text-zinc-300">Nenhum Personagem Selecionado</h3>
+                  <p className="text-sm text-zinc-500 mt-1 mb-4">Selecione ou crie um personagem na Biblioteca para começar a jogar.</p>
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setActivePage("library")}
+                    className="px-4 py-2 bg-amber-500 text-zinc-950 font-bold rounded-xl text-sm transition-all cursor-pointer"
+                  >
+                    Ir para Biblioteca
+                  </motion.button>
+                </div>
+              );
+            }
+            return (
+              <div className="max-w-4xl mx-auto w-full space-y-8 flex flex-col">
             {tocaEditingCreatureId && (
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-center gap-3">
                 <div className="flex items-center gap-2.5">
@@ -7178,6 +7331,7 @@ function App() {
 
             </div>
           );
+        };
 
           if (activePage === "sheet") {
             return renderSheetContent();
@@ -7185,7 +7339,21 @@ function App() {
 
           const renderOtherPages = () => {
             return activePage === "dice" ? (
-          <div className="flex flex-col h-full w-full max-w-5xl mx-auto bg-zinc-950">
+              !activeChar ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto h-[60vh]">
+                  <Sword size={48} className="text-zinc-600 mb-4 animate-pulse" />
+                  <h3 className="text-lg font-bold text-zinc-300 mb-2">Nenhum Personagem Selecionado</h3>
+                  <p className="text-zinc-500 text-sm mb-6">Você precisa criar ou selecionar um personagem na aba "Ficha" para rolar dados de combate.</p>
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setActivePage("sheet")}
+                    className="px-6 py-2 bg-amber-500 text-zinc-950 font-bold rounded-lg hover:bg-amber-400 transition-colors text-sm cursor-pointer"
+                  >
+                    Ir para Ficha
+                  </motion.button>
+                </div>
+              ) : (
+                <div className="flex flex-col h-full w-full max-w-5xl mx-auto bg-zinc-950">
             {/* Tabs Header */}
             <div className="flex border-b border-zinc-800 bg-zinc-900/10">
               <motion.button
@@ -7812,9 +7980,24 @@ function App() {
             </div>
 
             {/* Bottom Controls Bar - REMOVED (Moved to top) */}
-          </div>
-        ) : activePage === "notes" ? (
-          <div className="space-y-6 max-w-4xl mx-auto">
+                </div>
+              )
+            ) : activePage === "notes" ? (
+          !activeChar ? (
+            <div className="flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto h-[60vh]">
+              <FileText size={48} className="text-zinc-600 mb-4 animate-pulse" />
+              <h3 className="text-lg font-bold text-zinc-300 mb-2">Nenhum Personagem Selecionado</h3>
+              <p className="text-zinc-500 text-sm mb-6">Você precisa criar ou selecionar um personagem na aba "Ficha" para gerenciar suas anotações.</p>
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setActivePage("sheet")}
+                className="px-6 py-2 bg-amber-500 text-zinc-950 font-bold rounded-lg hover:bg-amber-400 transition-colors text-sm"
+              >
+                Ir para Ficha
+              </motion.button>
+            </div>
+          ) : (
+            <div className="space-y-6 max-w-4xl mx-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-amber-500 flex items-center gap-2">
                 <FileText size={24} /> Anotações
@@ -7929,6 +8112,7 @@ function App() {
               )}
             </div>
           </div>
+          )
         ) : activePage === "library" ? (
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
             <div className="max-w-6xl mx-auto space-y-8">
@@ -8158,7 +8342,21 @@ function App() {
             </div>
           </div>
         ) : activePage === "gallery" ? (
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
+          !activeChar ? (
+            <div className="flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto h-[60vh]">
+              <Image size={48} className="text-zinc-600 mb-4 animate-pulse" />
+              <h3 className="text-lg font-bold text-zinc-300 mb-2">Nenhum Personagem Selecionado</h3>
+              <p className="text-zinc-500 text-sm mb-6">Você precisa criar ou selecionar um personagem na aba "Ficha" para usar a galeria de imagens.</p>
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setActivePage("sheet")}
+                className="px-6 py-2 bg-amber-500 text-zinc-950 font-bold rounded-lg hover:bg-amber-400 transition-colors text-sm"
+              >
+                Ir para Ficha
+              </motion.button>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
             <div className="max-w-4xl mx-auto space-y-6">
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-black text-amber-500 uppercase tracking-tighter">
@@ -8212,7 +8410,7 @@ function App() {
                   <div
                     key={img.id}
                     className="relative bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden aspect-square shadow-lg cursor-pointer group"
-                    onClick={() => setSelectedGalleryImage(img.url)}
+                    onClick={() => setSelectedGalleryImage(img)}
                   >
                     {img.url ? (
                       <img
@@ -8235,10 +8433,10 @@ function App() {
                         );
                         updateChar({ imagens: newImgs });
                       }}
-                      className="absolute top-2 right-2 p-2 bg-red-500/80 hover:bg-red-500 text-white rounded-full shadow-lg transition-colors z-10 opacity-0 group-hover:opacity-100"
+                      className="absolute top-2 right-2 p-2 bg-red-600/90 hover:bg-red-600 text-white rounded-xl shadow-lg transition-all z-10 hover:scale-110 backdrop-blur-sm"
                       title="Remover Imagem"
                     >
-                      <Trash2 size={20} />
+                      <Trash2 size={16} />
                     </motion.button>
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                       <Maximize size={32} className="text-white/70" />
@@ -8255,6 +8453,7 @@ function App() {
               )}
             </div>
           </div>
+          )
         ) : activePage === "master" ? (
           <div className="w-full flex-1 overflow-y-auto custom-scrollbar overflow-x-hidden">
             <div className="w-full max-w-6xl mx-auto p-4 md:p-8 space-y-8 pb-32">
@@ -8265,15 +8464,23 @@ function App() {
                 </div>
                 
                 {!user ? (
-                  <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl text-center w-full md:w-auto">
+                  <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl text-center w-full max-w-sm md:w-auto">
                     <Shield size={32} className="mx-auto text-zinc-700 mb-4" />
                     <p className="text-zinc-400 mb-4">Você precisa estar logado para usar o Modo Mestre.</p>
-                    <button 
-                      onClick={loginWithGoogle}
-                      className="px-6 py-2 bg-amber-500 text-zinc-950 font-bold rounded-lg hover:bg-amber-400 transition-colors"
-                    >
-                      Entrar com Google
-                    </button>
+                    <div className="flex flex-col gap-3">
+                      <button 
+                        onClick={loginWithGoogle}
+                        className="px-6 py-2 bg-amber-500 text-zinc-950 font-bold rounded-lg hover:bg-amber-400 transition-colors w-full"
+                      >
+                        Entrar com Google
+                      </button>
+                      <button 
+                        onClick={loginAsGuest}
+                        className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-lg transition-colors w-full text-xs"
+                      >
+                        Usar como Convidado (Modo Offline)
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full md:w-auto">
@@ -8291,8 +8498,12 @@ function App() {
                              showToast("Selecione uma ficha para vincular à campanha.", "error");
                              return;
                            }
+                           if (!inviteCodeInput.trim()) {
+                             showToast("Por favor, digite o código de convite da campanha.", "error");
+                             return;
+                           }
                            try {
-                             await joinCampaign(activeChar.id, inviteCodeInput);
+                             await joinCampaign(activeChar.id, inviteCodeInput.trim());
                              showToast("Ficha vinculada à campanha!", "success");
                              setInviteCodeInput("");
                            } catch (err: any) {
@@ -8315,16 +8526,25 @@ function App() {
                        />
                        <button 
                          onClick={async () => {
-                           if (!newCampaignName) return;
+                           if (!newCampaignName.trim()) {
+                             showToast("Por favor, insira o nome da nova campanha.", "error");
+                             return;
+                           }
                            let camp = null;
                             try {
-                              camp = await createCampaign(newCampaignName);
+                              camp = await createCampaign(newCampaignName.trim());
                             } catch (err: any) {
                               showToast(err.message || "Erro ao criar campanha.", "error");
                             }
                            if (camp) {
                              showToast("Campanha criada!", "success");
                              setNewCampaignName("");
+                             // Optimistic update to guarantee immediate rendering
+                             setMasterCampaigns(prev => {
+                               if (prev.some(c => c.id === camp!.id)) return prev;
+                               return [...prev, camp!];
+                             });
+                             setActiveCampaignIdWithSync(camp.id);
                            }
                          }}
                          className="whitespace-nowrap px-4 py-2 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-500 transition-colors text-xs uppercase"
@@ -9022,7 +9242,7 @@ function App() {
           <div className="w-full max-w-5xl mx-auto px-2 md:px-4 py-2">
             <div className="w-full h-[calc(100vh-190px)] min-h-[720px] flex flex-col">
               <OracleTab 
-                characters={allAvailableCharacters}
+                characters={state.characters}
                 activeCharacterId={state.activeCharacterId}
                 onUpdateCharacter={updateChar}
                 showToast={showToast}
@@ -9438,28 +9658,52 @@ function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[300] bg-black/95 backdrop-blur-sm flex items-center justify-center p-4 md:p-12 cursor-zoom-out"
+            className="fixed inset-0 z-[300] bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center p-4 md:p-12 cursor-zoom-out"
             onClick={() => setSelectedGalleryImage(null)}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="relative max-w-full max-h-full"
+              className="relative max-w-full max-h-full flex flex-col items-center gap-4"
               onClick={(e) => e.stopPropagation()}
             >
+              <div className="flex items-center justify-between w-full max-w-3xl bg-zinc-900/80 backdrop-blur border border-zinc-800 px-4 py-2.5 rounded-2xl">
+                <span className="text-zinc-200 font-bold text-sm truncate">
+                  {selectedGalleryImage.titulo || "Imagem da Galeria"}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      if (window.confirm("Deseja realmente apagar esta imagem da galeria?")) {
+                        const newImgs = activeChar.imagens.filter(
+                          (i: any) => i.id !== selectedGalleryImage.id,
+                        );
+                        updateChar({ imagens: newImgs });
+                        setSelectedGalleryImage(null);
+                        showToast("Imagem apagada com sucesso!", "success");
+                      }
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/90 hover:bg-red-600 text-white font-bold rounded-xl text-xs uppercase transition-all shadow-md active:scale-95"
+                  >
+                    <Trash2 size={13} />
+                    <span>Apagar</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedGalleryImage(null)}
+                    className="w-7 h-7 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg flex items-center justify-center transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+              
               <img
-                src={selectedGalleryImage}
+                src={selectedGalleryImage.url}
                 alt="Zoom"
-                className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain border border-zinc-800"
+                className="max-w-full max-h-[75vh] rounded-2xl shadow-2xl object-contain border border-zinc-800"
                 referrerPolicy="no-referrer"
               />
-              <button
-                onClick={() => setSelectedGalleryImage(null)}
-                className="absolute -top-4 -right-4 w-10 h-10 bg-zinc-900 text-white rounded-full flex items-center justify-center shadow-2xl border border-zinc-800 hover:bg-zinc-800 transition-colors"
-              >
-                <X size={24} />
-              </button>
             </motion.div>
           </motion.div>
         )}
@@ -9909,9 +10153,9 @@ const WeaponProperties = React.memo(({
       updates.nome = `${article} ${newCategory}`;
     }
 
-    if (newCategory === 'Arma de Fogo') {
-      updates.municaoTotal = item.municaoTotal !== undefined ? item.municaoTotal : 6;
-      updates.municaoCarregada = item.municaoCarregada !== undefined ? item.municaoCarregada : 6;
+    if (newCategory === 'Arma de Fogo' || newCategory === 'Arco') {
+      updates.municaoTotal = item.municaoTotal !== undefined ? item.municaoTotal : (newCategory === 'Arco' ? 12 : 6);
+      updates.municaoCarregada = item.municaoCarregada !== undefined ? item.municaoCarregada : (newCategory === 'Arco' ? 12 : 6);
     } else {
       updates.municaoTotal = undefined;
       updates.municaoCarregada = undefined;
@@ -10042,24 +10286,26 @@ const WeaponProperties = React.memo(({
         </div>
       )}
 
-      {isFirearm && (
+      {(isFirearm || isBow) && (
         <div className="space-y-1.5 border-l-2 border-amber-500/30 pl-2">
            <div className="grid grid-cols-2 gap-1.5">
              <MiniInput 
-               label="Munição Total" 
+               label={isBow ? "Aljava/Capac. Total" : "Munição Total"}
                value={item.municaoTotal || 0} 
                type="number" 
                onChange={(v) => onChange({ municaoTotal: parseInt(v) || 0 })} 
              />
              <MiniInput 
-               label="No Tambor/Pente" 
+               label={isBow ? "Flechas Carregadas" : "No Tambor/Pente"}
                value={item.municaoCarregada || 0} 
                type="number" 
                onChange={(v) => onChange({ municaoCarregada: parseInt(v) || 0 })} 
              />
            </div>
            <div className="flex flex-col gap-0.5">
-             <span className="text-[7px] text-zinc-600 font-bold uppercase px-0.5">Munição em Uso (Membro)</span>
+             <span className="text-[7px] text-zinc-600 font-bold uppercase px-0.5">
+               {isBow ? "Flecha em Uso (Ativo)" : "Munição em Uso (Membro)"}
+             </span>
              <select
                value={item.bulletId || ""}
                onChange={(e) => onChange({ bulletId: e.target.value })}
@@ -10080,58 +10326,60 @@ const WeaponProperties = React.memo(({
         <MiniInput label="Qtd" value={item.quantidade || 1} type="number" onChange={(v) => onChange({ quantidade: parseInt(v) || 1 })} />
       </div>
 
-      {isFirearm && (
-        <div className="flex gap-1 pt-1">
-          <button
-            type="button"
-            onClick={() => onChange({ durabilidade: item.durabilidadeMaxUtil || item.maxDurabilidade })}
-            className="flex-1 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[8px] font-black uppercase text-zinc-400 border border-zinc-700"
-          >
-            Fazer Manutenção
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const bullet = internalBullets.find(it => it.id === item.bulletId);
-              if (bullet && bullet.quantidade > 0 && (item.municaoCarregada || 0) < (item.municaoTotal || 0) && updateCharacter) {
-                const amountToLoad = 1;
-                const bulletProperties = { perfuracao: bullet.perfuracao || 0, impacto: bullet.impacto || 0, resistencia: bullet.resistencia || 0, nome: bullet.nome, dano: bullet.dano || "0" };
-                const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...bulletProperties, id: generateId() }));
-                updateCharacter((c: any) => {
-                  const newCompartimentos = (c.compartimentos || []).map((comp: any) => ({ ...comp, itens: (comp.itens || []).map((i: any) => i.id === bullet.id ? { ...i, quantidade: Math.max(0, i.quantidade - amountToLoad) } : i) }));
-                  const newArmas = (c.armas || []).map((w: any) => w.id === item.id ? { ...w, municaoCarregada: (w.municaoCarregada || 0) + amountToLoad, magazineAmmo: [...(w.magazineAmmo || []), ...ammoToAdd] } : w );
-                  const finalCompartimentos = newCompartimentos.map((comp: any) => ({ ...comp, itens: comp.itens.map((i: any) => i.id === item.id ? { ...i, municaoCarregada: (i.municaoCarregada || 0) + amountToLoad, magazineAmmo: [...(i.magazineAmmo || []), ...ammoToAdd] } : i) }));
-                  return { compartimentos: finalCompartimentos, armas: newArmas };
-                });
-              }
-            }}
-            className="flex-1 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-[8px] font-black uppercase text-amber-500 border border-amber-500/30"
-          >
-            Recarregar 1
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const bullet = internalBullets.find(it => it.id === item.bulletId);
-              if (bullet && bullet.quantidade > 0 && (item.municaoCarregada || 0) < (item.municaoTotal || 0) && updateCharacter) {
-                const needed = (item.municaoTotal || 0) - (item.municaoCarregada || 0);
-                const amountToLoad = Math.min(bullet.quantidade, needed);
-                const bulletProperties = { perfuracao: bullet.perfuracao || 0, impacto: bullet.impacto || 0, resistencia: bullet.resistencia || 0, nome: bullet.nome, dano: bullet.dano || "0" };
-                const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...bulletProperties, id: generateId() }));
-                updateCharacter((c: any) => {
-                  const newCompartimentos = (c.compartimentos || []).map((comp: any) => ({ ...comp, itens: (comp.itens || []).map((i: any) => i.id === bullet.id ? { ...i, quantidade: Math.max(0, i.quantidade - amountToLoad) } : i) }));
-                  const newArmas = (c.armas || []).map((w: any) => w.id === item.id ? { ...w, municaoCarregada: (w.municaoCarregada || 0) + amountToLoad, magazineAmmo: [...(w.magazineAmmo || []), ...ammoToAdd] } : w );
-                  const finalCompartimentos = newCompartimentos.map((comp: any) => ({ ...comp, itens: comp.itens.map((i: any) => i.id === item.id ? { ...i, municaoCarregada: (i.municaoCarregada || 0) + amountToLoad, magazineAmmo: [...(i.magazineAmmo || []), ...ammoToAdd] } : i) }));
-                  return { compartimentos: finalCompartimentos, armas: newArmas };
-                });
-              }
-            }}
-            className="flex-1 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-[8px] font-black uppercase text-amber-500 border border-amber-500/30"
-          >
-            Recarregar Tudo
-          </button>
-        </div>
-      )}
+      <div className="flex gap-1 pt-1">
+        <button
+          type="button"
+          onClick={() => onChange({ durabilidade: item.durabilidadeMaxUtil || item.maxDurabilidade || 100 })}
+          className="flex-1 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[8px] font-black uppercase text-zinc-400 border border-zinc-700"
+        >
+          Fazer Manutenção
+        </button>
+        {(isFirearm || isBow) && (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                const bullet = internalBullets.find(it => it.id === item.bulletId);
+                if (bullet && bullet.quantidade > 0 && (item.municaoCarregada || 0) < (item.municaoTotal || 0) && updateCharacter) {
+                  const amountToLoad = 1;
+                  const bulletProperties = { perfuracao: bullet.perfuracao || 0, impacto: bullet.impacto || 0, resistencia: bullet.resistencia || 0, nome: bullet.nome, dano: bullet.dano || "0" };
+                  const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...bulletProperties, id: generateId() }));
+                  updateCharacter((c: any) => {
+                    const newCompartimentos = (c.compartimentos || []).map((comp: any) => ({ ...comp, itens: (comp.itens || []).map((i: any) => i.id === bullet.id ? { ...i, quantidade: Math.max(0, i.quantidade - amountToLoad) } : i) }));
+                    const newArmas = (c.armas || []).map((w: any) => w.id === item.id ? { ...w, municaoCarregada: (w.municaoCarregada || 0) + amountToLoad, magazineAmmo: [...(w.magazineAmmo || []), ...ammoToAdd] } : w );
+                    const finalCompartimentos = newCompartimentos.map((comp: any) => ({ ...comp, itens: comp.itens.map((i: any) => i.id === item.id ? { ...i, municaoCarregada: (i.municaoCarregada || 0) + amountToLoad, magazineAmmo: [...(i.magazineAmmo || []), ...ammoToAdd] } : i) }));
+                    return { compartimentos: finalCompartimentos, armas: newArmas };
+                  });
+                }
+              }}
+              className="flex-1 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-[8px] font-black uppercase text-amber-500 border border-amber-500/30"
+            >
+              Recarregar 1
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const bullet = internalBullets.find(it => it.id === item.bulletId);
+                if (bullet && bullet.quantidade > 0 && (item.municaoCarregada || 0) < (item.municaoTotal || 0) && updateCharacter) {
+                  const needed = (item.municaoTotal || 0) - (item.municaoCarregada || 0);
+                  const amountToLoad = Math.min(bullet.quantidade, needed);
+                  const bulletProperties = { perfuracao: bullet.perfuracao || 0, impacto: bullet.impacto || 0, resistencia: bullet.resistencia || 0, nome: bullet.nome, dano: bullet.dano || "0" };
+                  const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...bulletProperties, id: generateId() }));
+                  updateCharacter((c: any) => {
+                    const newCompartimentos = (c.compartimentos || []).map((comp: any) => ({ ...comp, itens: (comp.itens || []).map((i: any) => i.id === bullet.id ? { ...i, quantidade: Math.max(0, i.quantidade - amountToLoad) } : i) }));
+                    const newArmas = (c.armas || []).map((w: any) => w.id === item.id ? { ...w, municaoCarregada: (w.municaoCarregada || 0) + amountToLoad, magazineAmmo: [...(w.magazineAmmo || []), ...ammoToAdd] } : w );
+                    const finalCompartimentos = newCompartimentos.map((comp: any) => ({ ...comp, itens: comp.itens.map((i: any) => i.id === item.id ? { ...i, municaoCarregada: (i.municaoCarregada || 0) + amountToLoad, magazineAmmo: [...(i.magazineAmmo || []), ...ammoToAdd] } : i) }));
+                    return { compartimentos: finalCompartimentos, armas: newArmas };
+                  });
+                }
+              }}
+              className="flex-1 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-[8px] font-black uppercase text-amber-500 border border-amber-500/30"
+            >
+              Recarregar Tudo
+            </button>
+          </>
+        )}
+      </div>
 
       <TextArea
         label="Descrição / Efeitos"

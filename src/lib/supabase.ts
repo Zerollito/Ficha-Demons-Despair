@@ -91,6 +91,25 @@ function saveLocalTable(table: string, data: any[]) {
   }
 }
 
+// Helper to wrap promises with a timeout to avoid hanging UI
+function withTimeout(promise: any, ms: number = 2000): Promise<any> {
+  return new Promise<any>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("Timeout de conexão com o banco de dados."));
+    }, ms);
+    promise.then(
+      (res: any) => {
+        clearTimeout(timer);
+        resolve(res);
+      },
+      (err: any) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 // Query builder mapping Supabase JS API to either cloud Supabase or local storage emulator
 class ResilientQueryBuilder {
   private table: string;
@@ -152,7 +171,10 @@ class ResilientQueryBuilder {
 
     if (realSupabaseClient) {
       try {
-        const { data, error } = await realSupabaseClient.from(this.table).upsert(values);
+        const { data, error } = (await withTimeout(
+          realSupabaseClient.from(this.table).upsert(values),
+          2000
+        )) as any;
         if (!error) {
           // Mirror to local table for offline robustness
           const local = getLocalTable(this.table);
@@ -205,10 +227,13 @@ class ResilientQueryBuilder {
             try {
               if (realSupabaseClient) {
                 try {
-                  const { data, error } = await realSupabaseClient
-                    .from(this.table)
-                    .update(cleanValues)
-                    .eq(column, value);
+                  const { data, error } = (await withTimeout(
+                    realSupabaseClient
+                      .from(this.table)
+                      .update(cleanValues)
+                      .eq(column, value),
+                    2000
+                  )) as any;
                   if (!error) {
                     // Mirror update locally
                     const local = getLocalTable(this.table);
@@ -258,10 +283,13 @@ class ResilientQueryBuilder {
             try {
               if (realSupabaseClient) {
                 try {
-                  const { data, error } = await realSupabaseClient
-                    .from(this.table)
-                    .delete()
-                    .eq(column, value);
+                  const { data, error } = (await withTimeout(
+                    realSupabaseClient
+                      .from(this.table)
+                      .delete()
+                      .eq(column, value),
+                    2000
+                  )) as any;
                   if (!error) {
                     const local = getLocalTable(this.table);
                     const filtered = local.filter(item => String(item[column]) !== String(value));
@@ -319,20 +347,89 @@ class ResilientQueryBuilder {
             builder = builder.single();
           }
 
-          const { data, error } = await builder;
+          const { data, error } = (await withTimeout(builder, 2000)) as any;
           if (!error && data) {
             rows = Array.isArray(data) ? data : [data];
             loadedFromCloud = true;
             
             // Sync with local memory and storage cache
             const local = getLocalTable(this.table);
+
+            // Filter out any rows belonging to other users to prevent cross-user data leak in localStorage cache!
+            let filteredLocal = local.filter(item => {
+              if (this.table === 'characters') {
+                const isOwn = !item.user_id || item.user_id.startsWith('guest_') || (currentAuthUser && (item.user_id === currentAuthUser.uid || item.user_email === currentAuthUser.email));
+                return isOwn;
+              }
+              if (this.table === 'campaigns') {
+                const isOwn = !item.master_id || item.master_id.startsWith('guest_') || (currentAuthUser && (item.master_id === currentAuthUser.uid || item.master_email === currentAuthUser.email));
+                return isOwn;
+              }
+              return true;
+            });
+
+            const cloudIds = new Set(rows.map(r => r.id));
+
+            // Mark all rows returned from the cloud as remote synced
+            for (const item of rows) {
+              item.is_remote_synced = true;
+              if (item.data) {
+                item.data.isRemoteSynced = true;
+              }
+            }
+
+            // Auto-detect and remove previously synced items that match current filters but are no longer in the cloud (DELETED)
+            filteredLocal = filteredLocal.filter(l => {
+              const isPreviouslySynced = l.is_remote_synced === true || l.isRemoteSynced === true || (l.data && (l.data.isRemoteSynced === true || l.data.is_remote_synced === true));
+              if (!isPreviouslySynced) return true; // Keep unsynced, brand-new local items
+              if (cloudIds.has(l.id)) return true; // Keep items that still exist on the cloud
+
+              // Apply our filter checks to see if this item belongs to the query dataset
+              let matchesFilters = true;
+              for (const f of this.filters) {
+                if (f.operator === '==') {
+                  const val = l[f.column] !== undefined ? l[f.column] : (l.data ? l.data[f.column] : undefined);
+                  if (String(val) !== String(f.value)) {
+                    matchesFilters = false;
+                    break;
+                  }
+                }
+              }
+
+              if (matchesFilters) {
+                // Item was synced, matches filters, but is no longer on the cloud -> DELETED
+                console.log(`🗑️ [Supabase Sync] Purging deleted item from local cache: ${this.table} ID ${l.id}`);
+                return false;
+              }
+
+              return true;
+            });
+
             // Merge cloud data to local, overwriting older or duplicates
             for (const item of rows) {
-              const idx = local.findIndex(x => x.id === item.id);
-              if (idx >= 0) local[idx] = { ...local[idx], ...item };
-              else local.push(item);
+              const idx = filteredLocal.findIndex(x => x.id === item.id);
+              if (idx >= 0) filteredLocal[idx] = { ...filteredLocal[idx], ...item };
+              else filteredLocal.push(item);
             }
-            saveLocalTable(this.table, local);
+            saveLocalTable(this.table, filteredLocal);
+
+            // Temporarily include local-only items that match the filters but are not in the cloud yet
+            const localOnly = filteredLocal.filter(l => {
+              if (cloudIds.has(l.id)) return false;
+              
+              // Apply simple equality filter check
+              for (const f of this.filters) {
+                if (f.operator === '==') {
+                  const val = l[f.column] !== undefined ? l[f.column] : (l.data ? l.data[f.column] : undefined);
+                  if (String(val) !== String(f.value)) return false;
+                }
+              }
+              return true;
+            });
+
+            if (localOnly.length > 0) {
+              rows = [...rows, ...localOnly];
+            }
           }
         } catch (err) {
           console.warn(`[Supabase Cloud Read Exception] falling back to offline:`, err);
@@ -416,29 +513,324 @@ if (savedUser) {
   } catch (e) {}
 }
 
-if (realSupabaseClient) {
-  realSupabaseClient.auth.getSession().then(({ data: { session } }) => {
-    if (session?.user) {
-      currentAuthUser = {
-        uid: session.user.id,
-        email: session.user.email,
-        displayName: session.user.user_metadata?.full_name || session.user.email,
-      };
-      localStorage.setItem('supabase_auth_user', JSON.stringify(currentAuthUser));
-    }
-  }).catch(() => {});
+// Check if this window is a popup opened for OAuth authentication
+const isPopupAuth = typeof window !== 'undefined' && 
+  window.self === window.top && 
+  (window.name === 'supabase_oauth_popup' || (window.opener && window.opener !== window));
 
-  realSupabaseClient.auth.onAuthStateChange((event, session) => {
-    if (session?.user) {
-      currentAuthUser = {
-        uid: session.user.id,
-        email: session.user.email,
-        displayName: session.user.user_metadata?.full_name || session.user.email,
-      };
+// Helper function to notify opener or parent window that login was successful
+const notifyAuthSuccess = (session: any) => {
+  if (typeof window === 'undefined' || !session) return;
+  console.log("⚡ [Popup Auth] Notifying auth success with session...");
+  
+  const userObj = {
+    uid: session.user?.id || "",
+    email: session.user?.email || "",
+    displayName: session.user?.user_metadata?.full_name || session.user?.email || "",
+  };
+
+  const authData = {
+    user: userObj,
+    session: {
+      access_token: session.access_token,
+      refresh_token: session.refresh_token
+    }
+  };
+
+  // 1. Set localStorage signal (works perfectly across iframe/tab boundaries of the same origin)
+  try {
+    localStorage.setItem('supabase_auth_success_signal', JSON.stringify({ ...authData, timestamp: Date.now() }));
+  } catch (err) {
+    console.error("⚡ [Popup Auth] Error writing to localStorage signal:", err);
+  }
+
+  // 2. PostMessage to opener as backup
+  if (window.opener) {
+    try {
+      window.opener.postMessage({ type: 'SUPABASE_AUTH_SUCCESS', ...authData }, '*');
+    } catch (err) {
+      console.error("⚡ [Popup Auth] Error posting message:", err);
+    }
+  }
+
+  // Close popup after a short delay
+  setTimeout(() => {
+    try {
+      window.close();
+    } catch (e) {}
+  }, 1000);
+};
+
+let isSyncing = false;
+
+export const syncLocalToCloud = async () => {
+  if (isSyncing || !realSupabaseClient || !currentAuthUser) return;
+  
+  if (currentAuthUser.uid && currentAuthUser.uid.startsWith('guest_')) {
+    console.log("⚡ [Sync] Active user is guest, skipping cloud upload.");
+    return;
+  }
+
+  isSyncing = true;
+  console.log("⚡ [Sync] Starting offline to online synchronization...");
+
+  try {
+    const userId = currentAuthUser.uid;
+    const userEmail = currentAuthUser.email || "";
+
+    // 1. Sync Characters
+    const localCharacters = getLocalTable('characters');
+    if (localCharacters.length > 0) {
+      console.log(`⚡ [Sync] Found ${localCharacters.length} local characters. Verifying alignment...`);
+      
+      const charactersToUpload = [];
+      const updatedLocalCharacters = [];
+
+      for (const item of localCharacters) {
+        let needsUpload = false;
+        const charData = item.data || item;
+
+        // Only adopt character if it has no user_id or is owned by guest. NEVER adopt registered characters from other users!
+        if (!item.user_id || item.user_id.startsWith('guest_')) {
+          console.log(`⚡ [Sync] Migrating character ${charData.nome || item.id} from ${item.user_id} to ${userId}`);
+          item.user_id = userId;
+          item.user_email = userEmail;
+          
+          if (item.data) {
+            item.data.userId = userId;
+            item.data.userEmail = userEmail;
+          } else {
+            item.userId = userId;
+            item.userEmail = userEmail;
+          }
+          needsUpload = true;
+          charactersToUpload.push(item);
+        } else if (item.user_id === userId) {
+          needsUpload = true;
+          charactersToUpload.push(item);
+        } else {
+          console.log(`⚠️ [Sync] Skipping other user's character: ${charData.nome || item.id} (owner: ${item.user_id})`);
+        }
+
+        // Only retain our own, guest, or newly adopted characters in the local cache table
+        const isBelongingToUs = !item.user_id || item.user_id.startsWith('guest_') || item.user_id === userId;
+        if (isBelongingToUs) {
+          updatedLocalCharacters.push(item);
+        }
+      }
+
+      for (const item of charactersToUpload) {
+        try {
+          const charData = item.data || item;
+          console.log(`⚡ [Sync] Uploading character ${charData.nome || item.id} to cloud...`);
+          
+          // Mark as remote synced
+          item.is_remote_synced = true;
+          if (item.data) {
+            item.data.isRemoteSynced = true;
+          }
+
+          await realSupabaseClient.from('characters').upsert({
+            id: item.id,
+            user_id: item.user_id,
+            user_email: item.user_email,
+            campaign_id: item.campaign_id || charData.campaignId || null,
+            data: charData,
+            updated_at: new Date().toISOString()
+          });
+        } catch (uploadErr) {
+          console.error(`⚡ [Sync] Error uploading character ${item.id}:`, uploadErr);
+        }
+      }
+
+      // Save local table after updating elements in-place with is_remote_synced flag
+      saveLocalTable('characters', updatedLocalCharacters);
+    }
+
+    // 2. Sync Campaigns
+    const localCampaigns = getLocalTable('campaigns');
+    if (localCampaigns.length > 0) {
+      console.log(`⚡ [Sync] Found ${localCampaigns.length} local campaigns. Verifying alignment...`);
+      
+      const campaignsToUpload = [];
+      const updatedLocalCampaigns = [];
+
+      for (const item of localCampaigns) {
+        let needsUpload = false;
+        const campData = item.data || item;
+
+        // Only adopt campaign if it has no master_id or is owned by guest. NEVER adopt campaigns from other users!
+        if (!item.master_id || item.master_id.startsWith('guest_')) {
+          console.log(`⚡ [Sync] Migrating campaign ${item.name || item.id} from ${item.master_id} to ${userId}`);
+          item.master_id = userId;
+          item.master_email = userEmail;
+          
+          if (item.data) {
+            item.data.masterId = userId;
+            item.data.masterEmail = userEmail;
+          } else {
+            item.masterId = userId;
+            item.masterEmail = userEmail;
+          }
+          needsUpload = true;
+          campaignsToUpload.push(item);
+        } else if (item.master_id === userId) {
+          needsUpload = true;
+          campaignsToUpload.push(item);
+        } else {
+          console.log(`⚠️ [Sync] Skipping other user's campaign: ${item.name || item.id} (owner: ${item.master_id})`);
+        }
+
+        // Only retain our own, guest, or newly adopted campaigns in the local cache table
+        const isBelongingToUs = !item.master_id || item.master_id.startsWith('guest_') || item.master_id === userId;
+        if (isBelongingToUs) {
+          updatedLocalCampaigns.push(item);
+        }
+      }
+
+      saveLocalTable('campaigns', updatedLocalCampaigns);
+
+      for (const item of campaignsToUpload) {
+        try {
+          const campData = item.data || item;
+          console.log(`⚡ [Sync] Uploading campaign ${item.name || item.id} to cloud...`);
+          
+          await realSupabaseClient.from('campaigns').upsert({
+            id: item.id,
+            master_id: item.master_id,
+            master_email: item.master_email,
+            name: item.name || campData.name || "Sem Nome",
+            invite_code: item.invite_code || campData.inviteCode || "",
+            data: campData,
+            updated_at: new Date().toISOString()
+          });
+        } catch (uploadErr) {
+          console.error(`⚡ [Sync] Error uploading campaign ${item.id}:`, uploadErr);
+        }
+      }
+    }
+
+    console.log("⚡ [Sync] Synchronization complete!");
+    window.dispatchEvent(new Event('supabase_local_change_characters'));
+    window.dispatchEvent(new Event('supabase_local_change_campaigns'));
+  } catch (err) {
+    console.error("⚡ [Sync] Exception during synchronization:", err);
+  } finally {
+    isSyncing = false;
+  }
+};
+
+// Auto sync on module load if logged in
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    syncLocalToCloud().catch(err => console.error("Error in auto syncLocalToCloud:", err));
+  }, 2000);
+}
+
+if (realSupabaseClient) {
+  try {
+    realSupabaseClient.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        currentAuthUser = {
+          uid: session.user.id,
+          email: session.user.email,
+          displayName: session.user.user_metadata?.full_name || session.user.email,
+        };
+        localStorage.setItem('supabase_auth_user', JSON.stringify(currentAuthUser));
+        
+        if (isPopupAuth) {
+          notifyAuthSuccess(session);
+        } else {
+          syncLocalToCloud().catch(() => {});
+        }
+      }
+    }).catch((err) => {
+      console.warn("⚠️ [Supabase] Failed to get session on startup:", err);
+    });
+
+    realSupabaseClient.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        currentAuthUser = {
+          uid: session.user.id,
+          email: session.user.email,
+          displayName: session.user.user_metadata?.full_name || session.user.email,
+        };
+        localStorage.setItem('supabase_auth_user', JSON.stringify(currentAuthUser));
+        
+        if (isPopupAuth) {
+          notifyAuthSuccess(session);
+        } else {
+          syncLocalToCloud().catch(() => {});
+        }
+      } else if (event === 'SIGNED_OUT') {
+        currentAuthUser = null;
+        localStorage.removeItem('supabase_auth_user');
+      }
+    });
+  } catch (err) {
+    console.error("⚠️ [Supabase] Auth listener initialization exception:", err);
+  }
+}
+
+// If we are in the parent window (iframe or main tab), listen to the popup's message or storage signal
+if (typeof window !== 'undefined' && !isPopupAuth) {
+  // 1. PostMessage listener
+  window.addEventListener('message', async (event) => {
+    if (event.data?.type === 'SUPABASE_AUTH_SUCCESS' && event.data?.user) {
+      console.log("⚡ [Main Window] Received oauth login event from popup:", event.data.user);
+      const user = event.data.user;
+      const session = event.data.session;
+      
+      if (realSupabaseClient && session) {
+        try {
+          console.log("⚡ [Main Window] Setting Supabase session programmatically...");
+          await realSupabaseClient.auth.setSession({
+            access_token: session.access_token,
+            refresh_token: session.refresh_token
+          });
+        } catch (err) {
+          console.error("⚡ [Main Window] Error setting Supabase session:", err);
+        }
+      }
+      
+      currentAuthUser = user;
       localStorage.setItem('supabase_auth_user', JSON.stringify(currentAuthUser));
-    } else {
-      currentAuthUser = null;
-      localStorage.removeItem('supabase_auth_user');
+      window.dispatchEvent(new Event('supabase_auth_state_change_local'));
+      window.location.reload();
+    }
+  });
+
+  // 2. Storage event listener (resilient backup across identical origins)
+  window.addEventListener('storage', async (event) => {
+    if (event.key === 'supabase_auth_success_signal' && event.newValue) {
+      try {
+        const signal = JSON.parse(event.newValue);
+        if (signal?.user) {
+          console.log("⚡ [Main Window] Received oauth login event via localStorage signal:", signal.user);
+          const user = signal.user;
+          const session = signal.session;
+          
+          if (realSupabaseClient && session) {
+            try {
+              console.log("⚡ [Main Window] Setting Supabase session programmatically via storage signal...");
+              await realSupabaseClient.auth.setSession({
+                access_token: session.access_token,
+                refresh_token: session.refresh_token
+              });
+            } catch (err) {
+              console.error("⚡ [Main Window] Error setting Supabase session via storage signal:", err);
+            }
+          }
+          
+          currentAuthUser = user;
+          localStorage.setItem('supabase_auth_user', JSON.stringify(currentAuthUser));
+          localStorage.removeItem('supabase_auth_success_signal');
+          window.dispatchEvent(new Event('supabase_auth_state_change_local'));
+          window.location.reload();
+        }
+      } catch (err) {
+        console.error("⚡ [Main Window] Error parsing storage signal:", err);
+      }
     }
   });
 }
@@ -449,26 +841,87 @@ export const supabase = {
     return new ResilientQueryBuilder(table);
   },
   channel: (channelId: string) => {
-    return {
+    let realChan: any = null;
+    if (realSupabaseClient) {
+      try {
+        const existing = (realSupabaseClient as any).getChannels?.() || [];
+        const match = existing.find((c: any) => c.name === channelId || c.topic === channelId);
+        if (match) {
+          realSupabaseClient.removeChannel(match);
+        }
+      } catch (err) {
+        console.warn("⚠️ [Supabase] Failed to remove existing channel before recreation:", err);
+      }
+      try {
+        realChan = realSupabaseClient.channel(channelId);
+      } catch (err) {
+        console.warn("⚠️ [Supabase] Failed to create channel:", err);
+      }
+    }
+    
+    const chan = {
       on: (event: string, config: any, callback: () => void) => {
         // Setup local custom event listener
-        const table = config.table || 'campaigns';
-        const listener = () => callback();
-        window.addEventListener(`supabase_local_change_${table}`, listener);
-        (window as any)[`chan_unsub_${channelId}`] = () => {
-          window.removeEventListener(`supabase_local_change_${table}`, listener);
+        const table = config?.table || 'campaigns';
+        const listener = () => {
+          console.log(`📡 [Local Channel Signal] table change detected for: ${table}`);
+          callback();
         };
-        return this;
+        if (typeof window !== 'undefined') {
+          window.addEventListener(`supabase_local_change_${table}`, listener);
+          const unsubKey = `chan_unsub_${channelId}_${table}`;
+          (window as any)[unsubKey] = () => {
+            window.removeEventListener(`supabase_local_change_${table}`, listener);
+          };
+        }
+        if (realChan) {
+          try {
+            realChan.on(event, config, callback);
+          } catch (err) {
+            console.warn("⚠️ [Supabase] Failed to register on() callback on channel:", err);
+          }
+        }
+        return chan;
       },
       subscribe: () => {
+        let realSub: any = null;
+        if (realChan) {
+          try {
+            realSub = realChan.subscribe();
+          } catch (err) {
+            console.warn("⚠️ [Supabase] Failed to subscribe to real-time channel:", err);
+          }
+        }
         return {
           unsubscribe: () => {
-            const unsub = (window as any)[`chan_unsub_${channelId}`];
-            if (unsub) unsub();
+            if (realSub && typeof realSub.unsubscribe === 'function') {
+              try {
+                realSub.unsubscribe();
+              } catch (err) {
+                console.warn("⚠️ [Supabase] realSub unsubscribe failed:", err);
+              }
+            }
+            if (realSupabaseClient && realChan) {
+              try {
+                realSupabaseClient.removeChannel(realChan);
+              } catch (err) {
+                console.warn("⚠️ [Supabase] Failed to remove real channel from client:", err);
+              }
+            }
+            if (typeof window !== 'undefined') {
+              Object.keys(window as any).forEach(key => {
+                if (key.startsWith(`chan_unsub_${channelId}`)) {
+                  const unsub = (window as any)[key];
+                  if (typeof unsub === 'function') unsub();
+                  delete (window as any)[key];
+                }
+              });
+            }
           }
         };
       }
-    } as any;
+    };
+    return chan as any;
   },
   removeChannel: (channel: any) => {
     if (channel && typeof channel.unsubscribe === 'function') {
@@ -483,10 +936,23 @@ export const auth = {
   },
   signOut: async () => {
     if (realSupabaseClient) {
-      await realSupabaseClient.auth.signOut();
+      try {
+        await realSupabaseClient.auth.signOut();
+      } catch (err) {
+        console.warn("⚠️ [Supabase] Sign out on cloud failed, clearing local state anyway:", err);
+      }
     }
     currentAuthUser = null;
     localStorage.removeItem('supabase_auth_user');
+    
+    // Clear all local database/character states to prevent cross-user data remnants on reload!
+    localStorage.removeItem('rpg_system_x_chars');
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('supabase_table_') || key.startsWith('supabase_cache_') || key.startsWith('campaign_characters_')) {
+        localStorage.removeItem(key);
+      }
+    }
+
     window.location.reload();
   }
 };
@@ -494,19 +960,45 @@ export const auth = {
 export const loginWithGoogle = async () => {
   if (realSupabaseClient) {
     console.log("⚡ [Supabase] Initiating OAuth signInWithOAuth via Google...");
+    
+    // Detect if we are inside an iframe
+    const isIframe = window.self !== window.top;
+    
+    // In an iframe (like Google AI Studio), redirects are blocked. We must use a popup!
     const { data, error } = await realSupabaseClient.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin
+        redirectTo: window.location.origin,
+        skipBrowserRedirect: isIframe
       }
     });
     if (error) throw error;
+    
+    if (isIframe && data?.url) {
+      console.log("⚡ [Supabase] In-iframe mode detected: Opening OAuth in a popup window:", data.url);
+      const width = 600;
+      const height = 750;
+      const left = window.screen.width / 2 - width / 2;
+      const top = window.screen.height / 2 - height / 2;
+      
+      const popup = window.open(
+        data.url,
+        'supabase_oauth_popup',
+        `width=${width},height=${height},left=${left},top=${top},status=no,resizable=yes`
+      );
+      
+      if (!popup) {
+        console.warn("⚠️ [Supabase] Popup blocked! Falling back to standard redirect.");
+        window.location.href = data.url;
+      }
+    }
+    
     return data;
   } else {
     // Generate an instant mock user for guest/preview convenience when url not provided
     console.log("⚡ [Supabase] Guest login generated instantly (no Supabase URL configured).");
     const mockUser = {
-      uid: 'guest_user_' + Math.random().toString(36).substr(2, 9),
+      uid: 'guest_user_' + Math.random().toString(36).substring(2, 11),
       email: 'mestre.demons@gmail.com',
       displayName: 'Mestre Hefesto (Offline)'
     };
@@ -517,22 +1009,40 @@ export const loginWithGoogle = async () => {
   }
 };
 
+export const loginAsGuest = async () => {
+  console.log("⚡ [Supabase] Guest/Offline login initiated.");
+  const mockUser = {
+    uid: 'guest_user_' + Math.random().toString(36).substring(2, 11),
+    email: 'mestre.demons@gmail.com',
+    displayName: 'Mestre Hefesto (Offline)'
+  };
+  currentAuthUser = mockUser;
+  localStorage.setItem('supabase_auth_user', JSON.stringify(mockUser));
+  window.dispatchEvent(new Event('supabase_auth_state_change_local'));
+  window.location.reload();
+  return mockUser;
+};
+
 export const logout = async () => {
   await auth.signOut();
 };
 
 export const handleRedirectResult = async () => {
   if (realSupabaseClient) {
-    const { data: { session } } = await realSupabaseClient.auth.getSession();
-    if (session?.user) {
-      const userObj = {
-        uid: session.user.id,
-        email: session.user.email,
-        displayName: session.user.user_metadata?.full_name || session.user.email,
-      };
-      currentAuthUser = userObj;
-      localStorage.setItem('supabase_auth_user', JSON.stringify(userObj));
-      return userObj;
+    try {
+      const { data: { session } } = await realSupabaseClient.auth.getSession();
+      if (session?.user) {
+        const userObj = {
+          uid: session.user.id,
+          email: session.user.email,
+          displayName: session.user.user_metadata?.full_name || session.user.email,
+        };
+        currentAuthUser = userObj;
+        localStorage.setItem('supabase_auth_user', JSON.stringify(userObj));
+        return userObj;
+      }
+    } catch (err) {
+      console.warn("⚠️ [Supabase] Failed to check session on redirect:", err);
     }
   }
   return null;
@@ -550,8 +1060,10 @@ export const onAuthStateChanged = (
   };
   
   window.addEventListener('storage', listener);
+  window.addEventListener('supabase_auth_state_change_local', listener);
   return () => {
     window.removeEventListener('storage', listener);
+    window.removeEventListener('supabase_auth_state_change_local', listener);
   };
 };
 
@@ -733,6 +1245,31 @@ export const onSnapshot = (
     try {
       // Query the builder representing this table
       const builder = new ResilientQueryBuilder(tableName);
+      
+      // Apply filters dynamically from query constraints to limit rows returned by the database!
+      for (const constraint of queryObj.constraints) {
+        if (constraint.type === 'where') {
+          const { field, operator, value } = constraint;
+          if (operator === '==' || operator === '===') {
+            builder.eq(field, value);
+          }
+        } else if (constraint.type === 'or') {
+          const clauses = constraint.clauses;
+          const parts: string[] = [];
+          for (const clause of clauses) {
+            if (clause.type === 'where') {
+              const { field, operator, value } = clause;
+              if (operator === '==' || operator === '===') {
+                parts.push(`${field}.eq.${value}`);
+              }
+            }
+          }
+          if (parts.length > 0) {
+            builder.or(parts.join(','));
+          }
+        }
+      }
+
       const { data } = await builder;
       
       if (!active || !data) return;

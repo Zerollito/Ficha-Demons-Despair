@@ -41,6 +41,19 @@ export const createCampaign = async (name: string) => {
   }
 };
 
+export const mapRowToCampaign = (row: any): Campaign => {
+  const campData = row.data || {};
+  return {
+    ...campData,
+    id: row.id,
+    name: row.name || campData.name || "Sem Nome",
+    masterId: row.master_id || campData.masterId || "",
+    masterEmail: row.master_email || campData.masterEmail || "",
+    inviteCode: row.invite_code || row.inviteCode || campData.inviteCode || "",
+    createdAt: row.created_at || row.createdAt || campData.createdAt || null,
+  };
+};
+
 export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => void) => {
   if (!auth.currentUser) return () => {};
 
@@ -50,7 +63,7 @@ export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => 
 
   const fetchAndNotify = async () => {
     try {
-      let queryBuilder = supabase.from(CAMPAIGNS_TABLE).select('id, data');
+      let queryBuilder = supabase.from(CAMPAIGNS_TABLE).select('*');
       if (userEmail) {
         queryBuilder = queryBuilder.or(`master_email.eq.${userEmail},master_id.eq.${userId}`);
       } else {
@@ -65,7 +78,7 @@ export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => 
       }
 
       if (active && data) {
-        const campaigns = data.map(row => ({ id: row.id, ...row.data } as Campaign));
+        const campaigns = data.map(row => mapRowToCampaign(row));
         onUpdate(campaigns);
       }
     } catch (e) {
@@ -74,6 +87,15 @@ export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => 
   };
 
   fetchAndNotify();
+
+  const interval = setInterval(fetchAndNotify, 4000);
+
+  const localListener = () => {
+    fetchAndNotify();
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener(`supabase_local_change_${CAMPAIGNS_TABLE}`, localListener);
+  }
 
   const channel = supabase
     .channel(`campaigns_master_${userId}`)
@@ -92,6 +114,10 @@ export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => 
 
   return () => {
     active = false;
+    clearInterval(interval);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener(`supabase_local_change_${CAMPAIGNS_TABLE}`, localListener);
+    }
     supabase.removeChannel(channel);
   };
 };
@@ -176,7 +202,7 @@ export const subscribeToCampaignsByIds = (campaignIds: string[], onUpdate: (camp
     try {
       const { data, error } = await supabase
         .from(CAMPAIGNS_TABLE)
-        .select('id, data')
+        .select('*')
         .in('id', campaignIds);
 
       if (error) {
@@ -185,7 +211,7 @@ export const subscribeToCampaignsByIds = (campaignIds: string[], onUpdate: (camp
       }
 
       if (active && data) {
-        const campaigns = data.map(row => ({ id: row.id, ...row.data } as Campaign));
+        const campaigns = data.map(row => mapRowToCampaign(row));
         onUpdate(campaigns);
       }
     } catch (e) {
@@ -194,6 +220,15 @@ export const subscribeToCampaignsByIds = (campaignIds: string[], onUpdate: (camp
   };
 
   fetchAndNotify();
+
+  const interval = setInterval(fetchAndNotify, 4000);
+
+  const localListener = () => {
+    fetchAndNotify();
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener(`supabase_local_change_${CAMPAIGNS_TABLE}`, localListener);
+  }
 
   const channel = supabase
     .channel(`campaigns_by_ids_${campaignIds.slice(0, 5).join('_')}`)
@@ -212,6 +247,10 @@ export const subscribeToCampaignsByIds = (campaignIds: string[], onUpdate: (camp
 
   return () => {
     active = false;
+    clearInterval(interval);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener(`supabase_local_change_${CAMPAIGNS_TABLE}`, localListener);
+    }
     supabase.removeChannel(channel);
   };
 };
@@ -282,7 +321,10 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
       snapshot.forEach((doc) => {
         const docData = doc.data();
         if (docData && docData.data) {
-          characters.push(docData.data as Character);
+          const char = { ...docData.data } as Character;
+          if (!char.userId && docData.user_id) char.userId = docData.user_id;
+          if (!char.userEmail && docData.user_email) char.userEmail = docData.user_email;
+          characters.push(char);
         }
       });
       saveLocalCampaignCharacters(campaignId, characters);
