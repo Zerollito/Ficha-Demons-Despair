@@ -109,6 +109,14 @@ Este documento contém todas as regras lógicas e mecânicas do sistema para gar
   - **Grave (< 30)**: -3 Dano, -2 Deslocamento.
   - **Crítica (< 5)**: -3 Dano, -2 Deslocamento, -1 em todas as proficiências.
 
+### Sanidade (Mentalidade)
+- **Metade do Total (Sanidade <= 50% e > 25%)**:
+  - Penalidade de **-1/3** no deslocamento total (multiplicador de 0.66x ou redução de 1/3 do deslocamento).
+  - Penalidade de **-1** em todas as proficiências que usem **Apreço/Aparência (APR)**, **Mentalidade (MEN)** ou **Inteligência (INT)**.
+- **Um Quarto do Total (Sanidade <= 25%)**:
+  - Penalidade de **metade (-1/2)** no deslocamento total.
+  - Penalidade de **-2** em todas as proficiências que usem **Apreço/Aparência (APR)**, **Mentalidade (MEN)** ou **Inteligência (INT)**.
+
 ### Clima
 - `Diff = abs(Clima Atual) - Proficiência em Clima`.
 - **Diff >= 2**: -1 em INT/APR/RIT e -5 em Mentalidade.

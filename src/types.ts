@@ -49,6 +49,8 @@ export interface Campaign {
   masterId: string;
   inviteCode: string;
   createdAt: any;
+  playerEmails?: string[];
+  masterEmail?: string;
 }
 
 export interface TableToken {
@@ -88,6 +90,7 @@ export interface TableToken {
   acoes?: MonsterAction[];
   efeitosNegativos?: NegativeEffect[];
   deslocamento?: number;
+  bonusDeslocamento?: number;
   isDefending?: boolean;
   defenseType?: 'Shield' | 'Weapon';
   defenseWeaponId?: string;
@@ -139,6 +142,8 @@ export interface MonsterAction {
   acerto: number | string;
   dano: string;
   description: string;
+  mana?: number | string;
+  efeito?: string;
 }
 
 export interface BestiaryMonster {
@@ -307,12 +312,28 @@ export interface Character {
   imagens: { id: string; url: string; titulo: string }[];
   itens: Item[];
   bonusCarga?: number;
+  bonusDeslocamento?: number;
   isDefending?: boolean;
   defenseType?: 'Shield' | 'Weapon';
   defenseWeaponId?: string;
   tocaCreatures?: TocaCreature[];
   bonusFomeProximaRolagem?: number;
   acoes?: MonsterAction[];
+  local?: string;
+  personalidade?: string;
+  gostaNaoGosta?: string;
+  informacoes?: string;
+  habitos?: string;
+  ataque?: {
+    corte: number | string;
+    perfuracao: number | string;
+    impacto: number | string;
+    resistencia: number | string;
+    feitico: number | string;
+    elemental: number | string;
+    magiaNegra: number | string;
+    potencial: number | string;
+  };
 }
 
 export interface Escala {

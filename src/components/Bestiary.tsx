@@ -2,27 +2,18 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { 
   Plus, 
   Trash2, 
-  Save, 
   Skull, 
-  Image as ImageIcon, 
-  X, 
   Search,
   ChevronRight,
   Shield,
   Heart,
   FileText,
-  Swords,
-  Zap,
-  Target,
-  Move,
-  Info,
-  MapPin,
-  Smile,
-  Ghost,
-  Download
+  Download,
+  Upload,
+  Target
 } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
-import { BestiaryMonster, MonsterAction } from "../types";
+import { motion } from "motion/react";
+import { BestiaryMonster } from "../types";
 import { 
   saveMonsterToBestiary, 
   deleteMonsterFromBestiary, 
@@ -30,10 +21,17 @@ import {
   saveMonstersBatch
 } from "../services/bestiaryService";
 import { DEFAULT_MONSTERS } from "../constants/defaultMonsters";
-import { compressImageDataUrl } from "../lib/imageUtils";
-import { cn } from "../lib/utils";
-import { auth } from "../lib/supabase";
+import { auth, isFirebaseQuotaExceeded } from "../lib/supabase";
 import { generateId } from "../lib/random";
+
+const normalizeMonsterName = (name: string): string => {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[.\s_-]+/g, "") // remove periods, spaces, underscores, hyphens
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, ""); // remove accents
+};
 
 interface BestiaryProps {
   onMonsterSelect?: (monster: BestiaryMonster) => void;
@@ -41,15 +39,52 @@ interface BestiaryProps {
   onEditMonsterSheet?: (monsterId: string) => void;
 }
 
+const sanitizeMonster = (m: any): Partial<BestiaryMonster> => {
+  return {
+    name: m.name || "Criatura Sem Nome",
+    imageUrl: m.imageUrl || "",
+    maxHp: m.maxHp !== undefined ? m.maxHp : 10,
+    size: m.size || 1,
+    esquiva: m.esquiva !== undefined ? m.esquiva : 0,
+    acuracia: m.acuracia !== undefined ? m.acuracia : 0,
+    deslocamento: m.deslocamento || "5 metros",
+    bonus: m.bonus || "",
+    ataque: {
+      corte: m.ataque?.corte !== undefined ? m.ataque.corte : 0,
+      perfuracao: m.ataque?.perfuracao !== undefined ? m.ataque.perfuracao : 0,
+      impacto: m.ataque?.impacto !== undefined ? m.ataque.impacto : 0,
+      resistencia: m.ataque?.resistencia !== undefined ? m.ataque.resistencia : 0,
+      feitico: m.ataque?.feitico !== undefined ? m.ataque.feitico : 0,
+      elemental: m.ataque?.elemental !== undefined ? m.ataque.elemental : 0,
+      magiaNegra: m.ataque?.magiaNegra !== undefined ? m.ataque.magiaNegra : 0,
+      potencial: m.ataque?.potencial !== undefined ? m.ataque.potencial : 0,
+    },
+    defesa: {
+      corte: m.defesa?.corte !== undefined ? m.defesa.corte : 0,
+      perfuracao: m.defesa?.perfuracao !== undefined ? m.defesa.perfuracao : 0,
+      impacto: m.defesa?.impacto !== undefined ? m.defesa.impacto : 0,
+      feitico: m.defesa?.feitico !== undefined ? m.defesa.feitico : 0,
+      elemental: m.defesa?.elemental !== undefined ? m.defesa.elemental : 0,
+      magiaNegra: m.defesa?.magiaNegra !== undefined ? m.defesa.magiaNegra : 0,
+    },
+    local: m.local || "",
+    personalidade: m.personalidade || "",
+    gostaNaoGosta: m.gostaNaoGosta || "",
+    partesUteis: m.partesUteis || "",
+    informacoes: m.informacoes || "",
+    habitos: m.habitos || "",
+    acoes: Array.isArray(m.acoes) ? m.acoes : [],
+  };
+};
+
 export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, isSelectionMode = false, onEditMonsterSheet }) => {
   const [monsters, setMonsters] = useState<BestiaryMonster[]>([]);
-  const [editingMonster, setEditingMonster] = useState<BestiaryMonster | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [isAdding, setIsAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const hasSeededRef = useRef(false);
+  const hasCompletedMigrationRef = useRef(false);
 
   useEffect(() => {
     if (!auth.currentUser?.uid) {
@@ -59,25 +94,128 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
     const unsubscribe = subscribeToBestiary(auth.currentUser.uid, (monstersData) => {
       setMonsters(monstersData);
       
-      // Auto-migration: If monsters exist but don't have images, and they match default names
-      if (monstersData.length > 0 && auth.currentUser) {
+      // If quota is exceeded, do not attempt auto-migrations or seeding to prevent looping/spamming requests
+      if (isFirebaseQuotaExceeded()) {
+        return;
+      }
+      
+      // Auto-migration: If monsters exist, ensure they are exactly the standard ones (no duplicates, correct names)
+      if (monstersData.length > 0 && auth.currentUser && !hasCompletedMigrationRef.current) {
+        hasCompletedMigrationRef.current = true;
         (async () => {
           let updatedAny = false;
+          
+          // First, clean up duplicates and normalize names of any matching standard monsters
+          const seenNames = new Set<string>();
           for (const m of monstersData) {
-            if (!m.imageUrl) {
-              const defaultMatch = DEFAULT_MONSTERS.find(dm => dm.name === m.name);
-              if (defaultMatch && defaultMatch.imageUrl) {
-                console.log(`Auto-updating image for ${m.name}`);
+            const normM = normalizeMonsterName(m.name || "");
+            const defaultMatch = DEFAULT_MONSTERS.find(dm => normalizeMonsterName(dm.name) === normM);
+            
+            if (defaultMatch) {
+              // Normalize its name to the standard spelling if there is a slight mismatch (e.g. trailing period)
+              if (m.name !== defaultMatch.name) {
+                console.log(`Auto-correcting monster name from "${m.name}" to "${defaultMatch.name}"`);
+                m.name = defaultMatch.name;
+                await saveMonsterToBestiary(m);
+                updatedAny = true;
+              }
+
+              const normMatchName = defaultMatch.name.toLowerCase().trim();
+              if (seenNames.has(normMatchName)) {
+                console.log(`Auto-deleting duplicate standard monster: ${m.name} (${m.id})`);
+                await deleteMonsterFromBestiary(m.id);
+                updatedAny = true;
+                continue;
+              }
+              seenNames.add(normMatchName);
+            }
+          }
+
+          // Fetch standard monsters to verify stats and image URLs
+          const currentMonsters = monstersData.filter(m => 
+            DEFAULT_MONSTERS.some(dm => normalizeMonsterName(dm.name) === normalizeMonsterName(m.name))
+          );
+
+          // Deep comparison to avoid unneeded updates (and order/key variations in JSON parsing)
+          const isAtaqueEqual = (atk1: any, atk2: any) => {
+            if (!atk1 || !atk2) return false;
+            const keys = ['corte', 'perfuracao', 'impacto', 'resistencia', 'feitico', 'elemental', 'magiaNegra', 'potencial'];
+            return keys.every(k => Number(atk1[k] || 0) === Number(atk2[k] || 0));
+          };
+
+          const isDefesaEqual = (def1: any, def2: any) => {
+            if (!def1 || !def2) return false;
+            const keys = ['corte', 'perfuracao', 'impacto', 'feitico', 'elemental', 'magiaNegra'];
+            return keys.every(k => Number(def1[k] || 0) === Number(def2[k] || 0));
+          };
+
+          const isAcoesEqual = (ac1: any[], ac2: any[]) => {
+            if (!ac1 || !ac2) return false;
+            if (ac1.length !== ac2.length) return false;
+            return ac1.every((a, idx) => {
+              const b = ac2[idx];
+              if (!b) return false;
+              return a.name === b.name && 
+                     a.type === b.type && 
+                     a.categoria === b.categoria && 
+                     Number(a.acerto || 0) === Number(b.acerto || 0) && 
+                     a.dano === b.dano && 
+                     a.description === b.description;
+            });
+          };
+
+          for (const m of currentMonsters) {
+            const defaultMatch = DEFAULT_MONSTERS.find(dm => normalizeMonsterName(dm.name) === normalizeMonsterName(m.name));
+            if (defaultMatch) {
+              const needsImageUpdate = !m.imageUrl || m.imageUrl !== defaultMatch.imageUrl;
+              const needsHpUpdate = m.maxHp !== defaultMatch.maxHp;
+              const needsDeslocamentoUpdate = m.deslocamento !== defaultMatch.deslocamento;
+              const needsAtaqueUpdate = !isAtaqueEqual(m.ataque, defaultMatch.ataque);
+              const needsDefesaUpdate = !isDefesaEqual(m.defesa, defaultMatch.defesa);
+              const needsAcoesUpdate = !isAcoesEqual(m.acoes || [], defaultMatch.acoes || []);
+
+              if (needsImageUpdate || needsHpUpdate || needsDeslocamentoUpdate || needsAtaqueUpdate || needsDefesaUpdate || needsAcoesUpdate) {
+                console.log(`Auto-updating stats for default monster: ${m.name}`);
                 await saveMonsterToBestiary({
                   ...m,
-                  imageUrl: defaultMatch.imageUrl
+                  imageUrl: defaultMatch.imageUrl,
+                  maxHp: defaultMatch.maxHp,
+                  deslocamento: defaultMatch.deslocamento,
+                  esquiva: defaultMatch.esquiva,
+                  acuracia: defaultMatch.acuracia,
+                  bonus: defaultMatch.bonus,
+                  ataque: defaultMatch.ataque,
+                  defesa: defaultMatch.defesa,
+                  acoes: defaultMatch.acoes,
+                  local: m.local || defaultMatch.local,
+                  personalidade: m.personalidade || defaultMatch.personalidade,
+                  partesUteis: m.partesUteis || defaultMatch.partesUteis,
+                  informacoes: m.informacoes || defaultMatch.informacoes,
+                  gostaNaoGosta: m.gostaNaoGosta || defaultMatch.gostaNaoGosta,
+                  habitos: m.habitos || defaultMatch.habitos
                 });
                 updatedAny = true;
               }
             }
           }
+
+          // Check for any default monsters that are completely missing from the user's bestiary and add them
+          const missingDefaults = DEFAULT_MONSTERS.filter(dm => 
+            !currentMonsters.some(m => normalizeMonsterName(m.name) === normalizeMonsterName(dm.name))
+          );
+          if (missingDefaults.length > 0) {
+            console.log(`Auto-seeding ${missingDefaults.length} missing default monsters`);
+            const monstersToSeed = missingDefaults.map(monster => ({
+              ...monster,
+              id: generateId(),
+              masterId: auth.currentUser!.uid
+            } as BestiaryMonster));
+            await saveMonstersBatch(monstersToSeed);
+            updatedAny = true;
+          }
+
           if (updatedAny) {
-            console.log("Migration complete: Monster images updated.");
+            console.log("Migration complete: Monster images and stats updated.");
           }
         })();
       }
@@ -97,8 +235,6 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
     });
     return () => unsubscribe();
   }, [auth.currentUser?.uid]);
-
-  // Removed local generateId as it's now imported
 
   const getInitialMonster = (): BestiaryMonster => ({
     id: generateId(),
@@ -127,22 +263,41 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
     habitos: ""
   });
 
-  const MONSTER_SIZES = [
-    { label: 'Pequeno', value: 0.5 },
-    { label: 'Médio', value: 1.0 },
-    { label: 'Grande', value: 2.0 },
-    { label: 'Gigante', value: 4.0 },
-  ];
-
-  const handleCreate = () => {
-    setEditingMonster(getInitialMonster());
-    setIsAdding(true);
+  const handleCreate = async () => {
+    try {
+      const newMonster = getInitialMonster();
+      newMonster.masterId = auth.currentUser?.uid || "";
+      await saveMonsterToBestiary(newMonster);
+      if (onEditMonsterSheet) {
+        onEditMonsterSheet(newMonster.id);
+      }
+    } catch (err) {
+      console.error("Erro ao criar novo demônio:", err);
+      setError("Falha ao criar novo demônio.");
+    }
   };
 
   const seedDefaults = async () => {
     if (!auth.currentUser) return;
+    
+    // First, delete duplicate standard monsters using name normalization
+    const seenNames = new Set<string>();
+    for (const m of monsters) {
+      const normM = normalizeMonsterName(m.name || "");
+      const isStandard = DEFAULT_MONSTERS.some(dm => normalizeMonsterName(dm.name) === normM);
+      if (isStandard) {
+        const normNameKey = normM;
+        if (seenNames.has(normNameKey)) {
+          await deleteMonsterFromBestiary(m.id);
+        } else {
+          seenNames.add(normNameKey);
+        }
+      }
+    }
+
+    // Now seed/update the standard ones
     for (const monster of DEFAULT_MONSTERS) {
-      const existing = monsters.find(m => m.name === monster.name);
+      const existing = monsters.find(m => normalizeMonsterName(m.name) === normalizeMonsterName(monster.name));
       if (existing) {
         // Overwrite existing monster with updated base stats while maintaining its original ID and masterId
         await saveMonsterToBestiary({
@@ -160,32 +315,6 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
       }
     }
     alert("Monstros base sincronizados e atualizados com sucesso!");
-  };
-
-  const handleSave = async () => {
-    if (editingMonster) {
-      // Garantir que valores numéricos vazios sejam salvos como 0 ou convertidos para número
-      const cleanedMonster = {
-        ...editingMonster,
-        maxHp: Number(editingMonster.maxHp) || 0,
-        esquiva: Number(editingMonster.esquiva) || 0,
-        acuracia: Number(editingMonster.acuracia) || 0,
-        ataque: Object.fromEntries(
-          Object.entries(editingMonster.ataque).map(([k, v]) => [k, Number(v) || 0])
-        ),
-        defesa: Object.fromEntries(
-          Object.entries(editingMonster.defesa).map(([k, v]) => [k, Number(v) || 0])
-        ),
-        acoes: editingMonster.acoes.map(acao => ({
-          ...acao,
-          acerto: Number(acao.acerto) || 0
-        }))
-      } as BestiaryMonster;
-
-      await saveMonsterToBestiary(cleanedMonster);
-      setEditingMonster(null);
-      setIsAdding(false);
-    }
   };
 
   const handleDelete = async (id: string) => {
@@ -206,53 +335,111 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const exportMonsterJSON = (monster: BestiaryMonster) => {
+    try {
+      const jsonString = JSON.stringify(monster, null, 2);
+      const blob = new Blob([jsonString], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const safeName = (monster.name || "criatura")
+        .replace(/[^a-z0-9]/gi, "_")
+        .toLowerCase();
+      link.download = `criatura_${safeName}.json`;
+      link.style.display = "none";
+      document.body.appendChild(link);
+      setTimeout(() => {
+        link.click();
+        setTimeout(() => {
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }, 100);
+      }, 0);
+    } catch (err) {
+      console.error("Erro ao exportar JSON da criatura:", err);
+      setError("Erro ao exportar criatura.");
+    }
+  };
+
+  const exportAllMonstersJSON = () => {
+    if (uniqueMonsters.length === 0) {
+      alert("Nenhuma criatura para exportar!");
+      return;
+    }
+    try {
+      const jsonString = JSON.stringify(uniqueMonsters, null, 2);
+      const blob = new Blob([jsonString], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `bestiario_completo.json`;
+      link.style.display = "none";
+      document.body.appendChild(link);
+      setTimeout(() => {
+        link.click();
+        setTimeout(() => {
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }, 100);
+      }, 0);
+    } catch (err) {
+      console.error("Erro ao exportar bestiário completo:", err);
+      setError("Erro ao exportar bestiário.");
+    }
+  };
+
+  const importMonstersJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !editingMonster) return;
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = async (event) => {
-      const result = event.target?.result as string;
       try {
-        const compressed = await compressImageDataUrl(result, 512, 0.7);
-        setEditingMonster({ ...editingMonster, imageUrl: compressed });
-      } catch {
-        setEditingMonster({ ...editingMonster, imageUrl: result });
+        const rawResult = event.target?.result as string;
+        const json = JSON.parse(rawResult);
+        
+        let monstersToImport: any[] = [];
+        if (Array.isArray(json)) {
+          monstersToImport = json;
+        } else if (json.monsters && Array.isArray(json.monsters)) {
+          monstersToImport = json.monsters;
+        } else if (json.name) {
+          monstersToImport = [json];
+        } else {
+          throw new Error("Formato de arquivo não reconhecido.");
+        }
+
+        if (monstersToImport.length === 0) {
+          throw new Error("Nenhuma criatura encontrada no arquivo.");
+        }
+
+        const currentUserId = auth.currentUser?.uid || "";
+        const savedList: BestiaryMonster[] = [];
+
+        for (const m of monstersToImport) {
+          const sanitized = sanitizeMonster(m);
+          const finalMonster: BestiaryMonster = {
+            ...sanitized,
+            id: generateId(), // New ID to prevent collision
+            masterId: currentUserId
+          } as BestiaryMonster;
+          
+          await saveMonsterToBestiary(finalMonster);
+          savedList.push(finalMonster);
+        }
+
+        alert(savedList.length === 1 ? "Criatura importada com sucesso!" : `${savedList.length} criaturas importadas com sucesso!`);
+      } catch (err: any) {
+        console.error("Erro ao importar JSON do bestiário:", err);
+        setError(err.message || "Erro ao importar criaturas.");
+      } finally {
+        if (e.target) {
+          e.target.value = "";
+        }
       }
     };
-    reader.readAsDataURL(file);
-  };
-
-  const addAction = () => {
-    if (!editingMonster) return;
-    const newAction: MonsterAction = {
-      id: generateId(),
-      name: "Novo Ataque",
-      type: "Major",
-      categoria: "Outro",
-      acerto: 10,
-      dano: "1d4",
-      description: ""
-    };
-    setEditingMonster({
-      ...editingMonster,
-      acoes: [...editingMonster.acoes, newAction]
-    });
-  };
-
-  const removeAction = (id: string) => {
-    if (!editingMonster) return;
-    setEditingMonster({
-      ...editingMonster,
-      acoes: editingMonster.acoes.filter(a => a.id !== id)
-    });
-  };
-
-  const updateAction = (id: string, updates: Partial<MonsterAction>) => {
-    if (!editingMonster) return;
-    setEditingMonster({
-      ...editingMonster,
-      acoes: editingMonster.acoes.map(a => a.id === id ? { ...a, ...updates } : a)
-    });
+    reader.readAsText(file);
   };
 
   const uniqueMonsters = useMemo(() => {
@@ -274,31 +461,54 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
 
   return (
     <div className="flex flex-col h-full space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div className="relative flex-1">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
+        <div className="relative w-full md:max-w-xl flex-1 md:flex-shrink-0 min-w-[280px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
           <input 
             type="text" 
             placeholder="Buscar demônio no bestiário..." 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-4 py-2 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-4 py-3 text-base text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </div>
         {!isSelectionMode && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={seedDefaults}
-              className="flex items-center gap-2 bg-zinc-800 text-zinc-300 px-4 py-2 rounded-xl font-bold uppercase tracking-widest text-[10px] border border-zinc-700 hover:bg-zinc-700 transition-colors"
+              className="flex items-center gap-2 bg-zinc-800 text-zinc-300 px-3 py-2 rounded-xl font-bold uppercase tracking-widest text-[10px] border border-zinc-700 hover:bg-zinc-700 transition-colors"
               title="Importar Monstros do Sistema"
             >
               <Download size={16} /> Importar Base
             </motion.button>
             <motion.button
               whileTap={{ scale: 0.95 }}
+              onClick={exportAllMonstersJSON}
+              className="flex items-center gap-2 bg-zinc-800 text-amber-500 px-3 py-2 rounded-xl font-bold uppercase tracking-widest text-[10px] border border-zinc-700 hover:bg-zinc-700 transition-colors"
+              title="Exportar Todas as Criaturas em JSON"
+            >
+              <Download size={16} /> Exportar JSON
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-2 bg-zinc-800 text-amber-500 px-3 py-2 rounded-xl font-bold uppercase tracking-widest text-[10px] border border-zinc-700 hover:bg-zinc-700 transition-colors"
+              title="Importar Criaturas de um arquivo JSON"
+            >
+              <Upload size={16} /> Importar JSON
+            </motion.button>
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={importMonstersJSON} 
+              accept=".json" 
+              className="hidden" 
+            />
+            <motion.button
+              whileTap={{ scale: 0.95 }}
               onClick={handleCreate}
-              className="flex items-center gap-2 bg-amber-500 text-zinc-950 px-4 py-2 rounded-xl font-bold uppercase tracking-widest text-xs shadow-lg shadow-amber-500/20"
+              className="flex items-center gap-2 bg-amber-500 text-zinc-950 px-3 py-2 rounded-xl font-bold uppercase tracking-widest text-xs shadow-lg shadow-amber-500/20"
             >
               <Plus size={18} /> Novo Demônio
             </motion.button>
@@ -327,7 +537,11 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
             <div className="flex items-start gap-4">
               <div className="w-20 h-20 rounded-xl bg-zinc-800 overflow-hidden flex-shrink-0 border border-zinc-700">
                 {monster.imageUrl ? (
-                  <img src={monster.imageUrl} alt={monster.name} className="w-full h-full object-cover" />
+                  <img 
+                    src={monster.imageUrl.startsWith('http') || monster.imageUrl.startsWith('/') ? monster.imageUrl : `/${monster.imageUrl}`} 
+                    alt={monster.name} 
+                    className="w-full h-full object-cover" 
+                  />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-zinc-600">
                     <Skull size={40} />
@@ -335,7 +549,18 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-zinc-100 truncate text-lg uppercase tracking-tight">{monster.name}</h3>
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="font-bold text-zinc-100 truncate text-lg uppercase tracking-tight flex-1" title={monster.name}>
+                    {monster.name}
+                  </h3>
+                  <button 
+                    onClick={() => exportMonsterJSON(monster)}
+                    className="p-1.5 bg-zinc-800 hover:bg-amber-500 hover:text-zinc-950 text-amber-500 rounded-lg transition-all flex-shrink-0 border border-zinc-700/50"
+                    title="Exportar esta criatura em JSON"
+                  >
+                    <Download size={14} />
+                  </button>
+                </div>
                 <div className="flex flex-wrap gap-2 mt-1">
                     <div className="flex items-center gap-1 text-red-500 text-[10px] font-bold bg-red-500/10 px-2 py-0.5 rounded-full border border-red-500/20">
                         <Heart size={10} /> {monster.maxHp} HP
@@ -391,12 +616,21 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
             </div>
 
             {isSelectionMode ? (
-              <button
-                onClick={() => onMonsterSelect?.(monster)}
-                className="w-full py-3 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-amber-500 hover:text-zinc-950 transition-all flex items-center justify-center gap-2"
-              >
-                Invocação <ChevronRight size={14} />
-              </button>
+              <div className="flex gap-2 mt-auto">
+                <button
+                  onClick={() => onMonsterSelect?.(monster)}
+                  className="flex-1 py-3 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-amber-500 hover:text-zinc-950 transition-all flex items-center justify-center gap-2"
+                >
+                  Invocação <ChevronRight size={14} />
+                </button>
+                <button 
+                  onClick={() => exportMonsterJSON(monster)}
+                  className="p-3 bg-zinc-850 hover:bg-amber-500 hover:text-zinc-950 text-amber-500 rounded-xl transition-all border border-zinc-800 flex items-center justify-center"
+                  title="Exportar esta criatura em JSON"
+                >
+                  <Download size={16} />
+                </button>
+              </div>
             ) : (
               <div className="flex gap-2 mt-auto">
                 {deletingId === monster.id ? (
@@ -419,20 +653,13 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
                   </div>
                 ) : (
                   <>
-                    <button 
-                      onClick={() => setEditingMonster(monster)}
-                      className="flex-1 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-xs font-bold uppercase transition-all"
-                      title="Editar informações básicas e atributos do bestiário"
-                    >
-                      Básico
-                    </button>
                     {onEditMonsterSheet && (
                       <button 
                         onClick={() => onEditMonsterSheet(monster.id)}
                         className="flex-1 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl text-xs font-bold uppercase transition-all text-white flex items-center justify-center gap-1"
                         title="Ver e editar ficha de jogo completa do demônio"
                       >
-                        <FileText size={14} /> Ficha
+                        <FileText size={14} /> Ficha Completa
                       </button>
                     )}
                     <button 
@@ -440,10 +667,10 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
                         console.log("Clicou no lixo para:", monster.id);
                         setDeletingId(monster.id);
                       }}
-                      className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-all"
+                      className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-all border border-red-500/10 flex items-center justify-center"
                       title="Excluir"
                     >
-                      <Trash2 size={18} />
+                      <Trash2 size={16} />
                     </button>
                   </>
                 )}
@@ -452,454 +679,6 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
           </motion.div>
         ))}
       </div>
-
-      {/* Edit Modal */}
-      <AnimatePresence>
-        {editingMonster && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md overflow-hidden">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="bg-zinc-950 border border-zinc-800 rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
-            >
-              <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
-                <h3 className="text-xl font-bold text-amber-500 uppercase tracking-widest flex items-center gap-3">
-                  <Skull size={24} /> {isAdding ? "Nova Entidade" : `Ficha de ${editingMonster.name}`}
-                </h3>
-                <button onClick={() => setEditingMonster(null)} className="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-zinc-400 hover:text-white transition-all">
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-10">
-                {/* Header & Stats */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="w-32 h-32 rounded-3xl bg-zinc-900 border-2 border-zinc-800 overflow-hidden relative group shadow-2xl">
-                      {editingMonster.imageUrl ? (
-                        <img src={editingMonster.imageUrl} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-zinc-800">
-                          <ImageIcon size={60} />
-                        </div>
-                      )}
-                      <label className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
-                        <div className="text-white flex flex-col items-center gap-1">
-                            <Plus size={24} />
-                            <span className="text-[10px] font-black uppercase">Alterar</span>
-                        </div>
-                        <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="md:col-span-2 grid grid-cols-2 gap-4">
-                    <div className="col-span-2">
-                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-2 mb-1 block">Nome do Demônio</label>
-                        <input 
-                            type="text" 
-                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                            value={editingMonster.name ?? ""}
-                            onChange={(e) => setEditingMonster({ ...editingMonster, name: e.target.value })}
-                        />
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-2 mb-1 block flex items-center gap-1">
-                            <Heart size={10} /> Vida (HP)
-                        </label>
-                        <input 
-                            type="number" 
-                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none"
-                            value={editingMonster.maxHp ?? 1}
-                            onChange={(e) => setEditingMonster({ ...editingMonster, maxHp: e.target.value === "" ? "" : parseInt(e.target.value) })}
-                        />
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-2 mb-1 block flex items-center gap-1">
-                            <Move size={10} /> Deslocamento
-                        </label>
-                        <input 
-                            type="text" 
-                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none"
-                            value={editingMonster.deslocamento ?? ""}
-                            onChange={(e) => setEditingMonster({ ...editingMonster, deslocamento: e.target.value })}
-                        />
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-2 mb-1 block flex items-center gap-1">
-                            <Shield size={10} /> Esquiva
-                        </label>
-                        <input 
-                            type="number" 
-                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none"
-                            value={editingMonster.esquiva ?? 0}
-                            onChange={(e) => setEditingMonster({ ...editingMonster, esquiva: e.target.value === "" ? "" : parseInt(e.target.value) })}
-                        />
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-2 mb-1 block flex items-center gap-1">
-                            <Target size={10} /> Acurácia
-                        </label>
-                        <input 
-                            type="number" 
-                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none"
-                            value={editingMonster.acuracia ?? 0}
-                            onChange={(e) => setEditingMonster({ ...editingMonster, acuracia: e.target.value === "" ? "" : parseInt(e.target.value) })}
-                        />
-                    </div>
-                    <div className="col-span-2">
-                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-2 mb-1 block flex items-center gap-1">
-                            Escala / Tamanho do Token (Opcional)
-                        </label>
-                        <div className="grid grid-cols-4 gap-2 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
-                            {MONSTER_SIZES.map(s => (
-                                <button
-                                    key={s.value}
-                                    type="button"
-                                    onClick={() => setEditingMonster({ ...editingMonster, size: s.value })}
-                                    className={cn(
-                                        "py-2 rounded-lg text-[10px] font-black uppercase transition-all",
-                                        ((s.value === 0.5 && (editingMonster.size || 1) <= 0.7) ||
-                                         (s.value === 1.0 && (editingMonster.size || 1) > 0.7 && (editingMonster.size || 1) <= 1.3) ||
-                                         (s.value === 2.0 && (editingMonster.size || 1) > 1.3 && (editingMonster.size || 1) <= 3.0) ||
-                                         (s.value === 4.0 && (editingMonster.size || 1) > 3.0))
-                                        ? "bg-amber-500 text-zinc-950 shadow-lg shadow-amber-500/20" 
-                                        : "text-zinc-500 hover:text-zinc-300"
-                                    )}
-                                >
-                                    {s.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Levels Tables */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Attack Table */}
-                  <div className="space-y-4">
-                    <h4 className="text-sm font-black text-red-500 uppercase tracking-widest flex items-center gap-2 border-b border-red-500/20 pb-2">
-                        <Swords size={18} /> Níveis de Ataque
-                    </h4>
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden overflow-x-auto">
-                        <table className="w-full text-left text-[10px] border-collapse">
-                            <thead>
-                                <tr className="bg-zinc-950 border-b border-zinc-800 text-zinc-500 uppercase">
-                                    <th className="p-3">Atributo</th>
-                                    <th className="p-3">Nível</th>
-                                    <th className="p-3">Mágico</th>
-                                    <th className="p-3">Nível</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-800 text-zinc-100">
-                                <tr>
-                                    <td className="p-3 font-bold border-r border-zinc-800">Corte</td>
-                                    <td className="p-1 border-r border-zinc-800">
-                                        <input type="number" value={editingMonster.ataque.corte ?? 0} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, corte: e.target.value === "" ? "" : parseInt(e.target.value)}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
-                                    </td>
-                                    <td className="p-3 font-bold border-r border-zinc-800">Feitiço</td>
-                                    <td className="p-1">
-                                        <input type="number" value={editingMonster.ataque.feitico ?? 0} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, feitico: e.target.value === "" ? "" : parseInt(e.target.value)}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td className="p-3 font-bold border-r border-zinc-800">Perfuração</td>
-                                    <td className="p-1 border-r border-zinc-800">
-                                        <input type="number" value={editingMonster.ataque.perfuracao ?? 0} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, perfuracao: e.target.value === "" ? "" : parseInt(e.target.value)}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
-                                    </td>
-                                    <td className="p-3 font-bold border-r border-zinc-800">Elemental</td>
-                                    <td className="p-1">
-                                        <input type="number" value={editingMonster.ataque.elemental ?? 0} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, elemental: e.target.value === "" ? "" : parseInt(e.target.value)}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td className="p-3 font-bold border-r border-zinc-800">Impacto</td>
-                                    <td className="p-1 border-r border-zinc-800">
-                                        <input type="number" value={editingMonster.ataque.impacto ?? 0} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, impacto: e.target.value === "" ? "" : parseInt(e.target.value)}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
-                                    </td>
-                                    <td className="p-3 font-bold border-r border-zinc-800">Magia Negra</td>
-                                    <td className="p-1">
-                                        <input type="number" value={editingMonster.ataque.magiaNegra ?? 0} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, magiaNegra: e.target.value === "" ? "" : parseInt(e.target.value)}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
-                                    </td>
-                                </tr>
-                                <tr className="bg-amber-500/5">
-                                    <td className="p-3 font-black text-amber-500 border-r border-zinc-800">Resistência</td>
-                                    <td className="p-1 border-r border-zinc-800">
-                                        <input type="number" value={editingMonster.ataque.resistencia ?? 0} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, resistencia: e.target.value === "" ? "" : parseInt(e.target.value)}})} className="w-full bg-transparent p-2 text-center font-bold text-amber-500 focus:outline-none" />
-                                    </td>
-                                    <td className="p-3 font-black text-amber-500 border-r border-zinc-800">Potencial</td>
-                                    <td className="p-1">
-                                        <input type="number" value={editingMonster.ataque.potencial ?? 0} onChange={(e) => setEditingMonster({...editingMonster, ataque: {...editingMonster.ataque, potencial: e.target.value === "" ? "" : parseInt(e.target.value)}})} className="w-full bg-transparent p-2 text-center font-bold text-amber-500 focus:outline-none" />
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                  </div>
-
-                  {/* Defense Table */}
-                  <div className="space-y-4">
-                    <h4 className="text-sm font-black text-blue-500 uppercase tracking-widest flex items-center gap-2 border-b border-blue-500/20 pb-2">
-                        <Shield size={18} /> Níveis de Defesa
-                    </h4>
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden overflow-x-auto">
-                        <table className="w-full text-left text-[10px] border-collapse">
-                            <thead>
-                                <tr className="bg-zinc-950 border-b border-zinc-800 text-zinc-500 uppercase">
-                                    <th className="p-3">Atributo</th>
-                                    <th className="p-3 text-center">Defesa</th>
-                                    <th className="p-3">Mágico</th>
-                                    <th className="p-3 text-center">Defesa</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-800 text-zinc-100">
-                                <tr>
-                                    <td className="p-3 font-bold border-r border-zinc-800">Corte</td>
-                                    <td className="p-1 border-r border-zinc-800">
-                                        <input type="number" value={editingMonster.defesa.corte ?? 0} onChange={(e) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, corte: e.target.value === "" ? "" : parseInt(e.target.value)}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
-                                    </td>
-                                    <td className="p-3 font-bold border-r border-zinc-800">Feitiço</td>
-                                    <td className="p-1">
-                                        <input type="number" value={editingMonster.defesa.feitico ?? 0} onChange={(e) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, feitico: e.target.value === "" ? "" : parseInt(e.target.value)}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td className="p-3 font-bold border-r border-zinc-800">Perfuração</td>
-                                    <td className="p-1 border-r border-zinc-800">
-                                        <input type="number" value={editingMonster.defesa.perfuracao ?? 0} onChange={(e) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, perfuracao: e.target.value === "" ? "" : parseInt(e.target.value)}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
-                                    </td>
-                                    <td className="p-3 font-bold border-r border-zinc-800">Elemental</td>
-                                    <td className="p-1">
-                                        <input type="number" value={editingMonster.defesa.elemental ?? 0} onChange={(e) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, elemental: e.target.value === "" ? "" : parseInt(e.target.value)}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td className="p-3 font-bold border-r border-zinc-800">Impacto</td>
-                                    <td className="p-1 border-r border-zinc-800">
-                                        <input type="number" value={editingMonster.defesa.impacto ?? 0} onChange={(e) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, impacto: e.target.value === "" ? "" : parseInt(e.target.value)}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
-                                    </td>
-                                    <td className="p-3 font-bold border-r border-zinc-800">Magia Negra</td>
-                                    <td className="p-1">
-                                        <input type="number" value={editingMonster.defesa.magiaNegra ?? 0} onChange={(e) => setEditingMonster({...editingMonster, defesa: {...editingMonster.defesa, magiaNegra: e.target.value === "" ? "" : parseInt(e.target.value)}})} className="w-full bg-transparent p-2 text-center focus:outline-none" />
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Lore Sections */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-4">
-                    <h4 className="text-sm font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-2">
-                        <MapPin size={18} /> Lore & Geografia
-                    </h4>
-                    <div className="grid grid-cols-1 gap-4">
-                        <div>
-                            <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest mb-1 block">Localização / Origem</label>
-                            <input 
-                                value={editingMonster.local ?? ""}
-                                onChange={(e) => setEditingMonster({...editingMonster, local: e.target.value})}
-                                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white"
-                                placeholder="Goundospauh, Florestas, etc..."
-                            />
-                        </div>
-                        <div>
-                            <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest mb-1 block">Personalidade</label>
-                            <input 
-                                value={editingMonster.personalidade ?? ""}
-                                onChange={(e) => setEditingMonster({...editingMonster, personalidade: e.target.value})}
-                                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white"
-                                placeholder="Agressivo, Moderado, etc..."
-                            />
-                        </div>
-                        <div>
-                            <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest mb-1 block">Gosta / Não Gosta</label>
-                            <input 
-                                value={editingMonster.gostaNaoGosta ?? ""}
-                                onChange={(e) => setEditingMonster({...editingMonster, gostaNaoGosta: e.target.value})}
-                                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white"
-                                placeholder="Carne. / Prata."
-                            />
-                        </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <h4 className="text-sm font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-2">
-                        <Info size={18} /> Biologia & Caça
-                    </h4>
-                    <div className="grid grid-cols-1 gap-4">
-                        <div>
-                            <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest mb-1 block">Partes Úteis (Dentes, Garras...)</label>
-                            <input 
-                                value={editingMonster.partesUteis ?? ""}
-                                onChange={(e) => setEditingMonster({...editingMonster, partesUteis: e.target.value})}
-                                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white"
-                            />
-                        </div>
-                        <div>
-                            <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest mb-1 block">Bônus Adicionais</label>
-                            <input 
-                                value={editingMonster.bonus ?? ""}
-                                onChange={(e) => setEditingMonster({...editingMonster, bonus: e.target.value})}
-                                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white"
-                                placeholder="+1 Atletismo, Voo, etc..."
-                            />
-                        </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-8">
-                    <div className="space-y-4">
-                        <h4 className="text-sm font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-2">
-                            <FileText size={18} /> Informações Gerais & Hábitos
-                        </h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest mb-1 block">Descrição da Entidade</label>
-                                <textarea 
-                                    rows={5}
-                                    value={editingMonster.informacoes}
-                                    onChange={(e) => setEditingMonster({...editingMonster, informacoes: e.target.value})}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-white resize-none leading-relaxed"
-                                />
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest mb-1 block">Hábitos de Caça / Defesa</label>
-                                <textarea 
-                                    rows={5}
-                                    value={editingMonster.habitos}
-                                    onChange={(e) => setEditingMonster({...editingMonster, habitos: e.target.value})}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-white resize-none leading-relaxed"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Attacks/Actions Section */}
-                <div className="space-y-6 pb-12">
-                   <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-                       <h4 className="text-sm font-black text-amber-500 uppercase tracking-widest flex items-center gap-2">
-                           <Zap size={18} /> Ataques
-                       </h4>
-                       <button 
-                        onClick={addAction}
-                        className="text-[10px] font-black uppercase text-amber-500 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20 hover:bg-amber-500 hover:text-zinc-950 transition-all"
-                       >
-                           + Novo Ataque
-                       </button>
-                   </div>
-
-                   <div className="grid grid-cols-1 gap-4">
-                        {editingMonster.acoes.map((acao) => (
-                            <div key={acao.id} className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 flex flex-col gap-4">
-                                <div className="flex flex-wrap items-center gap-4">
-                                    <div className="flex-1 min-w-[200px]">
-                                        <label className="text-[9px] font-black text-zinc-600 uppercase mb-1 block">Nome do Golpe</label>
-                                        <input 
-                                            value={acao.name ?? ""}
-                                            onChange={(e) => updateAction(acao.id, { name: e.target.value })}
-                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white"
-                                        />
-                                    </div>
-                                    <div className="w-20">
-                                        <label className="text-[9px] font-black text-zinc-600 uppercase mb-1 block">Acerto</label>
-                                        <input 
-                                            type="number"
-                                            value={acao.acerto ?? 0}
-                                            onChange={(e) => updateAction(acao.id, { acerto: e.target.value === "" ? "" : parseInt(e.target.value) })}
-                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white"
-                                        />
-                                    </div>
-                                    <div className="w-24">
-                                        <label className="text-[9px] font-black text-zinc-600 uppercase mb-1 block">Dano</label>
-                                        <input 
-                                            value={acao.dano ?? ""}
-                                            onChange={(e) => updateAction(acao.id, { dano: e.target.value })}
-                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white"
-                                            placeholder="Ex: 2d6+4"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[9px] font-black text-zinc-600 uppercase mb-1 block">Tipo</label>
-                                        <select 
-                                            value={acao.type}
-                                            onChange={(e) => updateAction(acao.id, { type: e.target.value as any })}
-                                            className="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white"
-                                        >
-                                            <option value="Major">Major</option>
-                                            <option value="Minor">Minor</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="text-[9px] font-black text-zinc-600 uppercase mb-1 block">Categoria</label>
-                                        <select 
-                                            value={acao.categoria}
-                                            onChange={(e) => updateAction(acao.id, { categoria: e.target.value as any })}
-                                            className="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white"
-                                        >
-                                            <option value="Corte">Corte</option>
-                                            <option value="Perfuração">Perfuração</option>
-                                            <option value="Impacto">Impacto</option>
-                                            <option value="Feitiço">Feitiço</option>
-                                            <option value="Elemental">Elemental</option>
-                                            <option value="Magia Negra">Magia Negra</option>
-                                            <option value="Efeito">Efeito</option>
-                                            <option value="Outro">Outro</option>
-                                        </select>
-                                    </div>
-                                    <button 
-                                        onClick={() => removeAction(acao.id)}
-                                        className="mt-5 p-2 bg-red-500/10 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all"
-                                    >
-                                        <Trash2 size={16} />
-                                    </button>
-                                </div>
-                                <div>
-                                    <label className="text-[9px] font-black text-zinc-600 uppercase mb-1 block">Descrição do Efeito</label>
-                                    <textarea 
-                                        rows={2}
-                                        value={acao.description ?? ""}
-                                        onChange={(e) => updateAction(acao.id, { description: e.target.value })}
-                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white resize-none"
-                                        placeholder="Efeitos secundários (sangramento, etc)..."
-                                    />
-                                </div>
-                            </div>
-                        ))}
-                        {editingMonster.acoes.length === 0 && (
-                            <div className="py-8 text-center bg-zinc-950/30 border border-dashed border-zinc-800 rounded-2xl">
-                                <p className="text-zinc-600 text-xs italic">Nenhuma ação cadastrada para este demônio.</p>
-                            </div>
-                        )}
-                   </div>
-                </div>
-              </div>
-
-              <div className="p-6 bg-zinc-900/50 border-t border-zinc-800 flex gap-4">
-                <button 
-                  onClick={() => setEditingMonster(null)}
-                  className="flex-1 py-4 bg-zinc-800 hover:bg-zinc-700 rounded-2xl text-xs font-black uppercase tracking-widest text-zinc-400 transition-all"
-                >
-                  Descartar Alterações
-                </button>
-                <button 
-                  onClick={handleSave}
-                  className="flex-[2] py-4 bg-amber-500 text-zinc-950 hover:bg-amber-400 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20"
-                >
-                  <Save size={20} /> Registrar no Bestiário
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 });

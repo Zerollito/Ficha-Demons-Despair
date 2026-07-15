@@ -28,7 +28,7 @@ import { BestiaryMonster } from '../types';
 import { EnemyGenerator } from './EnemyGenerator';
 import { calculateProficiencyBonus, Stats } from '../rules/proficiencyRules';
 import { calculateWeaponDamageBonus } from '../rules/combatRules';
-import { getNegativeEffectPenalties, getDeslocamentoBase, getVidaMaxima } from '../rules/statusRules';
+import { getNegativeEffectPenalties, getDeslocamentoBase, getVidaMaxima, getSanidadeMaxima } from '../rules/statusRules';
 import { getSurvivalPenalties } from '../rules/survivalRules';
 import { Season, getSeason, getSeasonIcon } from '../rules/timeRules';
 import { compressImageDataUrl } from '../lib/imageUtils';
@@ -121,6 +121,7 @@ interface VTTBoardProps {
   showToast: (message: string, type?: "error" | "success" | "info") => void;
   onUpdateCharacter?: (updatesOrFn: any, id?: string) => void;
   renderCharacterSheet?: () => React.ReactNode;
+  renderDiceContent?: () => React.ReactNode;
   isVttSheetOpen?: boolean;
   setIsVttSheetOpen?: (open: boolean) => void;
 }
@@ -150,7 +151,10 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
   availableCharacters: Character[];
   fetchedCharacters?: Record<string, Character>;
 }) => {
-  const [image] = useImage(token.imageUrl || '');
+  const imageUrlToUse = (token.imageUrl && !token.imageUrl.startsWith('http') && !token.imageUrl.startsWith('/'))
+    ? '/' + token.imageUrl
+    : (token.imageUrl || '');
+  const [image] = useImage(imageUrlToUse);
   const radius = (token.size * gridSize) / 2;
   const [dragDist, setDragDist] = useState(0);
   const lastPos = useRef({ x: token.x, y: token.y });
@@ -316,8 +320,8 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
   const isDead = currentHp <= 0;
 
   const maxMovement = char 
-    ? getDeslocamentoBase(char.stats.DEX, char.efeitosNegativos, char.fome, char.sede, char.clima, 0)
-    : (token.deslocamento || 6);
+    ? (getDeslocamentoBase(char.stats.DEX, char.efeitosNegativos, char.fome, char.sede, char.clima, 0, char.sanidadeAtual, getSanidadeMaxima(char.stats.MEN)) + (char.bonusDeslocamento || 0))
+    : ((token.deslocamento || 6) + (token.bonusDeslocamento || 0));
 
   // Players can only move their own tokens (tokens with characterId)
   // Creatures/Generic tokens (no characterId or monster type) can only be moved by master
@@ -563,6 +567,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   showToast,
   onUpdateCharacter,
   renderCharacterSheet,
+  renderDiceContent,
   isVttSheetOpen: propIsVttSheetOpen,
   setIsVttSheetOpen: propSetIsVttSheetOpen
 }) => {
@@ -587,6 +592,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const [localIsVttSheetOpen, setLocalIsVttSheetOpen] = useState(false);
   const isVttSheetOpen = propIsVttSheetOpen !== undefined ? propIsVttSheetOpen : localIsVttSheetOpen;
   const setIsVttSheetOpen = propSetIsVttSheetOpen !== undefined ? propSetIsVttSheetOpen : setLocalIsVttSheetOpen;
+  const [vttSheetTab, setVttSheetTab] = useState<'sheet' | 'dice'>('sheet');
   const [vttSheetHeight, setVttSheetHeight] = useState<string>("88vh");
   const sheetDragControls = useDragControls();
 
@@ -758,13 +764,6 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
   const visibleTocaCharacters = useMemo(() => {
     return availableCharacters.filter(char => {
-      if (isMaster) {
-        const isCampaignChar = char.campaignId === campaignId;
-        const isOwnChar = char.userId === auth.currentUser?.uid || char.userEmail === auth.currentUser?.email;
-        if (!isCampaignChar && !isOwnChar) return false;
-      } else {
-        if (char.campaignId !== campaignId) return false;
-      }
       const hasToca = char.tocaCreatures && char.tocaCreatures.length > 0;
       if (!hasToca) return false;
       if (isMaster) return true;
@@ -797,8 +796,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     } else if (token.type === 'character') {
       const char = availableCharacters.find(c => c.id === token.characterId);
       if (char) {
-        const climateProf = calculateProficiencyBonus(char.stats, "Clima", ["ADP"], char.fome ?? 100, char.sede ?? 100, char.cansaco, undefined, undefined, 0, char.efeitosNegativos);
-        return calculateProficiencyBonus(char.stats, "Esquiva", ["DEX", "ADP"], char.fome ?? 100, char.sede ?? 100, char.cansaco, char.clima, climateProf, char.bonusProficiencias?.["Esquiva"] || 0, char.efeitosNegativos);
+        const climateProf = calculateProficiencyBonus(char.stats, "Clima", ["ADP"], char.fome ?? 100, char.sede ?? 100, char.cansaco, undefined, undefined, 0, char.efeitosNegativos, char.sanidadeAtual, getSanidadeMaxima(char.stats.MEN));
+        return calculateProficiencyBonus(char.stats, "Esquiva", ["DEX", "ADP"], char.fome ?? 100, char.sede ?? 100, char.cansaco, char.clima, climateProf, char.bonusProficiencias?.["Esquiva"] || 0, char.efeitosNegativos, char.sanidadeAtual, getSanidadeMaxima(char.stats.MEN));
       }
     }
     return 0;
@@ -1574,8 +1573,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       },
       clima: 0,
       stats: {
-        CON: parseNum(token.stats?.defesa?.impacto) || 10,
-        RES: parseNum(token.stats?.defesa?.feitico) || 10,
+        CON: token.type === 'creature' ? Math.max(0, Math.floor((token.maxHp ?? token.hp ?? 20) / 2)) : (parseNum(token.stats?.defesa?.impacto) || 10),
+        RES: token.type === 'creature' ? Math.max(0, Math.floor((token.maxHp ?? token.hp ?? 20) / 4)) : (parseNum(token.stats?.defesa?.feitico) || 10),
         ADP: 0,
         MEN: 0,
         APR: 0,
@@ -2182,13 +2181,13 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       let targetEsquiva = 0;
 
       if (attackerChar) {
-        attackerAcuracia = calculateProficiencyBonus(attackerChar.stats, "Acurácia", ["FOR", "DEX"], attackerChar.fome, attackerChar.sede, attackerChar.cansaco, attackerChar.clima, 0, attackerChar.bonusProficiencias?.["Acurácia"], attackerChar.efeitosNegativos);
+        attackerAcuracia = calculateProficiencyBonus(attackerChar.stats, "Acurácia", ["FOR", "DEX"], attackerChar.fome, attackerChar.sede, attackerChar.cansaco, attackerChar.clima, 0, attackerChar.bonusProficiencias?.["Acurácia"], attackerChar.efeitosNegativos, attackerChar.sanidadeAtual, getSanidadeMaxima(attackerChar.stats.MEN));
       } else if (attacker.type === 'creature' && attacker.stats) {
         attackerAcuracia = attacker.stats.acuracia || 0;
       }
 
       if (targetChar) {
-        targetEsquiva = calculateProficiencyBonus(targetChar.stats, "Esquiva", ["DEX", "ADP"], targetChar.fome, targetChar.sede, targetChar.cansaco, targetChar.clima, 0, targetChar.bonusProficiencias?.["Esquiva"], targetChar.efeitosNegativos);
+        targetEsquiva = calculateProficiencyBonus(targetChar.stats, "Esquiva", ["DEX", "ADP"], targetChar.fome, targetChar.sede, targetChar.cansaco, targetChar.clima, 0, targetChar.bonusProficiencias?.["Esquiva"], targetChar.efeitosNegativos, targetChar.sanidadeAtual, getSanidadeMaxima(targetChar.stats.MEN));
       } else if (target.type === 'creature' && target.stats) {
         targetEsquiva = target.stats.esquiva || 0;
       }
@@ -2537,7 +2536,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
       if (triggerEffect && isPhysical(attackType)) {
         resProf = targetChar 
-          ? calculateProficiencyBonus(targetChar.stats, "Resistência", ["RES"], targetChar.fome, targetChar.sede, targetChar.cansaco, targetChar.clima, 0, targetChar.bonusProficiencias?.["Resistência"], targetChar.efeitosNegativos) 
+          ? calculateProficiencyBonus(targetChar.stats, "Resistência", ["RES"], targetChar.fome, targetChar.sede, targetChar.cansaco, targetChar.clima, 0, targetChar.bonusProficiencias?.["Resistência"], targetChar.efeitosNegativos, targetChar.sanidadeAtual, getSanidadeMaxima(targetChar.stats.MEN)) 
           : (Number(target.stats?.ataque?.resistencia) || 0);
         
         resRoll = randomInt(1, 100);
@@ -3413,7 +3412,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       {visibleTocaCharacters.length > 0 && (
         <button
           onClick={() => setIsTocaModalOpen(true)}
-          className="absolute bottom-4 left-4 z-30 p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-emerald-500 hover:text-emerald-400 font-black uppercase tracking-wider text-[10px] shadow-xl flex items-center gap-1.5 transition-all text-[10px]"
+          className="absolute bottom-28 sm:bottom-4 left-4 z-30 p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-emerald-500 hover:text-emerald-400 font-black uppercase tracking-wider text-[10px] shadow-xl flex items-center gap-1.5 transition-all"
           title="Abrir Toca das Criaturas"
         >
           <PawPrint size={14} className="animate-pulse" />
@@ -3674,20 +3673,18 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
               {availableCharacters.filter(c => {
                 if (isMaster) {
-                  const isCampaignChar = c.campaignId === campaignId;
-                  const isOwnChar = c.userId === auth.currentUser?.uid || c.userEmail === auth.currentUser?.email;
-                  return isCampaignChar || isOwnChar;
+                  // O Mestre pode ver e adicionar qualquer personagem disponível (suas fichas + fichas de jogadores sincronizadas)
+                  return true;
                 } else {
-                  return c.campaignId === campaignId;
+                  // O Jogador comum só pode ver e adicionar suas próprias fichas
+                  return c.userId === auth.currentUser?.uid || c.userEmail === auth.currentUser?.email;
                 }
               }).length > 0 ? (
                 availableCharacters.filter(c => {
                   if (isMaster) {
-                    const isCampaignChar = c.campaignId === campaignId;
-                    const isOwnChar = c.userId === auth.currentUser?.uid || c.userEmail === auth.currentUser?.email;
-                    return isCampaignChar || isOwnChar;
+                    return true;
                   } else {
-                    return c.campaignId === campaignId;
+                    return c.userId === auth.currentUser?.uid || c.userEmail === auth.currentUser?.email;
                   }
                 }).map(char => (
                   <div 
@@ -3727,7 +3724,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                               maxHp: getVidaMaxima(char.stats.CON),
                               color: '#3b82f6',
                               efeitosNegativos: char.efeitosNegativos || [],
-                              deslocamento: getDeslocamentoBase(char.stats.DEX, char.efeitosNegativos, char.fome, char.sede, char.clima, 0)
+                              deslocamento: getDeslocamentoBase(char.stats.DEX, char.efeitosNegativos, char.fome, char.sede, char.clima, 0, char.sanidadeAtual, getSanidadeMaxima(char.stats.MEN))
                             });
                           }
                           setIsCharacterModalOpen(false);
@@ -3756,7 +3753,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                               maxHp: getVidaMaxima(char.stats.CON),
                               color: '#ef4444',
                               efeitosNegativos: char.efeitosNegativos || [],
-                              deslocamento: getDeslocamentoBase(char.stats.DEX, char.efeitosNegativos, char.fome, char.sede, char.clima, 0)
+                              deslocamento: getDeslocamentoBase(char.stats.DEX, char.efeitosNegativos, char.fome, char.sede, char.clima, 0, char.sanidadeAtual, getSanidadeMaxima(char.stats.MEN))
                             });
                           }
                           setIsCharacterModalOpen(false);
@@ -4229,7 +4226,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       <div className="relative">
                         <div className="w-10 h-10 rounded-xl overflow-hidden border border-zinc-800 flex items-center justify-center bg-zinc-900">
                           {token.imageUrl ? (
-                            <img src={token.imageUrl} alt={token.name} className="w-full h-full object-cover" />
+                            <img src={token.imageUrl.startsWith('http') || token.imageUrl.startsWith('/') ? token.imageUrl : `/${token.imageUrl}`} alt={token.name} className="w-full h-full object-cover" />
                           ) : (
                             <User size={16} className="text-zinc-600" />
                           )}
@@ -4420,7 +4417,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     >
                       <div className="w-8 h-8 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 shrink-0">
                         {token.imageUrl ? (
-                          <img src={token.imageUrl} alt={token.name} className="w-full h-full object-cover" />
+                          <img src={token.imageUrl.startsWith('http') || token.imageUrl.startsWith('/') ? token.imageUrl : `/${token.imageUrl}`} alt={token.name} className="w-full h-full object-cover" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-zinc-600">
                             <User size={12} />
@@ -4824,7 +4821,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           )}
         </div>
       </aside>
-      {selectedTokenId && !isAttackingMode && (
+      {selectedTokenId && !isAttackingMode && tokens.some(t => t.id === selectedTokenId) && (
         <div 
           className="absolute z-[100] bg-zinc-950/95 border border-zinc-800 rounded-2xl shadow-2xl p-4 w-72 backdrop-blur-xl transition-all"
           style={{ 
@@ -5038,13 +5035,16 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             const isMasterOrOwner = isMaster || (token.type === 'character' && (token.userId === auth.currentUser?.uid || (char && (char.userId === auth.currentUser?.uid || char.userEmail === auth.currentUser?.email))));
             // Loot button should show for enemies or if the token is dead
             const isEnemy = token.type === 'creature' || (token.type === 'character' && !isMasterOrOwner);
+            const tokenDeslocamento = char 
+              ? (getDeslocamentoBase(char.stats.DEX, char.efeitosNegativos, char.fome, char.sede, char.clima, 0, char.sanidadeAtual, getSanidadeMaxima(char.stats.MEN)) + (char.bonusDeslocamento || 0))
+              : ((token.deslocamento || 6) + (token.bonusDeslocamento || 0));
 
             return (
               <div className="space-y-4 text-left">
                 <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
                   <div className="flex items-center gap-3">
                     <div className="relative w-10 h-10 rounded-xl border border-zinc-800 flex-shrink-0 overflow-hidden bg-zinc-900 shadow-inner">
-                      {token.imageUrl ? <img src={token.imageUrl} className="w-full h-full object-cover" /> : <User size={16} className="text-zinc-700 m-auto mt-2" />}
+                      {token.imageUrl ? <img src={token.imageUrl.startsWith('http') || token.imageUrl.startsWith('/') ? token.imageUrl : `/${token.imageUrl}`} className="w-full h-full object-cover" /> : <User size={16} className="text-zinc-700 m-auto mt-2" />}
                       {isDead && (
                         <div className="absolute inset-0 bg-red-950/20 flex items-center justify-center">
                           <Skull size={18} className="text-red-500 animate-pulse" />
@@ -5119,6 +5119,34 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                   )}
                 </div>
 
+                <div className="bg-zinc-900/50 border border-zinc-800/80 rounded-xl p-3 space-y-1.5">
+                  <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
+                    <span className="text-zinc-500">Deslocamento</span>
+                    <span className="text-amber-500 font-mono font-bold text-xs">{tokenDeslocamento}m</span>
+                  </div>
+                  {isMasterOrOwner && (
+                    <div className="flex items-center justify-between gap-2 border-t border-zinc-800/40 pt-1.5 mt-1.5">
+                      <span className="text-[9px] text-zinc-500 uppercase font-black">Bônus Extra (m):</span>
+                      <div className="flex items-center gap-1">
+                        <input 
+                          type="number"
+                          value={char ? (char.bonusDeslocamento ?? "") : (token.bonusDeslocamento ?? "")}
+                          placeholder="0"
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value) || 0;
+                            if (char) {
+                              onUpdateCharacter?.({ bonusDeslocamento: val }, char.id);
+                            } else {
+                              updateTokenPosition(campaignId, token.id, { bonusDeslocamento: val });
+                            }
+                          }}
+                          className="w-14 bg-zinc-950 border border-zinc-800 rounded px-1.5 py-0.5 text-xs font-bold text-amber-500 text-center focus:outline-none focus:border-amber-500/50"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-2 gap-2 pt-2">
                   {isMasterOrOwner && (
                     <button 
@@ -5178,7 +5206,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                         className="w-full bg-zinc-950 border border-zinc-800 rounded-lg text-[9px] font-bold text-zinc-400 p-1.5 focus:outline-none"
                        >
                          <option value="">Vincular Ficha...</option>
-                         {availableCharacters.filter(c => (c.campaignId === campaignId || c.userId === auth.currentUser?.uid || c.userEmail === auth.currentUser?.email) && (c.etnia === 'Monstro' || c.etnia === 'Criatura' || c.etnia === 'Inimigo')).map(c => (
+                         {availableCharacters.filter(c => c.etnia === 'Monstro' || c.etnia === 'Criatura' || c.etnia === 'Inimigo').map(c => (
                            <option key={c.id} value={c.id}>{c.nome}</option>
                          ))}
                        </select>
@@ -6194,9 +6222,10 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         </div>
       )}
 
-      {/* Floating Pull-up Character Sheet Bar */}
+      {/* Floating Pull-up Bars */}
       {renderCharacterSheet && activeCharacterId && !isVttSheetOpen && (
-        <div className="absolute bottom-0 left-0 right-0 z-30 flex justify-center pb-0 pointer-events-none">
+        <div className="absolute bottom-0 left-0 right-0 z-30 flex justify-center gap-3 pb-0 pointer-events-none px-4">
+          {/* Bar 1: Ficha */}
           <motion.button
             initial={{ y: 50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -6207,25 +6236,58 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0.95, bottom: 0.05 }}
             onDragEnd={(event, info) => {
-              // Extremely light/responsive threshold for pulling up
               if (info.offset.y < -15 || info.velocity.y < -50) {
+                setVttSheetTab('sheet');
                 setIsVttSheetOpen(true);
               }
             }}
             style={{ touchAction: "none" }}
-            onClick={() => setIsVttSheetOpen(true)}
-            className="pointer-events-auto bg-zinc-900/95 backdrop-blur-md border-t border-x border-zinc-800 rounded-t-2xl shadow-2xl px-12 py-3 flex flex-col items-center gap-1 cursor-grab active:cursor-grabbing hover:bg-zinc-850/95 transition-all group w-80 sm:w-96 select-none"
+            onClick={() => {
+              setVttSheetTab('sheet');
+              setIsVttSheetOpen(true);
+            }}
+            className="pointer-events-auto bg-zinc-900/95 backdrop-blur-md border-t border-x border-zinc-800 rounded-t-2xl shadow-2xl px-4 sm:px-8 py-2.5 flex flex-col items-center gap-1 cursor-grab active:cursor-grabbing hover:bg-zinc-850/95 transition-all group w-36 sm:w-48 select-none animate-in fade-in slide-in-from-bottom-4"
             title="Puxar Ficha de Personagem"
           >
-            {/* Grab handle visual indicator */}
-            <div className="w-12 h-1 bg-zinc-700 rounded-full group-hover:bg-amber-500 transition-colors" />
-            
-            {/* Row with icon and text */}
-            <div className="flex items-center gap-2 text-[10px] font-black text-zinc-400 group-hover:text-amber-500 uppercase tracking-widest mt-1">
-              <ChevronUp size={14} className="text-amber-500 animate-bounce" />
-              <span>Puxar Ficha: {availableCharacters.find(c => c.id === activeCharacterId)?.nome || "Personagem"}</span>
+            <div className="w-8 h-1 bg-zinc-700 rounded-full group-hover:bg-amber-500 transition-colors" />
+            <div className="flex items-center gap-1.5 text-[9px] font-black text-zinc-400 group-hover:text-amber-500 uppercase tracking-widest mt-0.5 truncate max-w-full">
+              <ChevronUp size={12} className="text-amber-500 animate-bounce shrink-0" />
+              <span className="truncate">Ficha</span>
             </div>
           </motion.button>
+
+          {/* Bar 2: Dados */}
+          {renderDiceContent && (
+            <motion.button
+              initial={{ y: 50, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 50, opacity: 0 }}
+              whileHover={{ y: -4 }}
+              whileTap={{ scale: 0.98 }}
+              drag="y"
+              dragConstraints={{ top: 0, bottom: 0 }}
+              dragElastic={{ top: 0.95, bottom: 0.05 }}
+              onDragEnd={(event, info) => {
+                if (info.offset.y < -15 || info.velocity.y < -50) {
+                  setVttSheetTab('dice');
+                  setIsVttSheetOpen(true);
+                }
+              }}
+              style={{ touchAction: "none" }}
+              onClick={() => {
+                setVttSheetTab('dice');
+                setIsVttSheetOpen(true);
+              }}
+              className="pointer-events-auto bg-zinc-900/95 backdrop-blur-md border-t border-x border-zinc-800 rounded-t-2xl shadow-2xl px-4 sm:px-8 py-2.5 flex flex-col items-center gap-1 cursor-grab active:cursor-grabbing hover:bg-zinc-850/95 transition-all group w-36 sm:w-48 select-none animate-in fade-in slide-in-from-bottom-4"
+              title="Puxar Rolagem de Dados"
+            >
+              <div className="w-8 h-1 bg-zinc-700 rounded-full group-hover:bg-amber-500 transition-colors" />
+              <div className="flex items-center gap-1.5 text-[9px] font-black text-zinc-400 group-hover:text-amber-500 uppercase tracking-widest mt-0.5 truncate max-w-full">
+                <ChevronUp size={12} className="text-amber-500 animate-bounce shrink-0" />
+                <span className="truncate">Dados</span>
+              </div>
+            </motion.button>
+          )}
         </div>
       )}
 
@@ -6268,11 +6330,27 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               </div>
             </div>
 
+            {/* Scrollable Content Container */}
+            <div className="flex-1 flex flex-col min-h-0 bg-zinc-950">
+              <div className="flex-1 flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-zinc-800 overflow-hidden h-full">
+                {/* Column 1: Ficha do Personagem */}
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar text-left">
+                  <h3 className="text-xs font-black uppercase text-amber-500 tracking-wider mb-4 border-b border-zinc-850 pb-2 flex items-center gap-1.5">
+                    📋 Ficha do Personagem
+                  </h3>
+                  {renderCharacterSheet ? renderCharacterSheet() : null}
+                </div>
 
-
-            {/* Scrollable Sheet Content */}
-            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar text-left max-w-4xl mx-auto w-full">
-              {renderCharacterSheet ? renderCharacterSheet() : null}
+                {/* Column 2: Painel de Rolagem de Dados */}
+                {renderDiceContent && (
+                  <div className="w-full md:w-[360px] lg:w-[420px] shrink-0 overflow-y-auto p-4 sm:p-6 custom-scrollbar text-left bg-zinc-900/30">
+                    <h3 className="text-xs font-black uppercase text-amber-500 tracking-wider mb-4 border-b border-zinc-850 pb-2 flex items-center gap-1.5">
+                      🎲 Rolagem de Dados
+                    </h3>
+                    {renderDiceContent()}
+                  </div>
+                )}
+              </div>
             </div>
           </motion.div>
         )}

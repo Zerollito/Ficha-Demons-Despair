@@ -16,63 +16,7 @@ interface SpellLibraryProps {
   user: any;
 }
 
-const DEFAULT_SPELLS: Spell[] = [
-  {
-    id: "default-fireball",
-    nome: "Bola de Fogo",
-    escola: "elemental",
-    tipo: "Ataque",
-    escala: "C",
-    efeito: "Dispara uma esfera explosiva que causa dano de fogo na área selecionada.",
-    dano: "2d8",
-    mana: 15,
-    acerto: 4,
-  },
-  {
-    id: "default-ice-spear",
-    nome: "Lança de Gelo",
-    escola: "elemental",
-    tipo: "Ataque",
-    escala: "D",
-    efeito: "Cria e dispara uma lança de gelo afiada que perfura inimigos.",
-    dano: "1d10",
-    mana: 10,
-    acerto: 5,
-  },
-  {
-    id: "default-soul-drain",
-    nome: "Dreno de Almas",
-    escola: "magia negra",
-    tipo: "Ataque",
-    escala: "B",
-    efeito: "Drena a força vital do alvo, curando o conjurador em metade do dano causado.",
-    dano: "1d8 + 2",
-    mana: 20,
-    acerto: 3,
-  },
-  {
-    id: "default-heal",
-    nome: "Cura Rápida",
-    escola: "Feitiço",
-    tipo: "Efeito",
-    escala: "C",
-    efeito: "Conjura energia de luz para restaurar pontos de vida de um aliado.",
-    dano: "2d6",
-    mana: 12,
-    acerto: 0,
-  },
-  {
-    id: "default-arcane-barrier",
-    nome: "Barreira Arcana",
-    escola: "Feitiço",
-    tipo: "Utilidade",
-    escala: "0",
-    efeito: "Ergue um escudo intangível ao redor do alvo, aumentando a defesa contra magias por 3 turnos.",
-    dano: "",
-    mana: 8,
-    acerto: 0,
-  }
-];
+const DEFAULT_SPELLS: Spell[] = [];
 
 export const SpellLibrary: React.FC<SpellLibraryProps> = ({
   characters,
@@ -150,19 +94,7 @@ export const SpellLibrary: React.FC<SpellLibraryProps> = ({
 
     setLoading(true);
     const unsubscribe = subscribeToSpellsLibrary(user.uid, (loadedSpells) => {
-      if (loadedSpells.length === 0) {
-        // Seed default spells
-        const seeded = DEFAULT_SPELLS.map(spell => ({
-          ...spell,
-          id: generateId()
-        }));
-        setSpells(seeded);
-        saveSpellsBatch(user.uid, seeded).catch(e => {
-          console.error("Erro ao semear magias:", e);
-        });
-      } else {
-        setSpells(loadedSpells);
-      }
+      setSpells(loadedSpells);
       setLoading(false);
     });
 
@@ -240,8 +172,6 @@ export const SpellLibrary: React.FC<SpellLibraryProps> = ({
 
   const handleDelete = async (spellId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm("Deseja realmente excluir esta magia da biblioteca?")) return;
-
     try {
       await deleteSpellFromLibrary(spellId);
       showToast("Magia removida com sucesso.", "success");

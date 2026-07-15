@@ -60,6 +60,7 @@ export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => 
   const userId = auth.currentUser.uid;
   const userEmail = auth.currentUser.email || "";
   let active = true;
+  let lastSerialized = '';
 
   const fetchAndNotify = async () => {
     try {
@@ -79,7 +80,11 @@ export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => 
 
       if (active && data) {
         const campaigns = data.map(row => mapRowToCampaign(row));
-        onUpdate(campaigns);
+        const serialized = JSON.stringify(campaigns);
+        if (serialized !== lastSerialized) {
+          lastSerialized = serialized;
+          onUpdate(campaigns);
+        }
       }
     } catch (e) {
       console.warn("[Supabase subscribeToMasterCampaigns] Exception handled gracefully:", e);
@@ -88,7 +93,12 @@ export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => 
 
   fetchAndNotify();
 
-  const interval = setInterval(fetchAndNotify, 4000);
+  const interval = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      return;
+    }
+    fetchAndNotify();
+  }, 4000);
 
   const localListener = () => {
     fetchAndNotify();
@@ -122,44 +132,44 @@ export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => 
   };
 };
 
-export const joinCampaign = async (characterId: string, inviteCode: string) => {
+export const joinCampaign = async (inviteCode: string, playerEmail: string) => {
+  if (!playerEmail) {
+    throw new Error('Você precisa estar autenticado com um email válido.');
+  }
+
   const { data, error } = await supabase
     .from(CAMPAIGNS_TABLE)
-    .select('id')
+    .select('*')
     .eq('invite_code', inviteCode);
   
   if (error || !data || data.length === 0) {
     throw new Error('Código de convite inválido.');
   }
 
-  const campaignId = data[0].id;
+  const campaignRow = data[0];
+  const campaignId = campaignRow.id;
+  const campData = campaignRow.data || {};
+  const playerEmails = campData.playerEmails || [];
+
+  if (!playerEmails.includes(playerEmail)) {
+    playerEmails.push(playerEmail);
+  }
+
+  const updatedCampData = {
+    ...campData,
+    playerEmails,
+  };
 
   try {
-    const { data: charData, error: charError } = await supabase
-      .from(CHARACTERS_TABLE)
-      .select('data')
-      .eq('id', characterId)
-      .single();
-
-    if (charError || !charData) {
-      throw new Error('Personagem não encontrado.');
-    }
-
-    const updatedChar = { 
-      ...charData.data, 
-      campaignId, 
-      userEmail: auth.currentUser?.email || null,
-      updatedAt: new Date().toISOString() 
-    };
-
     const { error: updateError } = await supabase
-      .from(CHARACTERS_TABLE)
+      .from(CAMPAIGNS_TABLE)
       .upsert({
-        id: characterId,
-        user_id: auth.currentUser?.uid || charData.data.userId,
-        user_email: auth.currentUser?.email || null,
-        campaign_id: campaignId,
-        data: updatedChar,
+        id: campaignId,
+        master_id: campaignRow.master_id,
+        master_email: campaignRow.master_email || "",
+        name: campaignRow.name || campData.name || "Sem Nome",
+        invite_code: campaignRow.invite_code || inviteCode,
+        data: updatedCampData,
         updated_at: new Date().toISOString()
       });
 
@@ -169,6 +179,125 @@ export const joinCampaign = async (characterId: string, inviteCode: string) => {
     console.error("[Supabase joinCampaign] Failed:", error);
     throw error;
   }
+};
+
+export const leaveCampaign = async (campaignId: string, playerEmail: string) => {
+  if (!playerEmail) return;
+
+  try {
+    const { data, error } = await supabase
+      .from(CAMPAIGNS_TABLE)
+      .select('*')
+      .eq('id', campaignId);
+
+    if (error || !data || data.length === 0) return;
+
+    const campaignRow = data[0];
+    const campData = campaignRow.data || {};
+    let playerEmails = campData.playerEmails || [];
+    playerEmails = playerEmails.filter((email: string) => email !== playerEmail);
+
+    const updatedCampData = {
+      ...campData,
+      playerEmails,
+    };
+
+    const { error: updateError } = await supabase
+      .from(CAMPAIGNS_TABLE)
+      .upsert({
+        id: campaignId,
+        master_id: campaignRow.master_id,
+        master_email: campaignRow.master_email || "",
+        name: campaignRow.name || campData.name || "Sem Nome",
+        invite_code: campaignRow.invite_code,
+        data: updatedCampData,
+        updated_at: new Date().toISOString()
+      });
+
+    if (updateError) throw updateError;
+  } catch (error) {
+    console.error("[Supabase leaveCampaign] Failed:", error);
+  }
+};
+
+export const subscribeToJoinedCampaigns = (userEmail: string, onUpdate: (campaigns: Campaign[]) => void) => {
+  if (!userEmail) {
+    onUpdate([]);
+    return () => {};
+  }
+
+  let active = true;
+  let lastSerialized = '';
+
+  const fetchAndNotify = async () => {
+    try {
+      const { data, error } = await supabase
+        .from(CAMPAIGNS_TABLE)
+        .select('*');
+
+      if (error) {
+        console.warn("[Supabase subscribeToJoinedCampaigns] Info/Error:", error);
+        return;
+      }
+
+      if (active && data) {
+        const campaigns = data
+          .map(row => mapRowToCampaign(row))
+          .filter(camp => {
+            const playerEmails = (camp as any).playerEmails || [];
+            return playerEmails.includes(userEmail);
+          });
+        
+        const serialized = JSON.stringify(campaigns);
+        if (serialized !== lastSerialized) {
+          lastSerialized = serialized;
+          onUpdate(campaigns);
+        }
+      }
+    } catch (e) {
+      console.warn("[Supabase subscribeToJoinedCampaigns] Exception handled gracefully:", e);
+    }
+  };
+
+  fetchAndNotify();
+
+  const interval = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      return;
+    }
+    fetchAndNotify();
+  }, 4000);
+
+  const localListener = () => {
+    fetchAndNotify();
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener(`supabase_local_change_${CAMPAIGNS_TABLE}`, localListener);
+  }
+
+  const channel = supabase
+    .channel(`campaigns_joined_${userEmail}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: CAMPAIGNS_TABLE
+      },
+      () => {
+        fetchAndNotify();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    active = false;
+    clearInterval(interval);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener(`supabase_local_change_${CAMPAIGNS_TABLE}`, localListener);
+    }
+    supabase.removeChannel(channel);
+  };
 };
 
 export const deleteCampaign = async (campaignId: string) => {
@@ -197,6 +326,7 @@ export const subscribeToCampaignsByIds = (campaignIds: string[], onUpdate: (camp
   }
 
   let active = true;
+  let lastSerialized = '';
 
   const fetchAndNotify = async () => {
     try {
@@ -212,7 +342,11 @@ export const subscribeToCampaignsByIds = (campaignIds: string[], onUpdate: (camp
 
       if (active && data) {
         const campaigns = data.map(row => mapRowToCampaign(row));
-        onUpdate(campaigns);
+        const serialized = JSON.stringify(campaigns);
+        if (serialized !== lastSerialized) {
+          lastSerialized = serialized;
+          onUpdate(campaigns);
+        }
       }
     } catch (e) {
       console.warn("[Supabase subscribeToCampaignsByIds] Exception handled gracefully:", e);
@@ -221,7 +355,12 @@ export const subscribeToCampaignsByIds = (campaignIds: string[], onUpdate: (camp
 
   fetchAndNotify();
 
-  const interval = setInterval(fetchAndNotify, 4000);
+  const interval = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      return;
+    }
+    fetchAndNotify();
+  }, 4000);
 
   const localListener = () => {
     fetchAndNotify();
@@ -308,38 +447,67 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
   }
 
   let active = true;
+  let currentUnsubscribe: (() => void) | null = null;
 
-  const q = query(
-    collection(db, CHARACTERS_TABLE),
-    where('campaign_id', '==', campaignId)
-  );
-
-  const unsubscribe = onSnapshot(q, (snapshot) => {
-    if (!active) return;
+  const fetchCampaignAndSubscribe = async () => {
     try {
-      const characters: Character[] = [];
-      snapshot.forEach((doc) => {
-        const docData = doc.data();
-        if (docData && docData.data) {
-          const char = { ...docData.data } as Character;
-          if (!char.userId && docData.user_id) char.userId = docData.user_id;
-          if (!char.userEmail && docData.user_email) char.userEmail = docData.user_email;
-          characters.push(char);
+      const { data: campRow, error: campError } = await supabase
+        .from(CAMPAIGNS_TABLE)
+        .select('*')
+        .eq('id', campaignId)
+        .single();
+
+      if (campError || !campRow) {
+        console.warn("[subscribeToCampaignCharacters] Campaign not found:", campaignId);
+        return;
+      }
+
+      if (!active) return;
+
+      const campaign = mapRowToCampaign(campRow);
+      const playerEmails = campaign.playerEmails || [];
+      const masterEmail = campaign.masterEmail || "";
+      const allowedEmails = Array.from(new Set([masterEmail, ...playerEmails].filter(Boolean)));
+
+      if (allowedEmails.length === 0) {
+        notifyCampaignCharListeners(campaignId, []);
+        return;
+      }
+
+      const q = query(collection(db, CHARACTERS_TABLE));
+
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        if (!active) return;
+        try {
+          const characters: Character[] = [];
+          snapshot.forEach((doc) => {
+            const docData = doc.data();
+            if (docData && docData.data) {
+              const char = { ...docData.data } as Character;
+              if (!char.userId && docData.user_id) char.userId = docData.user_id;
+              if (!char.userEmail && docData.user_email) char.userEmail = docData.user_email;
+              
+              if (char.userEmail && allowedEmails.includes(char.userEmail)) {
+                characters.push(char);
+              }
+            }
+          });
+          saveLocalCampaignCharacters(campaignId, characters);
+          notifyCampaignCharListeners(campaignId, characters);
+        } catch (e) {
+          console.error("[subscribeToCampaignCharacters onSnapshot] Error:", e);
         }
+      }, (error) => {
+        console.error("[subscribeToCampaignCharacters onSnapshot] Listener error:", error);
       });
-      saveLocalCampaignCharacters(campaignId, characters);
-      notifyCampaignCharListeners(campaignId, characters);
-    } catch (e) {
-      console.error("[subscribeToCampaignCharacters onSnapshot] Error:", e);
-    }
-  }, (error) => {
-    console.error("[subscribeToCampaignCharacters onSnapshot] Listener error:", error);
-    try {
-      handleFirestoreError(error, 'get', CHARACTERS_TABLE);
+
+      currentUnsubscribe = unsubscribe;
     } catch (err) {
-      // Ignora erro relançado para não quebrar a aplicação
+      console.error("Error setting up real-time campaign characters:", err);
     }
-  });
+  };
+
+  fetchCampaignAndSubscribe();
 
   return () => {
     const listeners = campaignCharListeners.get(campaignId);
@@ -350,6 +518,8 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
       }
     }
     active = false;
-    unsubscribe();
+    if (currentUnsubscribe) {
+      currentUnsubscribe();
+    }
   };
 };

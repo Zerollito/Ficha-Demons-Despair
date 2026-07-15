@@ -18,6 +18,18 @@ export const getDaysInMonth = (month: number, year: number) => {
   return DAYS_IN_MONTH[month - 1];
 };
 
+export const dateToAbsoluteDays = (day: number, month: number, year: number): number => {
+  let days = day;
+  for (let y = 1; y < year; y++) {
+    const isLeap = (y % 4 === 0 && y % 100 !== 0) || (y % 400 === 0);
+    days += isLeap ? 366 : 365;
+  }
+  for (let m = 1; m < month; m++) {
+    days += getDaysInMonth(m, year);
+  }
+  return days;
+};
+
 export const getSeason = (month: number): Season => {
   // Southern Hemisphere Logic
   if (month === 12 || month === 1 || month === 2) return 'Verão';

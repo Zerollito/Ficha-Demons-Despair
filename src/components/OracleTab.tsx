@@ -165,10 +165,13 @@ export const OracleTab: React.FC<OracleTabProps> = ({
     } catch (err: any) {
       const errMsg = err.message || '';
       const isKeyError = errMsg.includes('GEMINI_API_KEY') || errMsg.includes('API key') || errMsg.includes('Secrets') || errMsg.includes('400') || errMsg.includes('valid');
+      const isFetchError = errMsg.toLowerCase().includes('failed to fetch') || errMsg.toLowerCase().includes('networkerror') || errMsg.toLowerCase().includes('load failed') || errMsg === '';
       
       const responseText = isKeyError 
         ? `⚠️ **Erro de Configuração da Chave do Gemini (GEMINI_API_KEY)**\n\nSua chave de API do Gemini ou está ausente ou é inválida.\n\n**Não se preocupe! Você não precisa pagar por ela e leva menos de 1 minuto para ativar:**\n\n1. Acesse o site oficial de desenvolvedores do **[Google AI Studio](https://aistudio.google.com/)**.\n2. Faça login com sua conta do Google e clique em **"Get API key"** (Obter chave de API).\n3. Crie uma chave de API escolha a opção de **Free Tier (Plano Gratuito)**.\n4. Volte aqui para esta tela e clique no ícone de engrenagem **Settings ⚙️** (no canto superior direito do Google AI Studio).\n5. Vá na aba **Secrets**.\n6. Adicione uma variável com Nome: \`GEMINI_API_KEY\` e cole sua chave no campo de valor.\n7. Recarregue esta página do aplicativo para reiniciar as brasas da forja de Hefesto! 🔥`
-        : `⚠️ Desculpe, viajante, mas as brasas da minha forja estão instáveis agora.\n\nDetalhe do erro: ${errMsg}`;
+        : isFetchError
+          ? `⚠️ **Erro de Conexão com o Servidor (Failed to Fetch)**\n\nNão foi possível conectar ao servidor do Oráculo. Isso geralmente ocorre se o servidor de desenvolvimento estiver inicializando, se o contêiner estiver em processo de reinicialização ou se houver uma oscilação na sua conexão de rede.\n\n**Como resolver:**\n1. Aguarde alguns segundos para que o servidor complete a inicialização e tente enviar a mensagem novamente.\n2. Se o problema persistir, recarregue a página (F5 / Ctrl+R) para reestabelecer a conexão.\n3. Verifique se o seu navegador não está bloqueando conexões locais ou de terceiros.`
+          : `⚠️ Desculpe, viajante, mas as brasas da minha forja estão instáveis agora.\n\nDetalhe do erro: ${errMsg}`;
 
       showToast(isKeyError ? 'Configuração de API necessária!' : 'Erro de conexão com o Oráculo', 'error');
       setMessages(prev => [

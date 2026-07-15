@@ -24,7 +24,9 @@ export const calculateProficiencyBonus = (
   climate?: number,
   climateProficiency?: number,
   manualBonus: number = 0,
-  effects: NegativeEffect[] = []
+  effects: NegativeEffect[] = [],
+  sanity?: number,
+  maxSanity?: number
 ) => {
   let penalty = 0;
   
@@ -98,9 +100,21 @@ export const calculateProficiencyBonus = (
         }
       }
     }
+
+    // Sanity penalties (Sanidade)
+    if (sanity !== undefined && maxSanity !== undefined && maxSanity > 0) {
+      if (statKeys.some(k => ['APR', 'MEN', 'INT'].includes(k))) {
+        const ratio = sanity / maxSanity;
+        if (ratio <= 0.25) {
+          penalty -= 2;
+        } else if (ratio <= 0.50) {
+          penalty -= 1;
+        }
+      }
+    }
   }
 
-  return Math.max(0, baseBonus + penalty + manualBonus);
+  return baseBonus + penalty + manualBonus;
 };
 
 export const PROFICIENCIES = [

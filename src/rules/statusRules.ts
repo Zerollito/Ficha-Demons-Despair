@@ -54,7 +54,16 @@ export const getNegativeEffectPenalties = (effects: NegativeEffect[]) => {
   };
 };
 
-export const getDeslocamentoBase = (dex: number, effects: NegativeEffect[] = [], hunger?: number, thirst?: number, climate?: number, climateProficiency?: number) => {
+export const getDeslocamentoBase = (
+  dex: number, 
+  effects: NegativeEffect[] = [], 
+  hunger?: number, 
+  thirst?: number, 
+  climate?: number, 
+  climateProficiency?: number,
+  sanity?: number,
+  maxSanity?: number
+) => {
   let base = CONFIG.vitals.baseDeslocamento + Math.floor(dex / CONFIG.vitals.dexPerDeslocamento);
   
   const penalties = getNegativeEffectPenalties(effects);
@@ -74,6 +83,16 @@ export const getDeslocamentoBase = (dex: number, effects: NegativeEffect[] = [],
     const diff = Math.abs(climate) - climateProficiency;
     if (diff >= 6) {
       base = Math.floor(base / 2);
+    }
+  }
+
+  // Sanity penalties (Sanidade)
+  if (sanity !== undefined && maxSanity !== undefined && maxSanity > 0) {
+    const ratio = sanity / maxSanity;
+    if (ratio <= 0.25) {
+      base = Math.floor(base * 0.5);
+    } else if (ratio <= 0.50) {
+      base = Math.floor(base * (2/3));
     }
   }
 

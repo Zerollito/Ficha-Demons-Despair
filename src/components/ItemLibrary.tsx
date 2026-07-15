@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Package, Plus, Search, Trash2, Edit2, Save, ArrowUpRight, 
-  Sword, Zap, Shield, PlusCircle, Check, Info, Coins, X, Target
+  Sword, Zap, Shield, PlusCircle, Check, Info, Coins, X, Target, Utensils
 } from 'lucide-react';
 import { Item, Compartment } from '../rules/inventoryRules';
 import { Character } from '../types';
@@ -65,6 +65,9 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
         impacto: editingItem.impacto !== undefined ? String(editingItem.impacto) : '0',
         perfuracao: editingItem.perfuracao !== undefined ? String(editingItem.perfuracao) : '0',
         resistencia: editingItem.resistencia !== undefined ? String(editingItem.resistencia) : '0',
+        categoria: (editingItem as any).categoria || 'Arma Branca',
+        municaoTotal: String((editingItem as any).municaoTotal !== undefined ? (editingItem as any).municaoTotal : '6'),
+        municaoCarregada: String((editingItem as any).municaoCarregada !== undefined ? (editingItem as any).municaoCarregada : '6'),
 
         // Catalisador
         feitico: editingItem.feitico !== undefined ? String(editingItem.feitico) : '0',
@@ -75,6 +78,10 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
         // Armadura
         reducaoDano: editingItem.reducaoDano !== undefined ? String(editingItem.reducaoDano) : '0',
         efeito: editingItem.efeito || '',
+
+        // Food/Alimento
+        validade: editingItem.validade !== undefined ? String(editingItem.validade) : '0',
+        saciedade: editingItem.saciedade || '0+0',
       });
     } else {
       setLocalForm({});
@@ -87,13 +94,9 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
     setEditingItem(prev => {
       if (!prev) return null;
       const updated = { ...prev };
-      if (field === 'nome') updated.nome = val;
-      else if (field === 'descricao') updated.descricao = val;
-      else if (field === 'dano') updated.dano = val;
-      else if (field === 'escala') updated.escala = val;
-      else if (field === 'atributoBase') updated.atributoBase = val;
-      else if (field === 'efeito') updated.efeito = val;
-      else {
+      if (['nome', 'descricao', 'dano', 'escala', 'atributoBase', 'efeito', 'categoria', 'saciedade'].includes(field)) {
+        (updated as any)[field] = val;
+      } else {
         const isFloat = ['peso', 'volume', 'preco'].includes(field);
         const normalized = val.replace(',', '.');
         const num = isFloat ? (parseFloat(normalized) || 0) : (parseInt(val, 10) || 0);
@@ -177,6 +180,9 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
       newItem.impacto = 0;
       newItem.perfuracao = 0;
       newItem.resistencia = 0;
+      newItem.categoria = 'Arma Branca';
+      newItem.municaoTotal = 0;
+      newItem.municaoCarregada = 0;
     } else if (type === 'Catalisador') {
       newItem.escala = 'D';
       newItem.atributoBase = 'Inteligência';
@@ -191,6 +197,7 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
       newItem.perfuracao = 0;
       newItem.efeito = '';
     } else if (type === 'Munição') {
+      newItem.dano = '2d6';
       newItem.perfuracao = 0;
       newItem.impacto = 0;
       newItem.resistencia = 0;
@@ -218,16 +225,14 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
   };
 
   const handleDelete = async (itemId: string, name: string) => {
-    if (window.confirm(`Deseja realmente excluir "${name}" da biblioteca?`)) {
-      try {
-        await deleteItemFromLibrary(itemId);
-        showToast('Item excluído com sucesso.', 'success');
-        if (editingItem?.id === itemId) {
-          setEditingItem(null);
-        }
-      } catch (e) {
-        showToast('Erro ao excluir item.', 'error');
+    try {
+      await deleteItemFromLibrary(itemId);
+      showToast('Item excluído com sucesso.', 'success');
+      if (editingItem?.id === itemId) {
+        setEditingItem(null);
       }
+    } catch (e) {
+      showToast('Erro ao excluir item.', 'error');
     }
   };
 
@@ -462,7 +467,44 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
                   value={editingItem.tipo || 'Geral'}
                   onChange={(e) => {
                     const newType = e.target.value;
-                    setEditingItem(prev => ({ ...prev, tipo: newType }));
+                    setEditingItem(prev => {
+                      if (!prev) return null;
+                      const updated = { ...prev, tipo: newType };
+                      // Reset and default state attributes when changing types
+                      if (newType === 'Arma') {
+                        updated.dano = '1d6';
+                        updated.acerto = 0;
+                        updated.escala = 'D';
+                        updated.atributoBase = 'Força';
+                        updated.corte = 0;
+                        updated.impacto = 0;
+                        updated.perfuracao = 0;
+                        updated.resistencia = 0;
+                        (updated as any).categoria = 'Arma Branca';
+                        (updated as any).municaoTotal = 0;
+                        (updated as any).municaoCarregada = 0;
+                      } else if (newType === 'Catalisador') {
+                        updated.escala = 'D';
+                        updated.atributoBase = 'Inteligência';
+                        updated.feitico = 0;
+                        updated.elemental = 0;
+                        updated.magiaNegra = 0;
+                        updated.potencial = 0;
+                      } else if (newType === 'Armadura') {
+                        updated.reducaoDano = 0;
+                        updated.corte = 0;
+                        updated.impacto = 0;
+                        updated.perfuracao = 0;
+                        updated.efeito = '';
+                      } else if (newType === 'Munição') {
+                        updated.dano = '2d6';
+                        updated.perfuracao = 0;
+                        updated.impacto = 0;
+                        updated.resistencia = 0;
+                        updated.efeito = '';
+                      }
+                      return updated;
+                    });
                   }}
                   className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500/50"
                 >
@@ -487,10 +529,75 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
               />
             </div>
 
+            {/* Comida / Alimento */}
+            <div className="bg-zinc-950/40 p-3 rounded-xl border border-zinc-800/80 space-y-3">
+              <div className="flex items-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const isChecked = !editingItem.isFood;
+                    setEditingItem(prev => {
+                      if (!prev) return null;
+                      return {
+                        ...prev,
+                        isFood: isChecked,
+                        validade: isChecked ? (prev.validade ?? 0) : prev.validade,
+                        saciedade: isChecked ? (prev.saciedade ?? "0+0") : prev.saciedade
+                      };
+                    });
+                    setLocalForm(prev => ({
+                      ...prev,
+                      validade: isChecked ? (prev.validade !== undefined ? prev.validade : '0') : prev.validade,
+                      saciedade: isChecked ? (prev.saciedade || '0+0') : prev.saciedade
+                    }));
+                  }}
+                  className={`w-10 h-10 rounded-xl border transition-all cursor-pointer focus:outline-none flex items-center justify-center ${
+                    editingItem.isFood
+                      ? 'bg-yellow-500/20 border-yellow-500/40 text-yellow-500 hover:bg-yellow-500/30'
+                      : 'bg-zinc-700 border-zinc-600 text-black hover:bg-zinc-600'
+                  }`}
+                  title={editingItem.isFood ? "Desmarcar como Comida" : "Marcar como Comida"}
+                >
+                  <Utensils 
+                    className={`w-5 h-5 transition-colors duration-200 ${
+                      editingItem.isFood ? 'fill-yellow-500/20' : ''
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {editingItem.isFood && (
+                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-800/50">
+                  <div>
+                    <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-1">
+                      Validade (Dias)
+                    </label>
+                    <input
+                      type="number"
+                      value={localForm.validade ?? '0'}
+                      onChange={(e) => handleLocalChange('validade', e.target.value)}
+                      className="w-full px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-1">
+                      Saciedade (ex: 30+15)
+                    </label>
+                    <input
+                      type="text"
+                      value={localForm.saciedade ?? '0+0'}
+                      onChange={(e) => handleLocalChange('saciedade', e.target.value)}
+                      className="w-full px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Item Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 bg-zinc-900/20 p-3 rounded-xl border border-zinc-800/30">
+            <div className={`grid gap-3 bg-zinc-900/20 p-3 rounded-xl border border-zinc-800/30 ${editingItem.tipo === 'Geral' ? 'grid-cols-3' : 'grid-cols-2 md:grid-cols-5'}`}>
               <div>
-                <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
+                <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5 text-center">
                   Peso (kg)
                 </label>
                 <input
@@ -502,7 +609,7 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
               </div>
 
               <div>
-                <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
+                <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5 text-center">
                   Volume
                 </label>
                 <input
@@ -514,7 +621,7 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
               </div>
 
               <div>
-                <label className="text-[9px] font-bold uppercase text-amber-500 tracking-wider block mb-0.5">
+                <label className="text-[9px] font-bold uppercase text-amber-500 tracking-wider block mb-0.5 text-center">
                   Preço
                 </label>
                 <input
@@ -526,143 +633,215 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
                 />
               </div>
 
-              <div>
-                <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
-                  Durab. Atual
-                </label>
-                <input
-                  type="text"
-                  value={localForm.durabilidade ?? ''}
-                  onChange={(e) => handleLocalChange('durabilidade', e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
-                />
-              </div>
+              {editingItem.tipo !== 'Geral' && (
+                <>
+                  <div>
+                    <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5 text-center">
+                      Durab. Atual
+                    </label>
+                    <input
+                      type="text"
+                      value={localForm.durabilidade ?? ''}
+                      onChange={(e) => handleLocalChange('durabilidade', e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                    />
+                  </div>
 
-              <div>
-                <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
-                  Durab. Max
-                </label>
-                <input
-                  type="text"
-                  value={localForm.maxDurabilidade ?? ''}
-                  onChange={(e) => handleLocalChange('maxDurabilidade', e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
-                />
-              </div>
+                  <div>
+                    <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5 text-center">
+                      Durab. Max
+                    </label>
+                    <input
+                      type="text"
+                      value={localForm.maxDurabilidade ?? ''}
+                      onChange={(e) => handleLocalChange('maxDurabilidade', e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Type Specific Fields */}
-            {editingItem.tipo === 'Arma' && (
-              <div className="border-t border-zinc-800/40 pt-4 space-y-4">
-                <h4 className="text-[10px] font-black uppercase text-amber-500 tracking-widest flex items-center gap-1">
-                  <Sword size={12} /> Propriedades de Arma
-                </h4>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
-                      Fórmula de Dano
-                    </label>
-                    <input
-                      type="text"
-                      value={localForm.dano ?? ''}
-                      onChange={(e) => handleLocalChange('dano', e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
-                      placeholder="Ex: 1d6+2"
-                    />
-                  </div>
+            {editingItem.tipo === 'Arma' && (() => {
+              const categoria = localForm.categoria || 'Arma Branca';
+              const isFirearm = categoria === 'Arma de Fogo';
+              const isBow = categoria === 'Arco';
+              const isMelee = categoria === 'Arma Branca';
 
-                  <div>
-                    <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
-                      Bônus de Acerto
-                    </label>
-                    <input
-                      type="text"
-                      value={localForm.acerto ?? ''}
-                      onChange={(e) => handleLocalChange('acerto', e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
-                      Escala (0-A)
-                    </label>
+              return (
+                <div className="border-t border-zinc-800/40 pt-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[10px] font-black uppercase text-amber-500 tracking-widest flex items-center gap-1">
+                      <Sword size={12} /> Propriedades de Arma
+                    </h4>
                     <select
-                      value={localForm.escala || 'D'}
-                      onChange={(e) => handleLocalChange('escala', e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                      value={categoria}
+                      onChange={(e) => {
+                        const newCat = e.target.value;
+                        setLocalForm(prev => ({
+                          ...prev,
+                          categoria: newCat,
+                          atributoBase: newCat === 'Arma Branca' ? 'Força' : 'Destreza'
+                        }));
+                        setEditingItem(prev => {
+                          if (!prev) return null;
+                          return {
+                            ...prev,
+                            categoria: newCat,
+                            atributoBase: newCat === 'Arma Branca' ? 'Força' : 'Destreza'
+                          };
+                        });
+                      }}
+                      className="bg-zinc-900 border border-zinc-800 text-[9px] font-bold uppercase text-amber-500 rounded px-2 py-0.5 focus:outline-none"
                     >
-                      {['0', 'D', 'C', 'B', 'A'].map(opt => (
-                        <option key={opt} value={opt}>{opt}</option>
+                      {['Arma Branca', 'Arma de Fogo', 'Arco'].map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
                       ))}
                     </select>
                   </div>
 
-                  <div>
-                    <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
-                      Atributo Base
-                    </label>
-                    <select
-                      value={localForm.atributoBase || 'Força'}
-                      onChange={(e) => handleLocalChange('atributoBase', e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
-                    >
-                      {['Força', 'Destreza', 'Constituição', 'Inteligência', 'Sabedoria', 'Carisma'].map(opt => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div>
+                      <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
+                        Dano
+                      </label>
+                      {!isFirearm ? (
+                        <input
+                          type="text"
+                          value={localForm.dano ?? ''}
+                          onChange={(e) => handleLocalChange('dano', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                          placeholder="Ex: 1d6+2"
+                        />
+                      ) : (
+                        <div className="w-full px-2.5 py-1.5 bg-zinc-950/40 border border-zinc-800/40 border-dashed rounded-lg text-[9px] text-amber-500/80 font-bold text-center flex items-center justify-center h-8">
+                          Definido pelas Balas
+                        </div>
+                      )}
+                    </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-zinc-900/10 p-3 rounded-lg border border-zinc-800/20">
-                  <div>
-                    <label className="text-[9px] font-bold uppercase text-red-500/80 tracking-wider block mb-0.5 text-center">
-                      Corte
-                    </label>
-                    <input
-                      type="text"
-                      value={localForm.corte ?? ''}
-                      onChange={(e) => handleLocalChange('corte', e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
-                    />
+                    <div>
+                      <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
+                        Acerto
+                      </label>
+                      <input
+                        type="text"
+                        value={localForm.acerto ?? '0'}
+                        onChange={(e) => handleLocalChange('acerto', e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
+                        Escala (0-A)
+                      </label>
+                      <select
+                        value={localForm.escala || '0'}
+                        onChange={(e) => handleLocalChange('escala', e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                      >
+                        {['0', 'D', 'C', 'B', 'A'].map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
+                        Atributo Base
+                      </label>
+                      <select
+                        value={localForm.atributoBase || 'Força'}
+                        onChange={(e) => handleLocalChange('atributoBase', e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                      >
+                        {['Força', 'Destreza', 'Inteligência', 'Ritual'].map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-[9px] font-bold uppercase text-amber-500/80 tracking-wider block mb-0.5 text-center">
-                      Impacto
-                    </label>
-                    <input
-                      type="text"
-                      value={localForm.impacto ?? ''}
-                      onChange={(e) => handleLocalChange('impacto', e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[9px] font-bold uppercase text-blue-500/80 tracking-wider block mb-0.5 text-center">
-                      Perfuração
-                    </label>
-                    <input
-                      type="text"
-                      value={localForm.perfuracao ?? ''}
-                      onChange={(e) => handleLocalChange('perfuracao', e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[9px] font-bold uppercase text-purple-500/80 tracking-wider block mb-0.5 text-center">
-                      Resistência
-                    </label>
-                    <input
-                      type="text"
-                      value={localForm.resistencia ?? ''}
-                      onChange={(e) => handleLocalChange('resistencia', e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
-                    />
-                  </div>
+
+                  {isMelee && (
+                    <div className="grid grid-cols-4 gap-3 bg-zinc-900/10 p-3 rounded-lg border border-zinc-800/20">
+                      <div>
+                        <label className="text-[9px] font-bold uppercase text-red-500/80 tracking-wider block mb-0.5 text-center">
+                          Corte
+                        </label>
+                        <input
+                          type="text"
+                          value={localForm.corte ?? '0'}
+                          onChange={(e) => handleLocalChange('corte', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-bold uppercase text-amber-500/80 tracking-wider block mb-0.5 text-center">
+                          Impacto
+                        </label>
+                        <input
+                          type="text"
+                          value={localForm.impacto ?? '0'}
+                          onChange={(e) => handleLocalChange('impacto', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-bold uppercase text-blue-500/80 tracking-wider block mb-0.5 text-center">
+                          Perfuração
+                        </label>
+                        <input
+                          type="text"
+                          value={localForm.perfuracao ?? '0'}
+                          onChange={(e) => handleLocalChange('perfuracao', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-bold uppercase text-purple-500/80 tracking-wider block mb-0.5 text-center">
+                          Resistência
+                        </label>
+                        <input
+                          type="text"
+                          value={localForm.resistencia ?? '0'}
+                          onChange={(e) => handleLocalChange('resistencia', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {(isFirearm || isBow) && (
+                    <div className="grid grid-cols-2 gap-3 bg-zinc-900/10 p-3 rounded-lg border border-zinc-800/20">
+                      <div>
+                        <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
+                          {isBow ? "Aljava / Capac. Total" : "Munição Total"}
+                        </label>
+                        <input
+                          type="text"
+                          value={localForm.municaoTotal ?? '6'}
+                          onChange={(e) => handleLocalChange('municaoTotal', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
+                          {isBow ? "Flechas Carregadas" : "No Tambor / Pente"}
+                        </label>
+                        <input
+                          type="text"
+                          value={localForm.municaoCarregada ?? '6'}
+                          onChange={(e) => handleLocalChange('municaoCarregada', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {editingItem.tipo === 'Catalisador' && (
               <div className="border-t border-zinc-800/40 pt-4 space-y-4">
@@ -676,7 +855,7 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
                       Escala (0-A)
                     </label>
                     <select
-                      value={localForm.escala || 'D'}
+                      value={localForm.escala || '0'}
                       onChange={(e) => handleLocalChange('escala', e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
                     >
@@ -688,17 +867,11 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
 
                   <div>
                     <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
-                      Atributo Base
+                      Bônus Atributo
                     </label>
-                    <select
-                      value={localForm.atributoBase || 'Inteligência'}
-                      onChange={(e) => handleLocalChange('atributoBase', e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
-                    >
-                      {['Força', 'Destreza', 'Constituição', 'Inteligência', 'Sabedoria', 'Carisma'].map(opt => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
+                    <div className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-amber-500/80 font-bold text-center h-8 flex items-center justify-center">
+                      Inteligência
+                    </div>
                   </div>
                 </div>
 
@@ -709,7 +882,7 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
                     </label>
                     <input
                       type="text"
-                      value={localForm.feitico ?? ''}
+                      value={localForm.feitico ?? '0'}
                       onChange={(e) => handleLocalChange('feitico', e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
                     />
@@ -720,7 +893,7 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
                     </label>
                     <input
                       type="text"
-                      value={localForm.elemental ?? ''}
+                      value={localForm.elemental ?? '0'}
                       onChange={(e) => handleLocalChange('elemental', e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
                     />
@@ -731,7 +904,7 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
                     </label>
                     <input
                       type="text"
-                      value={localForm.magiaNegra ?? ''}
+                      value={localForm.magiaNegra ?? '0'}
                       onChange={(e) => handleLocalChange('magiaNegra', e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
                     />
@@ -742,7 +915,7 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
                     </label>
                     <input
                       type="text"
-                      value={localForm.potencial ?? ''}
+                      value={localForm.potencial ?? '0'}
                       onChange={(e) => handleLocalChange('potencial', e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
                     />
@@ -764,7 +937,7 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
                     </label>
                     <input
                       type="text"
-                      value={localForm.reducaoDano ?? ''}
+                      value={localForm.reducaoDano ?? '0'}
                       onChange={(e) => handleLocalChange('reducaoDano', e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
                     />
@@ -776,7 +949,7 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
                     </label>
                     <input
                       type="text"
-                      value={localForm.corte ?? ''}
+                      value={localForm.corte ?? '0'}
                       onChange={(e) => handleLocalChange('corte', e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
                     />
@@ -788,7 +961,7 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
                     </label>
                     <input
                       type="text"
-                      value={localForm.impacto ?? ''}
+                      value={localForm.impacto ?? '0'}
                       onChange={(e) => handleLocalChange('impacto', e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
                     />
@@ -800,7 +973,7 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
                     </label>
                     <input
                       type="text"
-                      value={localForm.perfuracao ?? ''}
+                      value={localForm.perfuracao ?? '0'}
                       onChange={(e) => handleLocalChange('perfuracao', e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
                     />
@@ -822,64 +995,117 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
               </div>
             )}
 
-            {editingItem.tipo === 'Munição' && (
-              <div className="border-t border-zinc-800/40 pt-4 space-y-4">
-                <h4 className="text-[10px] font-black uppercase text-amber-500 tracking-widest flex items-center gap-1">
-                  <Target size={12} /> Propriedades de Munição
-                </h4>
+            {editingItem.tipo === 'Munição' && (() => {
+              const templates = [
+                { name: 'Bala', weight: 0.1, vol: 0.3, dano: '2d6' },
+                { name: 'Flecha (A. Curto)', weight: 0.5, vol: 0.9, dano: '1d6' },
+                { name: 'Flecha (A. Longo)', weight: 0.6, vol: 1.3, dano: '1d8' },
+              ];
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-[9px] font-bold uppercase text-blue-500/80 tracking-wider block mb-0.5 text-center">
-                      Perfuração
-                    </label>
-                    <input
-                      type="text"
-                      value={localForm.perfuracao ?? ''}
-                      onChange={(e) => handleLocalChange('perfuracao', e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
-                    />
+              return (
+                <div className="border-t border-zinc-800/40 pt-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[10px] font-black uppercase text-amber-500 tracking-widest flex items-center gap-1">
+                      <Target size={12} /> Propriedades de Munição
+                    </h4>
+                    <div className="flex gap-1">
+                      {templates.map(tmp => (
+                        <button
+                          key={tmp.name}
+                          type="button"
+                          onClick={() => {
+                            setLocalForm(prev => ({
+                              ...prev,
+                              nome: editingItem.nome === "Nova Munição" ? tmp.name : (editingItem.nome || tmp.name),
+                              peso: String(tmp.weight),
+                              volume: String(tmp.vol),
+                              dano: tmp.dano
+                            }));
+                            setEditingItem(prev => {
+                              if (!prev) return null;
+                              return {
+                                ...prev,
+                                nome: prev.nome === "Nova Munição" ? tmp.name : (prev.nome || tmp.name),
+                                peso: tmp.weight,
+                                volume: tmp.vol,
+                                dano: tmp.dano
+                              };
+                            });
+                          }}
+                          className="px-2 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 text-[8px] font-black uppercase text-zinc-400 border border-zinc-800 transition-colors"
+                        >
+                          {tmp.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div>
+                      <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
+                        Dano (Fórmula)
+                      </label>
+                      <input
+                        type="text"
+                        value={localForm.dano ?? '2d6'}
+                        onChange={(e) => handleLocalChange('dano', e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                        placeholder="Ex: 2d6"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold uppercase text-blue-500/80 tracking-wider block mb-0.5 text-center">
+                        Perfuração
+                      </label>
+                      <input
+                        type="text"
+                        value={localForm.perfuracao ?? '0'}
+                        onChange={(e) => handleLocalChange('perfuracao', e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold uppercase text-amber-500/80 tracking-wider block mb-0.5 text-center">
+                        Impacto
+                      </label>
+                      <input
+                        type="text"
+                        value={localForm.impacto ?? '0'}
+                        onChange={(e) => handleLocalChange('impacto', e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold uppercase text-purple-500/80 tracking-wider block mb-0.5 text-center">
+                        Resistência
+                      </label>
+                      <input
+                        type="text"
+                        value={localForm.resistencia ?? '0'}
+                        onChange={(e) => handleLocalChange('resistencia', e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                      />
+                    </div>
                   </div>
 
                   <div>
-                    <label className="text-[9px] font-bold uppercase text-amber-500/80 tracking-wider block mb-0.5 text-center">
-                      Impacto
+                    <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
+                      Efeitos Especiais da Munição
                     </label>
                     <input
                       type="text"
-                      value={localForm.impacto ?? ''}
-                      onChange={(e) => handleLocalChange('impacto', e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[9px] font-bold uppercase text-purple-500/80 tracking-wider block mb-0.5 text-center">
-                      Resistência
-                    </label>
-                    <input
-                      type="text"
-                      value={localForm.resistencia ?? ''}
-                      onChange={(e) => handleLocalChange('resistencia', e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none text-center"
+                      value={localForm.efeito ?? ''}
+                      onChange={(e) => handleLocalChange('efeito', e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none"
+                      placeholder="Ex: Inflama o alvo ao perfurar armadura de pano"
                     />
                   </div>
                 </div>
-
-                <div>
-                  <label className="text-[9px] font-bold uppercase text-zinc-500 tracking-wider block mb-0.5">
-                    Efeitos Especiais da Munição
-                  </label>
-                  <input
-                    type="text"
-                    value={localForm.efeito ?? ''}
-                    onChange={(e) => handleLocalChange('efeito', e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none"
-                    placeholder="Ex: Inflama o alvo ao perfurar armadura de pano"
-                  />
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Form Actions */}
             <div className="flex items-center gap-3 justify-end border-t border-zinc-800/80 pt-4">

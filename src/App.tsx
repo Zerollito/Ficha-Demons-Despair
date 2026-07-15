@@ -31,6 +31,7 @@ import {
   Package,
   Gem,
   Zap,
+  Info,
   MoreVertical,
   Flame,
   Skull,
@@ -38,6 +39,7 @@ import {
   Bone,
   RotateCw,
   X,
+  Moon,
   CheckSquare,
   Square,
   Droplet,
@@ -73,7 +75,7 @@ import { twMerge } from "tailwind-merge";
 import { jsPDF } from "jspdf";
 import { DiceImage } from "./components/ui/DiceImage";
 import { diceBase64 } from "./diceIcons";
-import { auth, loginWithGoogle, loginAsGuest, logout as firebaseLogout, handleRedirectResult, clearFirestoreCache, isFirebaseQuotaExceeded, onAuthStateChanged, syncLocalToCloud } from "./lib/supabase";
+import { auth, loginWithGoogle, loginAsGuest, logout as firebaseLogout, handleRedirectResult, clearFirestoreCache, isFirebaseQuotaExceeded, onAuthStateChanged, syncLocalToCloud, setSupabaseQuotaExceeded } from "./lib/supabase";
 import type { FirebaseUserLike as User } from "./lib/supabase";
 import { subscribeToUserCharacters, saveCharacterToFirestore, deleteCharacterFromFirestore } from "./services/characterService";
 import { 
@@ -81,6 +83,8 @@ import {
   subscribeToMasterCampaigns, 
   subscribeToCampaignsByIds,
   joinCampaign, 
+  leaveCampaign,
+  subscribeToJoinedCampaigns,
   subscribeToCampaignCharacters,
   deleteCampaign 
 } from "./services/campaignService";
@@ -94,7 +98,7 @@ import {
 } from "./services/vttService";
 
 import { randomInt, randomElement, generateId, secureRandom } from './lib/random';
-import { Character, AppState, ArmorPiece, Campaign, TableToken, TableConfig, BestiaryMonster, NegativeEffect, CalendarEvent, Spell } from "./types";
+import { Character, AppState, ArmorPiece, Campaign, TableToken, TableConfig, BestiaryMonster, NegativeEffect, CalendarEvent, Spell, MonsterAction } from "./types";
 import { VTTBoard } from "./components/VTTBoard";
 import { Bestiary } from "./components/Bestiary";
 import { TocaManager } from "./components/TocaManager";
@@ -119,7 +123,7 @@ import {
   getCargaMaxima,
   getDeslocamentoBase,
 } from "./rules/statusRules";
-import { getSeason, getSeasonIcon, formatTime, formatDate, getDaysInMonth, generateWeather, getMoonPhase } from "./rules/timeRules";
+import { getSeason, getSeasonIcon, formatTime, formatDate, getDaysInMonth, generateWeather, getMoonPhase, dateToAbsoluteDays } from "./rules/timeRules";
 import {
   Item,
   calculateInventoryTotals,
@@ -491,10 +495,8 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
               </button>
               <button 
                 onClick={() => {
-                  if (confirm("Isso apagará suas fichas locais. Tem certeza?")) {
-                    localStorage.removeItem(STORAGE_KEY);
-                    window.location.reload();
-                  }
+                  localStorage.removeItem(STORAGE_KEY);
+                  window.location.reload();
                 }}
                 className="w-full py-3 border border-red-500/30 text-red-500 hover:bg-red-500/10 font-bold rounded-xl transition-all text-xs uppercase"
               >
@@ -551,6 +553,21 @@ function App() {
   const [isLoadingSync, setIsLoadingSync] = useState(true);
 
   const [isQuotaExceeded, setIsQuotaExceeded] = useState(() => isFirebaseQuotaExceeded());
+  const [isQuotaModalOpen, setIsQuotaModalOpen] = useState(() => isFirebaseQuotaExceeded());
+
+  useEffect(() => {
+    const handleQuotaChange = (e: any) => {
+      const exceeded = e.detail;
+      setIsQuotaExceeded(exceeded);
+      if (exceeded === true) {
+        setIsQuotaModalOpen(true);
+      }
+    };
+    window.addEventListener('supabase_quota_exceeded_change', handleQuotaChange);
+    return () => {
+      window.removeEventListener('supabase_quota_exceeded_change', handleQuotaChange);
+    };
+  }, []);
 
   useEffect(() => {
     setState(prev => {
@@ -587,6 +604,7 @@ function App() {
   const [masterCampaigns, setMasterCampaigns] = useState<Campaign[]>([]);
   const [joinedCampaigns, setJoinedCampaigns] = useState<Campaign[]>([]);
   const [isCampaignsLoaded, setIsCampaignsLoaded] = useState(false);
+  const [isJoinedCampaignsLoaded, setIsJoinedCampaignsLoaded] = useState(false);
   const campaigns = useMemo(() => {
     const combined = [...masterCampaigns, ...joinedCampaigns];
     const seen = new Set();
@@ -597,14 +615,23 @@ function App() {
     });
   }, [masterCampaigns, joinedCampaigns]);
   const orphanedCampaignIds = useMemo(() => {
-    if (isLoadingSync) return [];
+    if (isLoadingSync || !isJoinedCampaignsLoaded) return [];
     const allCampaignIds = new Set(campaigns.map(c => c.id));
     const idsInChars = Array.from(new Set(state.characters.map(c => c.campaignId).filter(id => !!id)));
     return idsInChars.filter(id => !allCampaignIds.has(id));
-  }, [state.characters, campaigns, isLoadingSync]);
+  }, [state.characters, campaigns, isLoadingSync, isJoinedCampaignsLoaded]);
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([]);
   const [tokens, setTokens] = useState<TableToken[]>([]);
   const [tableConfig, setTableConfig] = useState<TableConfig>({ gridSize: 50, showGrid: true, masterFog: false });
+  const [masterReminderModal, setMasterReminderModal] = useState<{
+    showHungerThirst: boolean;
+    showFatigue: boolean;
+    hour: number;
+  } | null>(null);
+  const [remindersEnabled, setRemindersEnabled] = useState({
+    hungerThirst: true,
+    fatigue: true,
+  });
   const [inviteCodeInput, setInviteCodeInput] = useState("");
   const [newCampaignName, setNewCampaignName] = useState("");
   const [campaignToDelete, setCampaignToDelete] = useState<string | null>(null);
@@ -773,6 +800,8 @@ function App() {
 
   // Filter out other users' characters on login/logout state transitions
   useEffect(() => {
+    if (authLoading) return; // Wait until authentication state is resolved!
+
     if (user) {
       setState(prev => {
         const filtered = prev.characters.filter(char => {
@@ -799,7 +828,7 @@ function App() {
         };
       });
     }
-  }, [user]);
+  }, [user, authLoading]);
 
   // Firebase Sync Effect
   useEffect(() => {
@@ -820,13 +849,8 @@ function App() {
         setIsLoadingSync(false);
       }
 
-      // Clean up deletedCharsRef for IDs that are truly gone from the server
-      const fireCharIds = new Set(fireChars.map(fc => fc.id));
-      deletedCharsRef.current.forEach(id => {
-        if (!fireCharIds.has(id)) {
-          deletedCharsRef.current.delete(id);
-        }
-      });
+      // We keep deleted character IDs in deletedCharsRef to ensure they are never resurrected.
+      // This prevents race conditions and snapshot glitches from bringing deleted characters back.
 
       // Sanitize characters from Firestore and exclude those deleted locally
       const sanitizedFireChars = fireChars
@@ -836,12 +860,22 @@ function App() {
       setState(prev => {
         const dirtyIds = new Set(prev.dirtyCharacterIds || []);
         
-        console.log(`🔍 [Sync] Merge: Local=${prev.characters.length}, Remote=${sanitizedFireChars.length}, PendingWrites=${metadata.hasPendingWrites}, Dirty=${Array.from(dirtyIds).join(', ')}`);
+        // Se a única ficha local for o "Novo Personagem" inicial/vazio, e temos fichas no servidor,
+        // vamos descartá-lo para evitar que ele seja fundido como "ficha local nova" e suba para o servidor.
+        let localCharacters = prev.characters;
+        if (localCharacters.length === 1 && 
+            localCharacters[0].nome === "Novo Personagem" && 
+            !localCharacters[0].isRemoteSynced && 
+            sanitizedFireChars.length > 0) {
+          localCharacters = [];
+        }
+
+        console.log(`🔍 [Sync] Merge: Local=${localCharacters.length}, Remote=${sanitizedFireChars.length}, PendingWrites=${metadata.hasPendingWrites}, Dirty=${Array.from(dirtyIds).join(', ')}`);
         
         // Map Firestore characters to our state
         const mergedCharacters = sanitizedFireChars.map(fChar => {
           const charJson = getSyncJson(fChar);
-          const localMatch = prev.characters.find(lc => lc.id === fChar.id);
+          const localMatch = localCharacters.find(lc => lc.id === fChar.id);
           
           // Migração: Se a ficha vinda do servidor tem o email correto mas o UID está faltando ou é diferente do atual,
           // vamos marcar como dirty para forçar a atualização com o UID correto do usuário logado.
@@ -876,7 +910,7 @@ function App() {
         });
 
         // Adicionar fichas que só existem localmente (novas criadas off-line ou em processamento)
-        const localOnly = prev.characters.filter(lc => {
+        const localOnly = localCharacters.filter(lc => {
           const isRemote = sanitizedFireChars.some(fc => fc.id === lc.id);
           const isOwn = lc.userId === user.uid || (lc.userEmail && lc.userEmail === user.email);
 
@@ -907,7 +941,12 @@ function App() {
           if (!isOwn) return; // Não tenta subir fichas de outros usuários
 
           const wasPreviouslySynced = lc.isRemoteSynced || !!lastSyncedRef.current[lc.id];
-          if (!wasPreviouslySynced && !dirtyIds.has(lc.id)) {
+          const isDefaultPlaceholder = lc.nome === "Novo Personagem" && 
+            (!lc.armas || lc.armas.length === 0) && 
+            (!lc.magias || lc.magias.length === 0) &&
+            (!lc.habilidades || lc.habilidades.length === 0);
+
+          if (!wasPreviouslySynced && !dirtyIds.has(lc.id) && !isDefaultPlaceholder) {
             console.log(`📡 [Sync] Agendando upload de ficha local nova: ${lc.nome}`);
             dirtyIds.add(lc.id);
           }
@@ -980,38 +1019,35 @@ function App() {
     return () => unsubscribe();
   }, [user?.uid]);
 
-  // Player Joined Campaigns Effect - Memoized sorted string key to prevent constant database resubscriptions on every character state edit
-  const joinedCampaignIdsKey = useMemo(() => {
-    const ids = Array.from(new Set(state.characters.map(c => c.campaignId).filter(id => !!id)));
-    return ids.sort().join(',');
-  }, [state.characters]);
-
+  // Player Joined Campaigns Effect - Fetch campaigns based on player email instead of character campaignId fields
   useEffect(() => {
-    if (!user || !joinedCampaignIdsKey) {
+    if (!user?.email) {
       setJoinedCampaigns([]);
+      setIsJoinedCampaignsLoaded(true);
       return;
     }
-    const ids = joinedCampaignIdsKey.split(',').filter(Boolean);
-    console.log(`📡 [Sync] Assinando campanhas participadas: ${ids.join(', ')}`);
-    const unsubscribe = subscribeToCampaignsByIds(ids, (camps) => {
+    setIsJoinedCampaignsLoaded(false);
+    console.log(`📡 [Sync] Assinando campanhas participadas para o email: ${user.email}`);
+    const unsubscribe = subscribeToJoinedCampaigns(user.email, (camps) => {
       setJoinedCampaigns(camps);
+      setIsJoinedCampaignsLoaded(true);
     });
     return () => {
       console.log(`🔌 [Sync] Cancelando assinatura de campanhas participadas`);
       unsubscribe();
     };
-  }, [user, joinedCampaignIdsKey]);
+  }, [user?.email]);
 
   // Validate activeCampaignId against current campaigns to auto-deselect if deleted/invalid
   useEffect(() => {
-    if (user?.uid && activeCampaignId && !isLoadingSync && isCampaignsLoaded) {
+    if (user?.uid && activeCampaignId && !isLoadingSync && isCampaignsLoaded && isJoinedCampaignsLoaded) {
       const exists = campaigns.some(c => c.id === activeCampaignId);
       if (!exists) {
         console.log("🧹 Clearing stale/orphan activeCampaignId because it does not exist in campaigns:", activeCampaignId);
         setActiveCampaignIdWithSync(null);
       }
     }
-  }, [campaigns, activeCampaignId, user?.uid, isLoadingSync, isCampaignsLoaded]);
+  }, [campaigns, activeCampaignId, user?.uid, isLoadingSync, isCampaignsLoaded, isJoinedCampaignsLoaded]);
 
   // Redirect to library if there are no characters (activeChar is null) and we are not on the DM/library/oracle pages
   useEffect(() => {
@@ -1066,65 +1102,32 @@ function App() {
     };
   }, [activeCampaignId]);
 
-  // Sync campaign characters into state.characters
+  // Clean up other players' characters when switching campaigns or when they are not actively on the campaign table
   useEffect(() => {
-    if (!activeCampaignId || !user?.uid) return;
-    
+    if (!user?.uid) return;
     setState(prev => {
-      let hasChanges = false;
-      const isMasterOfCampaign = campaigns.some(camp => camp.id === activeCampaignId && camp.masterId === user.uid);
-
-      // Clean up any leaked characters from other users that the player doesn't own
-      const cleanedCharacters = prev.characters.filter(lc => {
-        if (isMasterOfCampaign) return true; // GM can see everything
-        const isOwn = lc.userId === user.uid || (lc.userEmail && lc.userEmail === user.email) || (!lc.userId && !lc.userEmail);
-        if (!isOwn) {
-          hasChanges = true;
-          return false;
-        }
-        return true;
-      });
-
-      if (campaignCharacters.length === 0) {
-        if (hasChanges) {
-          return { ...prev, characters: cleanedCharacters };
-        }
-        return prev;
-      }
-
-      const filteredCampaignChars = campaignCharacters.filter(rc => {
-        if (isMasterOfCampaign) return true;
-        return rc.userId === user.uid || (rc.userEmail && rc.userEmail === user.email);
-      });
-
-      const dirtyIds = new Set(prev.dirtyCharacterIds || []);
-      const currentIds = new Set(cleanedCharacters.map(c => c.id));
+      const isMasterOfCampaign = activeCampaignId && campaigns.some(camp => camp.id === activeCampaignId && camp.masterId === user.uid);
       
-      const updatedStateChars = cleanedCharacters.map(lc => {
-        const remoteMatch = filteredCampaignChars.find(rc => rc.id === lc.id);
+      const filtered = prev.characters.filter(char => {
+        const isOwn = char.userId === user.uid || (char.userEmail && char.userEmail === user.email) || (!char.userId && !char.userEmail);
+        if (isOwn) return true;
         
-        if (remoteMatch && !dirtyIds.has(lc.id)) {
-          const localJson = getSyncJson(lc);
-          const remoteJson = getSyncJson(remoteMatch);
-
-          if (localJson !== remoteJson) {
-            hasChanges = true;
-            return remoteMatch;
-          }
+        // If we are GM of the campaign, keep player characters that are active in this campaign
+        if (isMasterOfCampaign) {
+          return campaignCharacters.some(cc => cc.id === char.id);
         }
-        return lc;
+        
+        return false;
       });
-
-      const newFromCampaign = filteredCampaignChars.filter(rc => !currentIds.has(rc.id) && !deletedCharsRef.current.has(rc.id));
-      if (newFromCampaign.length > 0) {
-        hasChanges = true;
-        updatedStateChars.push(...newFromCampaign);
-      }
       
-      if (!hasChanges) return prev;
-      return { ...prev, characters: updatedStateChars };
+      if (filtered.length === prev.characters.length) return prev;
+      return {
+        ...prev,
+        characters: filtered,
+        activeCharacterId: filtered.some(c => c.id === prev.activeCharacterId) ? prev.activeCharacterId : (filtered.length > 0 ? filtered[0].id : "")
+      };
     });
-  }, [campaignCharacters, activeCampaignId, user?.uid, campaigns]);
+  }, [activeCampaignId, campaignCharacters, user?.uid, campaigns]);
 
   const [tocaEditingCreatureId, setTocaEditingCreatureId] = useState<string | null>(null);
   const [bestiaryEditingMonsterId, setBestiaryEditingMonsterId] = useState<string | null>(null);
@@ -1149,7 +1152,43 @@ function App() {
 
   const menuRef = useRef<HTMLDivElement>(null);
   const sideMenuRef = useRef<HTMLDivElement>(null);
-  const deletedCharsRef = useRef<Set<string>>(new Set());
+  const deletedCharsRef = useRef<Set<string>>((() => {
+    try {
+      const stored = localStorage.getItem("demons_despair_deleted_chars");
+      return stored ? new Set<string>(JSON.parse(stored)) : new Set<string>();
+    } catch (e) {
+      return new Set<string>();
+    }
+  })());
+
+  const persistDeletedCharId = (id: string) => {
+    deletedCharsRef.current.add(id);
+    try {
+      localStorage.setItem("demons_despair_deleted_chars", JSON.stringify(Array.from(deletedCharsRef.current)));
+    } catch (e) {
+      console.error("Error saving deleted character IDs:", e);
+    }
+  };
+
+  const cleanCharFromCampaignCaches = (charId: string) => {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("campaign_characters_")) {
+          const stored = localStorage.getItem(key);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+              const filtered = parsed.filter((c: any) => c.id !== charId);
+              localStorage.setItem(key, JSON.stringify(filtered));
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error sweeping campaign caches for deleted char:", e);
+    }
+  };
 
   const activeChar = useMemo(() => {
     if (tocaEditingCreatureId) {
@@ -1410,20 +1449,7 @@ function App() {
       setState(prev => ({ ...prev, activeCampaignId: id }));
     };
 
-  // Sync activeCampaignId with active character's campaignId to allow real-time campaign configuration (clock, weather, tokens) updates for players
-  useEffect(() => {
-    if (activeChar?.campaignId) {
-      if (activeCampaignId !== activeChar.campaignId) {
-        console.log(`[Campaign Sync] Automatically switching activeCampaignId to ${activeChar.campaignId} to match active character ${activeChar.nome}`);
-        setActiveCampaignIdWithSync(activeChar.campaignId);
-      }
-    } else if (activeCampaignId && !masterCampaigns.some(c => c.id === activeCampaignId)) {
-      // If the active character has no campaignId, and we are not the master of the current active campaign,
-      // then we shouldn't be in an active campaign. Clear it.
-      console.log(`[Campaign Sync] Clearing activeCampaignId because active character has no campaign and user is not GM of campaign`);
-      setActiveCampaignIdWithSync(null);
-    }
-  }, [activeChar?.campaignId, activeCampaignId, masterCampaigns]);
+  // Decoupled campaign association from active character, allowing players and masters to navigate campaigns independently
 
   const advanceTime = useCallback(async (minutes: number) => {
     if (!activeCampaignId) {
@@ -1459,7 +1485,8 @@ function App() {
       }
 
       const season = getSeason(newMonth);
-      const newWeather = (newDay !== currentDate.day || (minutes >= 1440)) 
+      const isCrossing18 = (current.hour < 18 && newHour >= 18) && (newDay === currentDate.day);
+      const newWeather = (newDay !== currentDate.day || (minutes >= 1440) || isCrossing18) 
         ? generateWeather(season) 
         : tableConfig.weather;
 
@@ -1469,6 +1496,51 @@ function App() {
         weather: newWeather
       });
       showToast(minutes >= 1440 ? "+1 Dia" : `+${minutes}m`, "success");
+
+      // Check time reminders for Master page
+      const hungerHours = [0, 4, 8, 12, 16, 20];
+      const fatigueHours = [20, 22, 0, 2];
+
+      let showHungerThirst = false;
+      let showFatigue = false;
+      let reminderHour = newHour;
+
+      if (minutes >= 1440) {
+        if (remindersEnabled.hungerThirst) {
+          showHungerThirst = true;
+        }
+        if (remindersEnabled.fatigue && (newHour >= 20 || newHour <= 2)) {
+          showFatigue = true;
+        }
+      } else {
+        let h = current.hour;
+        let m = current.minute;
+        for (let elapsed = 1; elapsed <= minutes; elapsed++) {
+          m++;
+          if (m >= 60) {
+            m = 0;
+            h = (h + 1) % 24;
+          }
+          if (m === 0) {
+            if (remindersEnabled.hungerThirst && hungerHours.includes(h)) {
+              showHungerThirst = true;
+              reminderHour = h;
+            }
+            if (remindersEnabled.fatigue && fatigueHours.includes(h)) {
+              showFatigue = true;
+              reminderHour = h;
+            }
+          }
+        }
+      }
+
+      if (showHungerThirst || showFatigue) {
+        setMasterReminderModal({
+          showHungerThirst,
+          showFatigue,
+          hour: reminderHour
+        });
+      }
     } catch (err: any) {
       console.error("Erro ao avançar tempo:", err);
       showToast("Falha na sincronização", "error");
@@ -1540,6 +1612,9 @@ function App() {
         activeChar.clima,
         climateProficiency,
         activeChar.bonusProficiencias?.["Fome"] || 0,
+        activeChar.efeitosNegativos || [],
+        activeChar.sanidadeAtual,
+        getSanidadeMaxima(activeChar.stats.MEN)
       );
 
       const hungerProf = activeChar.fome >= 50 ? hungerProfBase : 0;
@@ -1654,6 +1729,9 @@ function App() {
       activeChar.clima,
       climateProficiency,
       activeChar.bonusProficiencias?.["Acurácia"] || 0,
+      activeChar.efeitosNegativos || [],
+      activeChar.sanidadeAtual,
+      getSanidadeMaxima(activeChar.stats.MEN)
     );
     const totalHitBonus = (acuraciaBonus || 0) + (bonusManual || 0);
 
@@ -1731,6 +1809,9 @@ function App() {
       activeChar.clima,
       climateProficiency,
       activeChar.bonusProficiencias?.["Acurácia"] || 0,
+      activeChar.efeitosNegativos || [],
+      activeChar.sanidadeAtual,
+      getSanidadeMaxima(activeChar.stats.MEN)
     );
     const totalHitBonus =
       (acuraciaBonus || 0) + (bonusManual || 0);
@@ -2505,6 +2586,9 @@ function App() {
       undefined,
       undefined,
       activeChar.bonusProficiencias?.["Clima"] || 0,
+      activeChar.efeitosNegativos || [],
+      activeChar.sanidadeAtual,
+      getSanidadeMaxima(activeChar.stats.MEN)
     );
   }, [
     activeChar?.stats,
@@ -2557,9 +2641,28 @@ function App() {
     return effects;
   }, [activeChar?.cansaco]);
 
+  const sanityEffects = useMemo(() => {
+    if (!activeChar) return [];
+    const maxSanity = getSanidadeMaxima(activeChar.stats.MEN);
+    if (maxSanity <= 0) return [];
+    const ratio = activeChar.sanidadeAtual / maxSanity;
+    const effects: string[] = [];
+
+    if (ratio <= 0.25) {
+      effects.push(
+        "Mente em ruínas: -50% de deslocamento e -2 em todas as proficiências de APR, MEN ou INT.",
+      );
+    } else if (ratio <= 0.50) {
+      effects.push(
+        "Mente abalada: -33.3% de deslocamento e -1 em todas as proficiências de APR, MEN ou INT.",
+      );
+    }
+    return effects;
+  }, [activeChar?.sanidadeAtual, activeChar?.stats.MEN]);
+
   // Auto-save removed - handled by debounced effect above
 
-  const updateChar = useCallback((updatesOrFn: Partial<Character> | ((c: Character) => Partial<Character>), characterId?: string) => {
+  const updateChar = useCallback((updatesOrFn: (Partial<Character> & Record<string, any>) | ((c: Character) => Partial<Character> & Record<string, any>), characterId?: string) => {
     setState(prev => {
       const characters = [...prev.characters];
       
@@ -2719,10 +2822,16 @@ function App() {
       if (compIdx === -1) return {};
       
       const targetComp = comps[compIdx];
+      const currentDate = tableConfig.date || { day: 1, month: 1, year: 2024 };
+      const itemToInsert = { ...item };
+      if (itemToInsert.isFood && !itemToInsert.dataCriacao) {
+        itemToInsert.dataCriacao = { ...currentDate };
+      }
+      
       const newItens = [
         ...(targetComp.itens || []),
         {
-          ...item,
+          ...itemToInsert,
           id: generateId()
         }
       ];
@@ -2731,7 +2840,7 @@ function App() {
         compartimentos: comps.map((c, i) => i === compIdx ? { ...c, itens: newItens } : c)
       };
     }, characterId);
-  }, [updateChar]);
+  }, [updateChar, tableConfig.date]);
 
   const handleAddSpellToCharacter = useCallback((characterId: string, spell: Spell) => {
     updateChar(char => {
@@ -2884,7 +2993,13 @@ function App() {
   // Sync userEmail if missing
   useEffect(() => {
     if (user && activeChar && !activeChar.userEmail && activeChar.userId === user.uid) {
-      // Usar a flag silent ou verificar antes de disparar
+      const isDefaultPlaceholder = activeChar.nome === "Novo Personagem" && 
+        (!activeChar.armas || activeChar.armas.length === 0) && 
+        (!activeChar.magias || activeChar.magias.length === 0) &&
+        (!activeChar.habilidades || activeChar.habilidades.length === 0);
+
+      if (isDefaultPlaceholder) return;
+
       const email = user.email || "";
       if (activeChar.userEmail !== email) {
         console.log("Auto-sync: Atualizando email do usuário na ficha.");
@@ -2914,9 +3029,9 @@ function App() {
     const stats = { CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0 };
     
     // Base stats on Max HP (CON)
-    const conVal = Math.max(0, Math.floor((maxHp - 15) / 5));
+    const conVal = Math.max(0, Math.floor(maxHp / 2));
     stats.CON = conVal;
-    stats.RES = Math.max(0, Math.floor((maxHp - 15) / 10)); // approximate resistance
+    stats.RES = Math.max(0, Math.floor(maxHp / 4)); // approximate resistance
 
     // Set DEX based on esquiva or acuracia
     stats.DEX = Math.max(Number(esquiva) || 0, Number(acuracia) || 0) * 2;
@@ -2982,7 +3097,9 @@ function App() {
         activeChar.fome ?? 100,
         activeChar.sede ?? 100,
         activeChar.clima,
-        climateProficiency
+        climateProficiency,
+        activeChar.sanidadeAtual,
+        getSanidadeMaxima(s.MEN)
       ) : 0
     };
   }, [activeChar, isCreatureMode, climateProficiency, parseMonsterStats]);
@@ -3005,11 +3122,11 @@ function App() {
     const s = getSurvivalPenalties(activeChar?.fome ?? 100, activeChar?.sede ?? 100);
     const d = Math.max(
       0,
-      Math.floor(deslocamentoBase * p.deslocamentoMult) + s.movement,
+      Math.floor(deslocamentoBase * p.deslocamentoMult) + s.movement + (activeChar?.bonusDeslocamento || 0),
     );
 
     return { pesoTotal: total, penalties: p, survivalPenalties: s, deslocamentoFinal: d };
-  }, [compartimentos, armas, catalisadores, armaduras, acessorios, cargaMax, deslocamentoBase, activeChar?.fome, activeChar?.sede]);
+  }, [compartimentos, armas, catalisadores, armaduras, acessorios, cargaMax, deslocamentoBase, activeChar?.fome, activeChar?.sede, activeChar?.bonusDeslocamento]);
 
   if (authLoading) {
     return (
@@ -3242,28 +3359,11 @@ function App() {
 
   const deleteChar = () => {
     if (!activeChar) return;
-    if (state.characters.length <= 1) return;
     const idToDelete = state.activeCharacterId;
     
     if (idToDelete) {
-      deletedCharsRef.current.add(idToDelete);
-      const charToDelete = state.characters.find(c => c.id === idToDelete);
-      const campaignId = charToDelete?.campaignId;
-      if (campaignId) {
-        try {
-          const storedKey = `campaign_characters_${campaignId}`;
-          const stored = localStorage.getItem(storedKey);
-          if (stored) {
-            const parsed = JSON.parse(stored);
-            if (Array.isArray(parsed)) {
-              const filtered = parsed.filter((c: any) => c.id !== idToDelete);
-              localStorage.setItem(storedKey, JSON.stringify(filtered));
-            }
-          }
-        } catch (e) {
-          console.error("Error cleaning up deleted char from campaign cache:", e);
-        }
-      }
+      persistDeletedCharId(idToDelete);
+      cleanCharFromCampaignCaches(idToDelete);
       // Cancel any pending sync timers before deleting to prevent race condition uploads
       if (syncTimersRef.current[idToDelete]) {
         console.log(`🛑 [deleteChar] Cancelando upload pendente do personagem de ID ${idToDelete} antes da remoção`);
@@ -3312,8 +3412,6 @@ function App() {
     reader.readAsDataURL(file);
   };
 
-  console.log("Renderizando App. User:", user?.email, "Chars:", state.characters.length);
-
   const isFullScreenPage = activePage === "table" || activePage === "dice" || activePage === "master";
 
   return (
@@ -3356,7 +3454,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v18.8</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.12.3</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -3476,14 +3574,14 @@ function App() {
           <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
             <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
             <div className="w-[1px] h-3 bg-zinc-800" />
-            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v18.8</span>
+            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.12.3</span>
           </div>
 
           {/* Quick Active Page Status - desktop only */}
           <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
               <div className="flex flex-col">
                 <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v18.8</span>
+                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.12.3</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -4087,7 +4185,7 @@ function App() {
                     onChange={(v) => updateChar({ nome: v })}
                   />
                   <Input
-                    label="Etnia/Cultura"
+                    label={isCreatureMode ? "Localização" : "Etnia/Cultura"}
                     value={activeChar?.etnia || ""}
                     onChange={(v) => updateChar({ etnia: v })}
                   />
@@ -4129,11 +4227,24 @@ function App() {
                   </div>
 
                   <div className="flex-1">
-                    <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">
-                      Deslocamento
+                    <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1 flex justify-between items-center">
+                      <span>Deslocamento</span>
+                      <span className="text-[9px] text-zinc-500 normal-case font-bold">Modificador (m)</span>
                     </label>
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-amber-400 font-bold">
-                      {deslocamentoFinal}m
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-amber-400 font-bold">
+                        {deslocamentoFinal}m
+                      </div>
+                      <input
+                        type="number"
+                        value={activeChar?.bonusDeslocamento || ""}
+                        placeholder="0"
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 0;
+                          updateChar({ bonusDeslocamento: val });
+                        }}
+                        className="w-16 bg-zinc-900 border border-zinc-800 rounded-md px-2 py-2 text-center text-amber-500 font-bold focus:outline-none focus:border-amber-400"
+                      />
                     </div>
                   </div>
                 </div>
@@ -4211,6 +4322,16 @@ function App() {
                         color="bg-emerald-500"
                         onChange={(v) => updateChar({ sanidadeAtual: v })}
                       />
+                      {sanityEffects.length > 0 && (
+                        <div className="space-y-1">
+                          {sanityEffects.map((effect, idx) => (
+                            <div key={idx} className="text-[9px] leading-tight text-emerald-400 bg-emerald-400/10 p-1.5 rounded border border-emerald-400/20 flex gap-1.5 items-start">
+                              <Activity size={10} className="shrink-0 mt-0.5 animate-pulse" />
+                              <span>{effect}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <div className="grid grid-cols-3 gap-3">
                         <MiniBar
                           label="Fome"
@@ -4496,6 +4617,44 @@ function App() {
                 </div>
               </Section>
 
+              {isCreatureMode && (
+                <Section
+                  title="Informações"
+                  icon={<Info size={18} />}
+                  collapsible
+                  defaultCollapsed={true}
+                >
+                  <div className="space-y-4">
+                    <Input
+                      label="Personalidade"
+                      value={(activeChar as any).personalidade || ""}
+                      onChange={(v) => updateChar({ personalidade: v })}
+                      placeholder="Ex: Agressivo, territorialista..."
+                    />
+                    <Input
+                      label="Gosta / Não Gosta"
+                      value={(activeChar as any).gostaNaoGosta || ""}
+                      onChange={(v) => updateChar({ gostaNaoGosta: v })}
+                      placeholder="Ex: Gosta de calor, teme água..."
+                    />
+                    <TextArea
+                      label="Descrição / Lore"
+                      value={(activeChar as any).informacoes || ""}
+                      onChange={(v) => updateChar({ informacoes: v })}
+                      placeholder="História, lendas e detalhes..."
+                      rows={5}
+                    />
+                    <TextArea
+                      label="Hábitos / Comportamento"
+                      value={(activeChar as any).habitos || ""}
+                      onChange={(v) => updateChar({ habitos: v })}
+                      placeholder="Comportamento, táticas..."
+                      rows={5}
+                    />
+                  </div>
+                </Section>
+              )}
+
               <Section
                 title="Bônus de Dano"
                 icon={<Sword size={18} />}
@@ -4650,6 +4809,9 @@ function App() {
                       activeChar.clima,
                       climateProficiency,
                       activeChar.bonusProficiencias?.[prof.name] || 0,
+                      activeChar.efeitosNegativos || [],
+                      activeChar.sanidadeAtual,
+                      sanidadeMax
                     );
                     const manualBonus =
                       activeChar.bonusProficiencias?.[prof.name] || 0;
@@ -4691,10 +4853,12 @@ function App() {
                               "w-8 h-8 flex items-center justify-center rounded-full border text-sm font-bold shrink-0",
                               totalBonus > 0
                                 ? "border-amber-500 text-amber-500 bg-amber-500/10"
+                                : totalBonus < 0
+                                ? "border-red-500/50 text-red-500 bg-red-500/10"
                                 : "border-zinc-700 text-zinc-500",
                             )}
                           >
-                            +{totalBonus}
+                            {totalBonus > 0 ? `+${totalBonus}` : totalBonus}
                           </div>
                         </div>
                       </div>
@@ -4703,8 +4867,9 @@ function App() {
                 </div>
               </Section>
 
-              <Section
-                title="Equipamentos"
+              {!isCreatureMode && (
+                <Section
+                  title="Equipamentos"
                 icon={<Package size={18} />}
                 collapsible
                 defaultCollapsed={true}
@@ -5387,8 +5552,303 @@ function App() {
                   </SubSection>
                 </div>
               </Section>
-              <Section
-                title="Compartimentos"
+              )}
+
+              {isCreatureMode && (
+                <>
+                  <Section
+                    title="Ataques"
+                    icon={<Sword size={18} />}
+                    collapsible
+                    defaultCollapsed={true}
+                  >
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <h4 className="text-[10px] font-bold text-zinc-500 uppercase">
+                          Ações e Ataques do Monstro
+                        </h4>
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => {
+                            const newAction: MonsterAction = {
+                              id: generateId(),
+                              name: "Novo Ataque",
+                              type: "Major",
+                              categoria: "Corte",
+                              acerto: 0,
+                              dano: "1d6",
+                              description: "",
+                              mana: 0,
+                              efeito: ""
+                            };
+                            updateChar((c: any) => ({
+                              acoes: [...(c.acoes || []), newAction]
+                            }));
+                          }}
+                          className="bg-red-500/10 hover:bg-red-500/20 text-red-500 p-1.5 rounded transition-colors flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider"
+                        >
+                          <Plus size={14} /> Novo Ataque
+                        </motion.button>
+                      </div>
+
+                      <div className="space-y-4">
+                        {((activeChar as any).acoes || []).map((acao: any, idx: number) => {
+                          const normCat = (acao.categoria || "Corte").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                          let statKey = "corte";
+                          if (normCat.includes("perfur")) statKey = "perfuracao";
+                          if (normCat.includes("impacto")) statKey = "impacto";
+                          if (normCat.includes("feitico")) statKey = "feitico";
+                          if (normCat.includes("elemental")) statKey = "elemental";
+                          if (normCat.includes("magia negra")) statKey = "magiaNegra";
+                          
+                          const levelVal = Number((activeChar as any).ataque?.[statKey]) || 0;
+
+                          return (
+                            <div
+                              key={acao.id}
+                              className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 space-y-3 relative group"
+                            >
+                              <div className="absolute top-2 right-2">
+                                <motion.button
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={() => {
+                                    updateChar((c: any) => ({
+                                      acoes: (c.acoes || []).filter((a: any) => a.id !== acao.id)
+                                    }));
+                                  }}
+                                  className="text-red-500 hover:text-red-400 p-1 bg-red-500/10 rounded-lg transition-colors"
+                                >
+                                  <Trash2 size={16} />
+                                </motion.button>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <Input
+                                  label="Nome do Ataque"
+                                  value={acao.name || ""}
+                                  onChange={(v) => {
+                                    const newAcoes = [...((activeChar as any).acoes || [])];
+                                    newAcoes[idx] = { ...newAcoes[idx], name: v };
+                                    updateChar({ acoes: newAcoes });
+                                  }}
+                                />
+
+                                <div className="space-y-1">
+                                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                                    Tipo (Categoria de Dano)
+                                  </label>
+                                  <select
+                                    value={acao.categoria || "Corte"}
+                                    onChange={(e) => {
+                                      const newAcoes = [...((activeChar as any).acoes || [])];
+                                      newAcoes[idx] = { ...newAcoes[idx], categoria: e.target.value };
+                                      updateChar({ acoes: newAcoes });
+                                    }}
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                                  >
+                                    <option value="Corte">Corte</option>
+                                    <option value="Perfuração">Perfuração</option>
+                                    <option value="Impacto">Impacto</option>
+                                    <option value="Feitiço">Feitiço</option>
+                                    <option value="Elemental">Elemental</option>
+                                    <option value="Magia Negra">Magia Negra</option>
+                                    <option value="Efeito">Efeito</option>
+                                    <option value="Outro">Outro</option>
+                                  </select>
+                                </div>
+
+                                <Input
+                                  label="Dano (ex: 2d6)"
+                                  value={acao.dano || ""}
+                                  onChange={(v) => {
+                                    const newAcoes = [...((activeChar as any).acoes || [])];
+                                    newAcoes[idx] = { ...newAcoes[idx], dano: v };
+                                    updateChar({ acoes: newAcoes });
+                                  }}
+                                />
+
+                                <div className="space-y-1">
+                                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider flex justify-between">
+                                    <span>Acerto</span>
+                                    <span className="text-amber-500 text-[9px] font-black uppercase">
+                                      Nível {acao.categoria}: {levelVal}
+                                    </span>
+                                  </label>
+                                  <NumericInput
+                                    value={Number(acao.acerto) || 0}
+                                    onChange={(v) => {
+                                      const newAcoes = [...((activeChar as any).acoes || [])];
+                                      newAcoes[idx] = { ...newAcoes[idx], acerto: v };
+                                      updateChar({ acoes: newAcoes });
+                                    }}
+                                    className="w-full h-9"
+                                  />
+                                </div>
+
+                                <div className="space-y-1">
+                                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                                    Custo de Mana
+                                  </label>
+                                  <NumericInput
+                                    value={Number(acao.mana) || 0}
+                                    onChange={(v) => {
+                                      const newAcoes = [...((activeChar as any).acoes || [])];
+                                      newAcoes[idx] = { ...newAcoes[idx], mana: v };
+                                      updateChar({ acoes: newAcoes });
+                                    }}
+                                    className="w-full h-9"
+                                  />
+                                </div>
+
+                                <Input
+                                  label="Efeito (Envenenamento, etc)"
+                                  value={acao.efeito || ""}
+                                  onChange={(v) => {
+                                    const newAcoes = [...((activeChar as any).acoes || [])];
+                                    newAcoes[idx] = { ...newAcoes[idx], efeito: v };
+                                    updateChar({ acoes: newAcoes });
+                                  }}
+                                  placeholder="Ex: Queimadura, Putrefação..."
+                                />
+
+                                <div className="space-y-1">
+                                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                                    Tipo de Ação
+                                  </label>
+                                  <select
+                                    value={acao.type || "Major"}
+                                    onChange={(e) => {
+                                      const newAcoes = [...((activeChar as any).acoes || [])];
+                                      newAcoes[idx] = { ...newAcoes[idx], type: e.target.value };
+                                      updateChar({ acoes: newAcoes });
+                                    }}
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                                  >
+                                    <option value="Major">Ação Maior</option>
+                                    <option value="Minor">Ação Menor</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <TextArea
+                                label="Descrição do Ataque"
+                                value={acao.description || ""}
+                                onChange={(v) => {
+                                    const newAcoes = [...((activeChar as any).acoes || [])];
+                                    newAcoes[idx] = { ...newAcoes[idx], description: v };
+                                    updateChar({ acoes: newAcoes });
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
+
+                        {(!((activeChar as any).acoes) || (activeChar as any).acoes.length === 0) && (
+                          <p className="text-zinc-600 text-xs italic text-center py-4">Nenhum ataque cadastrado para esta criatura.</p>
+                        )}
+                      </div>
+                    </div>
+                  </Section>
+
+                  <Section
+                    title="Níveis de Ataque"
+                    icon={<Sword size={18} />}
+                    collapsible
+                    defaultCollapsed={true}
+                  >
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        {(["corte", "feitico", "perfuracao", "elemental", "impacto", "magiaNegra", "resistencia", "potencial"] as const).map((key) => {
+                          const label = {
+                            corte: "Corte",
+                            perfuracao: "Perfuração",
+                            impacto: "Impacto",
+                            resistencia: "Resistência",
+                            feitico: "Feitiço",
+                            elemental: "Elemental",
+                            magiaNegra: "Magia Negra",
+                            potencial: "Potencial",
+                          }[key];
+
+                          return (
+                            <div key={key} className="space-y-1">
+                              <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                                {label}
+                              </label>
+                              <NumericInput
+                                value={Number((activeChar as any).ataque?.[key]) || 0}
+                                onChange={(v) => {
+                                  const baseAtaque = (activeChar as any).ataque || {
+                                    corte: 0, perfuracao: 0, impacto: 0, resistencia: 0,
+                                    feitico: 0, elemental: 0, magiaNegra: 0, potencial: 0
+                                  };
+                                  updateChar({
+                                    ataque: {
+                                      ...baseAtaque,
+                                      [key]: v
+                                    }
+                                  });
+                                }}
+                                className="w-full h-9"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </Section>
+
+                  <Section
+                    title="Níveis de Defesa"
+                    icon={<Shield size={18} />}
+                    collapsible
+                    defaultCollapsed={true}
+                  >
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        {(["corte", "perfuracao", "impacto", "feitico", "elemental", "magiaNegra"] as const).map((key) => {
+                          const label = {
+                            corte: "Corte",
+                            perfuracao: "Perfuração",
+                            impacto: "Impacto",
+                            feitico: "Feitiço",
+                            elemental: "Elemental",
+                            magiaNegra: "Magia Negra",
+                          }[key];
+
+                          return (
+                            <div key={key} className="space-y-1">
+                              <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                                {label}
+                              </label>
+                              <NumericInput
+                                value={Number((activeChar as any).defesa?.[key]) || 0}
+                                onChange={(v) => {
+                                  const baseDefesa = (activeChar as any).defesa || {
+                                    corte: 0, perfuracao: 0, impacto: 0,
+                                    feitico: 0, elemental: 0, magiaNegra: 0
+                                  };
+                                  updateChar({
+                                    defesa: {
+                                      ...baseDefesa,
+                                      [key]: v
+                                    }
+                                  });
+                                }}
+                                className="w-full h-9"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </Section>
+                </>
+              )}
+
+              {!isCreatureMode && (
+                <Section
+                  title="Compartimentos"
                 icon={<Backpack size={18} />}
                 collapsible
                 defaultCollapsed={true}
@@ -6331,58 +6791,96 @@ function App() {
                                         </div>
                                       </div>
 
-                                      <div className="grid grid-cols-4 gap-2">
-                                        <MiniInput
-                                          label="Qtd"
-                                          type="number"
-                                          value={item.quantidade}
-                                          onChange={(v) => {
-                                            const val = parseInt(v) || 1; updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).map((it, j) => j === iIdx ? { ...it, quantidade: val } : it) } : c) }));
-                                          }}
-                                        />
-                                        <MiniInput
-                                          label="Kg"
-                                          type="number"
-                                          value={item.peso ?? 0}
-                                          onChange={(v) => {
-                                            const val = parseFloat(v) || 0;
-                                            updateChar(char => ({
-                                              compartimentos: (char.compartimentos || []).map(c => 
-                                                c.id === comp.id ? {
-                                                  ...c,
-                                                  itens: (c.itens || []).map(it => it.id === item.id ? { ...it, peso: val } : it)
-                                                } : c
-                                              )
-                                            }));
-                                          }}
-                                        />
-                                        <MiniInput
-                                          label="Vol"
-                                          type="number"
-                                          value={item.volume ?? 0}
-                                          onChange={(v) => {
-                                            const val = parseFloat(v) || 0;
-                                            updateChar(char => ({
-                                              compartimentos: (char.compartimentos || []).map(c => 
-                                                c.id === comp.id ? {
-                                                  ...c,
-                                                  itens: (c.itens || []).map(it => it.id === item.id ? { ...it, volume: val } : it)
-                                                } : c
-                                              )
-                                            }));
-                                          }}
-                                        />
-                                        <div className="flex flex-col">
-                                          <span className="text-[10px] text-zinc-600 uppercase tracking-tighter font-bold">
-                                            Total
-                                          </span>
-                                          <span className="text-xs font-bold text-zinc-400">
-                                            {(
-                                              (getItemPeso(item) * item.quantidade) / 10
-                                            ).toFixed(2)}
-                                            kg
-                                          </span>
+                                      <div className="flex items-end gap-2">
+                                        <div className="grid grid-cols-4 gap-2 flex-1">
+                                          <MiniInput
+                                            label="Qtd"
+                                            type="number"
+                                            value={item.quantidade}
+                                            onChange={(v) => {
+                                              const val = parseInt(v) || 1; updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).map((it, j) => j === iIdx ? { ...it, quantidade: val } : it) } : c) }));
+                                            }}
+                                          />
+                                          <MiniInput
+                                            label="Kg"
+                                            type="number"
+                                            value={item.peso ?? 0}
+                                            onChange={(v) => {
+                                              const val = parseFloat(v) || 0;
+                                              updateChar(char => ({
+                                                compartimentos: (char.compartimentos || []).map(c => 
+                                                  c.id === comp.id ? {
+                                                    ...c,
+                                                    itens: (c.itens || []).map(it => it.id === item.id ? { ...it, peso: val } : it)
+                                                  } : c
+                                                )
+                                              }));
+                                            }}
+                                          />
+                                          <MiniInput
+                                            label="Vol"
+                                            type="number"
+                                            value={item.volume ?? 0}
+                                            onChange={(v) => {
+                                              const val = parseFloat(v) || 0;
+                                              updateChar(char => ({
+                                                compartimentos: (char.compartimentos || []).map(c => 
+                                                  c.id === comp.id ? {
+                                                    ...c,
+                                                    itens: (c.itens || []).map(it => it.id === item.id ? { ...it, volume: val } : it)
+                                                  } : c
+                                                )
+                                              }));
+                                            }}
+                                          />
+                                          <div className="flex flex-col min-w-0">
+                                            <span className="text-[10px] text-zinc-600 uppercase tracking-tighter font-bold truncate">
+                                              Total
+                                            </span>
+                                            <span className="text-xs font-bold text-zinc-400 mt-[3px]">
+                                              {(
+                                                (getItemPeso(item) * item.quantidade) / 10
+                                              ).toFixed(2)}
+                                              kg
+                                            </span>
+                                          </div>
                                         </div>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const isChecked = !item.isFood;
+                                            const currentDate = tableConfig.date || { day: 1, month: 1, year: 2024 };
+                                            updateChar(char => ({
+                                              compartimentos: (char.compartimentos || []).map(c => 
+                                                c.id === comp.id ? {
+                                                  ...c,
+                                                  itens: (c.itens || []).map(it => it.id === item.id ? { 
+                                                    ...it, 
+                                                    isFood: isChecked,
+                                                    dataCriacao: isChecked ? (it.dataCriacao || { ...currentDate }) : it.dataCriacao,
+                                                    validade: isChecked ? (it.validade ?? 0) : it.validade,
+                                                    saciedade: isChecked ? (it.saciedade ?? "0+0") : it.saciedade
+                                                  } : it)
+                                                } : c
+                                              )
+                                            }));
+                                          }}
+                                          className={cn(
+                                            "w-9 h-9 rounded-xl border transition-all cursor-pointer focus:outline-none flex items-center justify-center shrink-0 mb-[1px]",
+                                            item.isFood
+                                              ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-500 hover:bg-yellow-500/30"
+                                              : "bg-zinc-700 border-zinc-600 text-black hover:bg-zinc-600"
+                                          )}
+                                          title={item.isFood ? "Desmarcar como Comida" : "Marcar como Comida"}
+                                        >
+                                          <Utensils 
+                                            className={cn(
+                                              "w-4 h-4 transition-colors duration-200",
+                                              item.isFood ? "fill-yellow-500/20" : ""
+                                            )}
+                                          />
+                                        </button>
                                       </div>
 
                                        {item.tipo === "Munição" && (
@@ -6429,15 +6927,136 @@ function App() {
                                                 compartimentos: (char.compartimentos || []).map(c => 
                                                   c.id === comp.id ? {
                                                     ...c,
-                                                    itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val } : it)
-                                                  } : c
-                                                )
-                                              }));
-                                            }}
-                                          />
-                                        </div>
-                                      )}
+itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val } : it)
+                                                   } : c
+                                                 )
+                                               }));
+                                             }}
+                                           />
+                                         </div>
+                                       )}
 
+                                       {/* Propriedades de Comida */}
+                                       {item.isFood && (
+                                         <div className="bg-zinc-950/40 p-2.5 rounded-xl border border-zinc-800/80 space-y-2.5 my-2">
+                                           {(() => {
+                                             const currentDate = tableConfig.date || { day: 1, month: 1, year: 2024 };
+                                             const createdDate = item.dataCriacao || currentDate;
+                                             const absCreated = dateToAbsoluteDays(createdDate.day, createdDate.month, createdDate.year);
+                                             const absCurrent = dateToAbsoluteDays(currentDate.day, currentDate.month, currentDate.year);
+                                             const daysPassed = absCurrent - absCreated;
+                                             const daysRemaining = (item.validade || 0) - daysPassed;
+                                             const isSpoiled = daysPassed > (item.validade || 0);
+ 
+                                             return (
+                                               <div className="space-y-2">
+                                              <div className="grid grid-cols-2 gap-2">
+                                                <MiniInput
+                                                  label="Validade (Dias)"
+                                                  type="number"
+                                                  value={item.validade ?? 0}
+                                                  onChange={(v) => {
+                                                    const val = parseInt(v) || 0;
+                                                    updateChar(char => ({
+                                                      compartimentos: (char.compartimentos || []).map(c => 
+                                                        c.id === comp.id ? {
+                                                          ...c,
+                                                          itens: (c.itens || []).map(it => it.id === item.id ? { ...it, validade: val } : it)
+                                                        } : c
+                                                      )
+                                                    }));
+                                                  }}
+                                                />
+                                                <MiniInput
+                                                  label="Saciedade (ex: 30+15)"
+                                                  type="text"
+                                                  value={item.saciedade ?? "0+0"}
+                                                  onChange={(v) => {
+                                                    updateChar(char => ({
+                                                      compartimentos: (char.compartimentos || []).map(c => 
+                                                        c.id === comp.id ? {
+                                                          ...c,
+                                                          itens: (c.itens || []).map(it => it.id === item.id ? { ...it, saciedade: v } : it)
+                                                        } : c
+                                                      )
+                                                    }));
+                                                  }}
+                                                />
+                                              </div>
+
+                                              <div className="text-[10px] space-y-1 bg-black/30 p-2 rounded-lg border border-zinc-900">
+                                                <div className="flex justify-between">
+                                                  <span className="text-zinc-500 font-bold uppercase tracking-tight">Criado em:</span>
+                                                  <span className="text-zinc-300 font-mono">{createdDate.day}/{createdDate.month}/{createdDate.year}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center">
+                                                  <span className="text-zinc-500 font-bold uppercase tracking-tight">Status:</span>
+                                                  {isSpoiled ? (
+                                                    <span className="text-red-500 font-black uppercase tracking-widest text-[9px] bg-red-950/20 px-1.5 py-0.5 rounded border border-red-900/30">⚠️ Estragou</span>
+                                                  ) : (
+                                                    <span className="text-emerald-500 font-black uppercase tracking-wider text-[9px] bg-emerald-950/20 px-1.5 py-0.5 rounded border border-emerald-900/30">⏰ {daysRemaining} Dias Restantes</span>
+                                                  )}
+                                                </div>
+                                              </div>
+
+                                              {/* Botão de Comer */}
+                                              <motion.button
+                                                whileTap={!isSpoiled ? { scale: 0.95 } : {}}
+                                                disabled={isSpoiled}
+                                                onClick={() => {
+                                                  if (isSpoiled) return;
+                                                  const sacStr = item.saciedade || "0+0";
+                                                  const [recHungerStr, recBonusStr] = sacStr.split('+');
+                                                  const recHunger = parseInt(recHungerStr) || 0;
+                                                  const recBonus = parseInt(recBonusStr) || 0;
+
+                                                  updateChar(char => {
+                                                    const currentFome = char.fome ?? 100;
+                                                    const currentBonus = char.bonusFomeProximaRolagem ?? 0;
+                                                    const nextFome = Math.min(100, currentFome + recHunger);
+                                                    const nextBonus = currentBonus + recBonus;
+
+                                                    // Decrement quantity or filter out
+                                                    const comps = char.compartimentos || [];
+                                                    const updatedComps = comps.map(c => {
+                                                      if (c.id !== comp.id) return c;
+                                                      const newQty = item.quantidade - 1;
+                                                      if (newQty <= 0) {
+                                                        return {
+                                                          ...c,
+                                                          itens: (c.itens || []).filter(it => it.id !== item.id)
+                                                        };
+                                                      } else {
+                                                        return {
+                                                          ...c,
+                                                          itens: (c.itens || []).map(it => it.id === item.id ? { ...it, quantidade: newQty } : it)
+                                                        };
+                                                      }
+                                                    });
+
+                                                    return {
+                                                      fome: nextFome,
+                                                      bonusFomeProximaRolagem: nextBonus,
+                                                      compartimentos: updatedComps
+                                                    };
+                                                  });
+
+                                                  showToast(`Você comeu 1x "${item.nome}"! Recuperou ${recHunger} de Fome e obteve +${recBonus} de bônus na próxima rolagem.`, "success");
+                                                }}
+                                                className={cn(
+                                                  "w-full py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all flex items-center justify-center gap-1.5",
+                                                  isSpoiled 
+                                                    ? "bg-zinc-950/50 border-red-500/30 text-red-500/50 cursor-not-allowed"
+                                                    : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 active:bg-emerald-500/30 cursor-pointer"
+                                                )}
+                                              >
+                                                🍽️ {isSpoiled ? "Comida Estragada" : `Comer 1 (${item.quantidade} rest.)`}
+                                              </motion.button>
+                                               </div>
+                                             );
+                                           })()}
+                                         </div>
+                                       )}
                                       <TextArea
                                         label="Descrição"
                                         value={item.descricao || ""}
@@ -6493,9 +7112,11 @@ function App() {
                   </div>
                 </div>
               </Section>
+              )}
 
-              <Section
-                title="Magias"
+              {!isCreatureMode && (
+                <Section
+                  title="Magias"
                 icon={<Zap size={18} />}
                 collapsible
                 defaultCollapsed
@@ -6685,8 +7306,10 @@ function App() {
                                 activeChar.cansaco,
                                 activeChar.clima,
                                 climateProficiency,
-                                activeChar.bonusProficiencias?.["Acurácia"] ||
-                                  0,
+                                activeChar.bonusProficiencias?.["Acurácia"] || 0,
+                                activeChar.efeitosNegativos || [],
+                                activeChar.sanidadeAtual,
+                                getSanidadeMaxima(activeChar.stats.MEN)
                               );
                               const totalHitBonus = acuraciaBonus || 0;
 
@@ -6746,8 +7369,10 @@ function App() {
                                 activeChar.cansaco,
                                 activeChar.clima,
                                 climateProficiency,
-                                activeChar.bonusProficiencias?.["Acurácia"] ||
-                                  0,
+                                activeChar.bonusProficiencias?.["Acurácia"] || 0,
+                                activeChar.efeitosNegativos || [],
+                                activeChar.sanidadeAtual,
+                                getSanidadeMaxima(activeChar.stats.MEN)
                               );
                               const totalHitBonus = acuraciaBonus || 0;
 
@@ -6815,6 +7440,7 @@ function App() {
                   </div>
                 </div>
               </Section>
+              )}
 
               {!isCreatureMode && (
                 <Section
@@ -7337,23 +7963,22 @@ function App() {
             return renderSheetContent();
           }
 
-          const renderOtherPages = () => {
-            return activePage === "dice" ? (
-              !activeChar ? (
-                <div className="flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto h-[60vh]">
-                  <Sword size={48} className="text-zinc-600 mb-4 animate-pulse" />
-                  <h3 className="text-lg font-bold text-zinc-300 mb-2">Nenhum Personagem Selecionado</h3>
-                  <p className="text-zinc-500 text-sm mb-6">Você precisa criar ou selecionar um personagem na aba "Ficha" para rolar dados de combate.</p>
-                  <motion.button
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setActivePage("sheet")}
-                    className="px-6 py-2 bg-amber-500 text-zinc-950 font-bold rounded-lg hover:bg-amber-400 transition-colors text-sm cursor-pointer"
-                  >
-                    Ir para Ficha
-                  </motion.button>
-                </div>
-              ) : (
-                <div className="flex flex-col h-full w-full max-w-5xl mx-auto bg-zinc-950">
+          const renderDiceContent = () => {
+            return !activeChar ? (
+              <div className="flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto h-[60vh]">
+                <Sword size={48} className="text-zinc-600 mb-4 animate-pulse" />
+                <h3 className="text-lg font-bold text-zinc-300 mb-2">Nenhum Personagem Selecionado</h3>
+                <p className="text-zinc-500 text-sm mb-6">Você precisa criar ou selecionar um personagem na aba "Ficha" para rolar dados de combate.</p>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setActivePage("sheet")}
+                  className="px-6 py-2 bg-amber-500 text-zinc-950 font-bold rounded-lg hover:bg-amber-400 transition-colors text-sm cursor-pointer"
+                >
+                  Ir para Ficha
+                </motion.button>
+              </div>
+            ) : (
+              <div className="flex flex-col h-full w-full max-w-5xl mx-auto bg-zinc-950">
             {/* Tabs Header */}
             <div className="flex border-b border-zinc-800 bg-zinc-900/10">
               <motion.button
@@ -7428,6 +8053,9 @@ function App() {
                           activeChar.clima,
                           climateProficiency,
                           activeChar.bonusProficiencias?.["Acurácia"] || 0,
+                          activeChar.efeitosNegativos || [],
+                          activeChar.sanidadeAtual,
+                          getSanidadeMaxima(activeChar.stats.MEN)
                         );
 
                         const totalHit = (acuraciaBonus || 0);
@@ -7528,6 +8156,665 @@ function App() {
                           activeChar.clima,
                           climateProficiency,
                           activeChar.bonusProficiencias?.["Acurácia"] || 0,
+                          activeChar.efeitosNegativos || [],
+                          activeChar.sanidadeAtual,
+                          getSanidadeMaxima(activeChar.stats.MEN)
+                        );
+
+                        const totalHit = (acuraciaBonus || 0);
+                        const spellAcerto = (spell.acerto || 0);
+                        const danoStr = (spell.dano || "1d6").toLowerCase().replace(/\s+/g, "");
+                        
+                        const catalyst = activeChar.catalisadores?.[0];
+                        const catalystBonus = catalyst ? (calculateWeaponDamageBonus(catalyst as any, activeChar.stats.INT) || 0) : 0;
+
+                        return (
+                          <motion.button
+                            key={`${spell.id}-${sIdx}`}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => rollSpell(spell, diceBonus)}
+                            className="flex flex-col gap-3 p-4 bg-indigo-900/10 border border-indigo-900/30 rounded-xl hover:border-indigo-500/50 transition-all text-left relative group overflow-hidden"
+                          >
+                            <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-100 transition-opacity">
+                              <Zap size={24} className="text-indigo-400" />
+                            </div>
+
+                            <div className="flex flex-col">
+                              <span className="text-xs font-black text-indigo-400 uppercase tracking-tighter truncate pr-8">
+                                {spell.nome}
+                              </span>
+                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
+                                <span className="text-[9px] text-zinc-500 font-bold uppercase">
+                                  {spell.escola} • Acerto Magia: {spellAcerto} • Mana: {spell.mana}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800/50">
+                              <div className="flex flex-col">
+                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">
+                                  Bônus Acerto
+                                </span>
+                                <span className="text-xs font-black text-indigo-400">
+                                  +{totalHit}
+                                </span>
+                                <span className="text-[7px] text-zinc-600 uppercase font-bold">
+                                  Acurácia +{acuraciaBonus}
+                                </span>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">
+                                  Dano
+                                </span>
+                                <span className="text-xs font-black text-indigo-400">
+                                  {danoStr}{catalystBonus > 0 ? `+${catalystBonus}` : catalystBonus < 0 ? catalystBonus : ""}
+                                </span>
+                                <span className="text-[7px] text-zinc-600 uppercase font-bold text-indigo-900/70">
+                                  Catalisador +{catalystBonus}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-zinc-800/50 flex items-center justify-between">
+                              <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-1">
+                                Conjurar <Zap size={10} />
+                              </span>
+                            </div>
+                          </motion.button>
+                        );
+                      })}
+                    </div>
+                  </SubSection>
+
+                  {/* Dice Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+                    {[
+                      { sides: 4, img: "d4.png" },
+                      { sides: 6, img: "d6.png" },
+                      { sides: 8, img: "d8.png" },
+                      { sides: 10, img: "d10.png" },
+                      { sides: 12, img: "d12.png" },
+                      { sides: 20, img: "d20.png" },
+                      { sides: 100, img: "d100.png" },
+                    ].map((dice) => (
+                      <motion.button
+                        whileTap={{ scale: 0.95 }}
+                        key={`d${dice.sides}`}
+                        onClick={() =>
+                          rollDice(dice.sides, diceQuantity, diceBonus)
+                        }
+                        className="flex flex-col items-center group"
+                      >
+                        <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
+                          <DiceImage
+                            sides={dice.sides}
+                            fileName={dice.img}
+                            className="w-12 h-12 object-contain group-hover:scale-110 transition-transform"
+                          />
+                        </div>
+                        <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">
+                          d{dice.sides}
+                        </span>
+                      </motion.button>
+                    ))}
+
+                    {/* Special 3d8 Preset */}
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => {
+                        const acuraciaBonus = calculateProficiencyBonus(
+                          activeChar.stats,
+                          "Acurácia",
+                          ["FOR", "DEX"],
+                          activeChar.fome,
+                          activeChar.sede,
+                          activeChar.cansaco,
+                          activeChar.clima,
+                          climateProficiency,
+                          activeChar.bonusProficiencias?.["Acurácia"] || 0,
+                          activeChar.efeitosNegativos || [],
+                          activeChar.sanidadeAtual,
+                          getSanidadeMaxima(activeChar.stats.MEN)
+                        );
+                        rollDice(8, 3, diceBonus + acuraciaBonus, "3d8");
+                      }}
+                      className="flex flex-col items-center group"
+                    >
+                      <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
+                        <DiceImage
+                          sides={8}
+                          fileName="3d8.png"
+                          className="w-12 h-12 object-contain group-hover:scale-110 transition-transform"
+                        />
+                        <div className="absolute -top-1 -right-1 bg-amber-500 text-zinc-950 text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">
+                          3d8
+                        </div>
+                      </div>
+                      <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">
+                        3d8
+                      </span>
+                    </motion.button>
+
+                    {/* Fome e Sede Roll */}
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => rollDice(0, 0, 0, "Fome e Sede")}
+                      className="flex flex-col items-center group"
+                    >
+                      <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
+                        <div className="flex gap-1">
+                          <Utensils size={20} className="text-amber-500" />
+                          <Droplets size={20} className="text-blue-500" />
+                        </div>
+                        <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">
+                          SURV
+                        </div>
+                      </div>
+                      <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">
+                        Fome & Sede
+                      </span>
+                    </motion.button>
+
+                    {/* Cansaço Roll */}
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => rollDice(0, 0, 0, "Cansaço")}
+                      className="flex flex-col items-center group"
+                    >
+                      <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
+                        <Battery size={24} className="text-yellow-500" />
+                        <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">
+                          SURV
+                        </div>
+                      </div>
+                      <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">
+                        Cansaço
+                      </span>
+                    </motion.button>
+                  </div>
+
+                  {/* Controls Bar - Moved below dice grid */}
+                  <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 flex items-center justify-center gap-8">
+                    <div className="flex flex-col items-center gap-1">
+                      <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
+                        Quantidade
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() =>
+                            setDiceQuantity(Math.max(1, diceQuantity - 1))
+                          }
+                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
+                        >
+                          <Minus size={16} />
+                        </motion.button>
+                        <span className="text-xl font-black text-amber-500 min-w-[2ch] text-center">
+                          {diceQuantity}
+                        </span>
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() =>
+                            setDiceQuantity(Math.min(99, diceQuantity + 1))
+                          }
+                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
+                        >
+                          <Plus size={16} />
+                        </motion.button>
+                      </div>
+                    </div>
+
+                    <div className="w-px h-8 bg-zinc-800" />
+
+                    <div className="flex flex-col items-center gap-1">
+                      <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
+                        Bônus
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => setDiceBonus(diceBonus - 1)}
+                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
+                        >
+                          <Minus size={16} />
+                        </motion.button>
+                        <span className="text-xl font-black text-amber-500 min-w-[3ch] text-center">
+                          {diceBonus > 0 ? "+" : ""}
+                          {diceBonus}
+                        </span>
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => setDiceBonus(diceBonus + 1)}
+                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
+                        >
+                          <Plus size={16} />
+                        </motion.button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Custom Dice Section */}
+                  {activeChar.dadosCustomizados &&
+                    activeChar.dadosCustomizados.length > 0 && (
+                      <SubSection
+                        title="Dados Personalizados"
+                        icon={<Dices size={14} />}
+                        defaultCollapsed={false}
+                      >
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-2">
+                          {activeChar.dadosCustomizados.map((dice) => (
+                            <div key={dice.id} className="relative group">
+                              <motion.button
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() =>
+                                  rollDice(
+                                    dice.lados,
+                                    diceQuantity,
+                                    diceBonus,
+                                    dice.nome,
+                                  )
+                                }
+                                className="w-full flex flex-col items-center justify-center p-4 bg-zinc-900/30 border border-zinc-800 rounded-xl hover:border-amber-500/30 transition-all"
+                              >
+                                <Dices
+                                  size={24}
+                                  className="text-amber-500/50 mb-2"
+                                />
+                                <span className="text-[10px] font-bold text-zinc-400 uppercase truncate w-full text-center">
+                                  {dice.nome}
+                                </span>
+                              </motion.button>
+                              <motion.button
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() =>
+                                  updateChar({
+                                    dadosCustomizados:
+                                      activeChar.dadosCustomizados.filter(
+                                        (d) => d.id !== dice.id,
+                                      ),
+                                  })
+                                }
+                                className="absolute -top-1 -right-1 p-1 bg-zinc-950 border border-zinc-800 text-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-all"
+                              >
+                                <Trash2 size={10} />
+                              </motion.button>
+                            </div>
+                          ))}
+                        </div>
+                      </SubSection>
+                    )}
+
+                  {/* Create Custom Dice */}
+                  <SubSection
+                    title="Novo Dado"
+                    icon={<Plus size={14} />}
+                    defaultCollapsed={true}
+                  >
+                    <div className="bg-zinc-900/20 border border-zinc-800/50 rounded-xl p-4 mt-2">
+                      <div className="flex flex-wrap gap-4 items-end">
+                        <div className="flex-1 min-w-[120px]">
+                          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                            Lados
+                          </label>
+                          <input
+                            type="number"
+                            id="new-dice-sides-v2"
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold text-center"
+                            defaultValue={20}
+                          />
+                        </div>
+                        <div className="flex-1 min-w-[120px]">
+                          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                            Nome (Opcional)
+                          </label>
+                          <input
+                            type="text"
+                            id="new-dice-name-v2"
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-zinc-300"
+                            placeholder="Ex: Dado de Sorte"
+                          />
+                        </div>
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => {
+                            const sidesInput = document.getElementById(
+                              "new-dice-sides-v2",
+                            ) as HTMLInputElement;
+                            const nameInput = document.getElementById(
+                              "new-dice-name-v2",
+                            ) as HTMLInputElement;
+                            const sides = parseInt(sidesInput?.value) || 20;
+                            const name = nameInput?.value || `d${sides}`;
+                            updateChar({
+                              dadosCustomizados: [
+                                ...(activeChar.dadosCustomizados || []),
+                                { id: generateId(), lados: sides, nome: name },
+                              ],
+                            });
+                            if (nameInput) nameInput.value = "";
+                          }}
+                          className="h-10 px-4 bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-zinc-950 rounded-md transition-all flex items-center gap-2 font-bold text-xs uppercase"
+                        >
+                          <Plus size={16} /> Adicionar
+                        </motion.button>
+                      </div>
+                    </div>
+                  </SubSection>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {diceHistory.length > 0 && (
+                    <div className="flex justify-end">
+                      <motion.button
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setDiceHistory([])}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-[10px] font-bold uppercase transition-all"
+                      >
+                        <Trash2 size={14} /> Limpar Histórico
+                      </motion.button>
+                    </div>
+                  )}
+                  <div className="space-y-3">
+                    {diceHistory.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-20 text-zinc-600">
+                        <History size={48} className="mb-4 opacity-20" />
+                        <p className="text-sm font-medium">
+                          Nenhuma rolagem recente
+                        </p>
+                      </div>
+                    ) : (
+                      diceHistory.map((roll, idx) => (
+                        <motion.div
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          key={roll.id}
+                          className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-3 group space-y-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className={cn(
+                                "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold",
+                                roll.isCombat && roll.hitSucceeded === false ? "bg-zinc-800 text-zinc-500" : "bg-zinc-800 text-amber-500"
+                              )}>
+                                {roll.isCombat ? roll.hitResult : roll.result}
+                              </div>
+                              <div>
+                                <div className="text-[10px] font-bold text-zinc-300 uppercase">
+                                  {roll.isCombat ? roll.armaNome : (roll.formula || `d${roll.result}`)}
+                                </div>
+                                <div className="text-[9px] text-zinc-600">
+                                  {new Date(roll.timestamp).toLocaleTimeString(
+                                    [],
+                                    { hour: "2-digit", minute: "2-digit" },
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            {roll.isCombat ? (
+                              <div className="flex flex-col items-end gap-1">
+                                {roll.hitSucceeded !== false && (
+                                  <div className="bg-amber-500/10 px-2 py-1 rounded text-amber-500 text-[10px] font-black uppercase leading-none">
+                                    {roll.dmgResult} Dano
+                                  </div>
+                                )}
+                                <div className={cn(
+                                  "px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider leading-none",
+                                  roll.hitSucceeded === false 
+                                    ? (getDetailedCombatTitle(roll).includes("defendeu") ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20")
+                                    : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                )}>
+                                  {getDetailedCombatTitle(roll)}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div className="text-[9px] text-zinc-400/80 leading-tight">
+                            {roll.isCombat ? (
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1 opacity-70">
+                                  <span className="font-bold">Acerto:</span>
+                                  <span>{roll.hitFormula}</span>
+                                  <span className="text-zinc-500">[{roll.hitRolls?.join(', ')}]</span>
+                                </div>
+                                {roll.hitSucceeded !== false && (
+                                  <>
+                                    <div className="flex items-center gap-1 opacity-70">
+                                      <span className="font-bold">Dano:</span>
+                                      <span>{roll.dmgFormula}</span>
+                                      <span className="text-zinc-500">[{roll.dmgRolls?.join(', ')}]</span>
+                                    </div>
+                                    {roll.hitLocation && (
+                                      <div className="flex items-center gap-1 opacity-70">
+                                        <span className="font-bold">Local:</span>
+                                        <span className="text-amber-500/80">{roll.hitLocation}</span>
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1 opacity-70">
+                                <span>{roll.formula}</span>
+                                {roll.rolls && roll.rolls.length > 0 && (
+                                  <span className="text-zinc-500">[{roll.rolls.join(', ')}]</span>
+                                )}
+                                {roll.bonus !== 0 && (
+                                  <span className="text-amber-500/60">{roll.bonus! > 0 ? '+' : ''}{roll.bonus}</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+            );
+          };
+
+          const renderOtherPages = () => {
+            return activePage === "dice" ? (
+              renderDiceContent()
+            ) : false ? (
+              !activeChar ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto h-[60vh]">
+                  <Sword size={48} className="text-zinc-600 mb-4 animate-pulse" />
+                  <h3 className="text-lg font-bold text-zinc-300 mb-2">Nenhum Personagem Selecionado</h3>
+                  <p className="text-zinc-500 text-sm mb-6">Você precisa criar ou selecionar um personagem na aba "Ficha" para rolar dados de combate.</p>
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setActivePage("sheet")}
+                    className="px-6 py-2 bg-amber-500 text-zinc-950 font-bold rounded-lg hover:bg-amber-400 transition-colors text-sm cursor-pointer"
+                  >
+                    Ir para Ficha
+                  </motion.button>
+                </div>
+              ) : (
+                <div className="flex flex-col h-full w-full max-w-5xl mx-auto bg-zinc-950">
+            {/* Tabs Header */}
+            <div className="flex border-b border-zinc-800 bg-zinc-900/10">
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setDiceTab("mesa")}
+                className={cn(
+                  "flex-1 py-4 text-sm font-bold uppercase tracking-widest transition-all relative",
+                  diceTab === "mesa"
+                    ? "text-amber-500"
+                    : "text-zinc-500 hover:text-zinc-300",
+                )}
+              >
+                Mesa
+                {diceTab === "mesa" && (
+                  <motion.div
+                    layoutId="diceTab"
+                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500"
+                  />
+                )}
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setDiceTab("historico")}
+                className={cn(
+                  "flex-1 py-4 text-sm font-bold uppercase tracking-widest transition-all relative",
+                  diceTab === "historico"
+                    ? "text-amber-500"
+                    : "text-zinc-500 hover:text-zinc-300",
+                )}
+              >
+                Histórico
+                {diceTab === "historico" && (
+                  <motion.div
+                    layoutId="diceTab"
+                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500"
+                  />
+                )}
+              </motion.button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
+              {diceTab === "mesa" ? (
+                <div className="space-y-8 pb-24">
+                  {/* Armas do Personagem */}
+                  <SubSection
+                    title="Combate (Acerto & Dano)"
+                    icon={<Sword size={14} />}
+                    defaultCollapsed={true}
+                  >
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+                      {(activeChar.armas || []).map((arma, aIdx) => {
+                        const statMap: Record<string, keyof Stats> = {
+                          Força: "FOR",
+                          Destreza: "DEX",
+                          Inteligência: "INT",
+                          Ritual: "RIT",
+                        };
+                        const statKey = statMap[arma.atributoBase || "Força"];
+                        const statValue = activeChar.stats[statKey] || 0;
+                        const scalingBonus = calculateWeaponDamageBonus(
+                          arma as any,
+                          statValue,
+                        );
+
+                        const acuraciaBonus = calculateProficiencyBonus(
+                          activeChar.stats,
+                          "Acurácia",
+                          ["FOR", "DEX"],
+                          activeChar.fome,
+                          activeChar.sede,
+                          activeChar.cansaco,
+                          activeChar.clima,
+                          climateProficiency,
+                          activeChar.bonusProficiencias?.["Acurácia"] || 0,
+                          activeChar.efeitosNegativos || [],
+                          activeChar.sanidadeAtual,
+                          getSanidadeMaxima(activeChar.stats.MEN)
+                        );
+
+                        const totalHit = (acuraciaBonus || 0);
+                        const weaponAcerto = (arma.acerto || 0);
+                        let displayDano = arma.dano || "1d6";
+                        if (arma.categoria === 'Arma de Fogo') {
+                          if (arma.magazineAmmo && arma.magazineAmmo.length > 0) {
+                            displayDano = arma.magazineAmmo[0].dano || "1d6";
+                          } else {
+                            const loadedBullet = (activeChar.compartimentos || [])
+                              .filter((c: any) => !c.externo)
+                              .flatMap((c: any) => (c.itens || []))
+                              .find((i: any) => i.id === arma.bulletId);
+                            if (loadedBullet && loadedBullet.dano) {
+                              displayDano = loadedBullet.dano;
+                            } else {
+                              displayDano = "Falta Bala";
+                            }
+                          }
+                        }
+                        const danoStr = displayDano.toLowerCase().replace(/\s+/g, "");
+
+                        return (
+                          <motion.button
+                            key={`${arma.id}-${aIdx}`}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => rollCombat(arma, diceBonus)}
+                            className="flex flex-col gap-3 p-4 bg-zinc-900/40 border border-zinc-800 rounded-xl hover:border-amber-500/30 transition-all text-left relative group overflow-hidden"
+                          >
+                            <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-100 transition-opacity">
+                              <Sword size={24} className="text-amber-500" />
+                            </div>
+
+                            <div className="flex flex-col">
+                              <span className="text-xs font-black text-amber-500 uppercase tracking-tighter truncate pr-8">
+                                {arma.nome}
+                              </span>
+                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
+                                <span className="text-[9px] text-zinc-500 font-bold uppercase">
+                                  {arma.categoria !== 'Arma de Fogo' ? (
+                                    <>Escala {arma.escala || "0"} • {arma.atributoBase} • </>
+                                  ) : null}
+                                  Acerto Arma: {weaponAcerto}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800/50">
+                              <div className="flex flex-col">
+                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">
+                                  Bônus Acerto
+                                </span>
+                                <span className="text-xs font-black text-amber-500">
+                                  +{totalHit}
+                                </span>
+                                <span className="text-[7px] text-zinc-600 uppercase font-bold">
+                                  Acurácia +{acuraciaBonus}
+                                </span>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">
+                                  Dano
+                                </span>
+                                <span className="text-xs font-black text-zinc-300">
+                                  {danoStr}{arma.categoria !== 'Arma de Fogo' && (scalingBonus > 0 ? `+${scalingBonus}` : scalingBonus < 0 ? scalingBonus : "")}
+                                </span>
+                                {arma.categoria !== 'Arma de Fogo' && (
+                                  <span className="text-[7px] text-zinc-600 uppercase font-bold">
+                                    Escala +{scalingBonus}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-zinc-800/50 flex items-center justify-between">
+                              <span className="text-[10px] font-black text-amber-500/80 uppercase tracking-widest flex items-center gap-1">
+                                Rolar <Plus size={10} />
+                              </span>
+                            </div>
+                          </motion.button>
+                        );
+                      })}
+                      {!activeChar.armas?.length && !activeChar.magias?.length && (
+                        <div className="col-span-full py-4 text-center text-zinc-600 text-[10px] font-bold uppercase italic border border-dashed border-zinc-800 rounded-xl">
+                          Nenhum ataque ou magia disponível
+                        </div>
+                      )}
+                      
+                      {/* Magias do Personagem */}
+                      {(activeChar.magias || []).map((spell, sIdx) => {
+                        const acuraciaBonus = calculateProficiencyBonus(
+                          activeChar.stats,
+                          "Acurácia",
+                          ["FOR", "DEX"],
+                          activeChar.fome,
+                          activeChar.sede,
+                          activeChar.cansaco,
+                          activeChar.clima,
+                          climateProficiency,
+                          activeChar.bonusProficiencias?.["Acurácia"] || 0,
+                          activeChar.efeitosNegativos || [],
+                          activeChar.sanidadeAtual,
+                          getSanidadeMaxima(activeChar.stats.MEN)
                         );
 
                         const totalHit = (acuraciaBonus || 0);
@@ -7641,6 +8928,9 @@ function App() {
                           activeChar.clima,
                           climateProficiency,
                           activeChar.bonusProficiencias?.["Acurácia"] || 0,
+                          activeChar.efeitosNegativos || [],
+                          activeChar.sanidadeAtual,
+                          getSanidadeMaxima(activeChar.stats.MEN)
                         );
                         rollDice(8, 3, diceBonus + acuraciaBonus, "3d8");
                       }}
@@ -8259,22 +9549,8 @@ function App() {
                             onClick={(e) => {
                               e.stopPropagation();
                               if (charIdToDelete === char.id) {
-                                deletedCharsRef.current.add(char.id);
-                                if (char.campaignId) {
-                                  try {
-                                    const storedKey = `campaign_characters_${char.campaignId}`;
-                                    const stored = localStorage.getItem(storedKey);
-                                    if (stored) {
-                                      const parsed = JSON.parse(stored);
-                                      if (Array.isArray(parsed)) {
-                                        const filtered = parsed.filter((c: any) => c.id !== char.id);
-                                        localStorage.setItem(storedKey, JSON.stringify(filtered));
-                                      }
-                                    }
-                                  } catch (e) {
-                                    console.error("Error cleaning up deleted char from campaign cache:", e);
-                                  }
-                                }
+                                persistDeletedCharId(char.id);
+                                cleanCharFromCampaignCaches(char.id);
                                 // Cancel any pending sync timers before deleting to prevent race condition uploads
                                 if (syncTimersRef.current[char.id]) {
                                   console.log(`🛑 [LibraryDelete] Cancelando upload pendente do personagem de ID ${char.id} antes da remoção`);
@@ -8494,7 +9770,7 @@ function App() {
                        />
                        <button 
                          onClick={async () => {
-                           if (!activeChar) {
+                           if (false) {
                              showToast("Selecione uma ficha para vincular à campanha.", "error");
                              return;
                            }
@@ -8503,8 +9779,8 @@ function App() {
                              return;
                            }
                            try {
-                             await joinCampaign(activeChar.id, inviteCodeInput.trim());
-                             showToast("Ficha vinculada à campanha!", "success");
+                             await joinCampaign(inviteCodeInput.trim(), user?.email || "");
+                             showToast("Você entrou na campanha!", "success");
                              setInviteCodeInput("");
                            } catch (err: any) {
                              showToast(err.message, "error");
@@ -8512,7 +9788,7 @@ function App() {
                          }}
                          className="whitespace-nowrap px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors text-xs uppercase"
                        >
-                         Vincular
+                         Entrar
                        </button>
                     </div>
                     
@@ -8641,9 +9917,28 @@ function App() {
                             onBlur={async () => {
                               const h = Math.max(0, Math.min(23, parseInt(localHour) || 0));
                               try {
+                                const currentHour = tableConfig.time?.hour ?? 0;
+                                const season = getSeason(tableConfig.date?.month || 1);
+                                const isCrossing18 = currentHour < 18 && h >= 18;
+                                const newWeather = isCrossing18 ? generateWeather(season) : tableConfig.weather;
+
                                 await updateTableConfig(activeCampaignId!, { 
-                                  time: { ...(tableConfig.time || { hour: 0, minute: 0 }), hour: h } 
+                                  time: { ...(tableConfig.time || { hour: 0, minute: 0 }), hour: h },
+                                  weather: newWeather
                                 });
+
+                                // Check reminders for manual edit
+                                const hungerHours = [0, 4, 8, 12, 16, 20];
+                                const fatigueHours = [20, 22, 0, 2];
+                                const showHungerThirst = remindersEnabled.hungerThirst && hungerHours.includes(h);
+                                const showFatigue = remindersEnabled.fatigue && fatigueHours.includes(h);
+                                if (showHungerThirst || showFatigue) {
+                                  setMasterReminderModal({
+                                    showHungerThirst,
+                                    showFatigue,
+                                    hour: h
+                                  });
+                                }
                               } catch (err) {
                                 showToast("Erro ao salvar", "error");
                               }
@@ -8732,6 +10027,40 @@ function App() {
                             }}
                             className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white font-mono focus:border-cyan-500/50 outline-none transition-colors"
                           />
+                        </div>
+                      </div>
+
+                      {/* Lembretes Automáticos */}
+                      <div className="mt-6 pt-6 border-t border-zinc-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                          <h4 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
+                            <Shield size={14} className="text-purple-500" /> Configuração de Lembretes do Mestre
+                          </h4>
+                          <p className="text-[10px] text-zinc-500 mt-1 font-medium">
+                            Ative ou desative os alertas automáticos de sobrevivência mostrados durante a passagem do tempo.
+                          </p>
+                        </div>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => setRemindersEnabled(prev => ({ ...prev, hungerThirst: !prev.hungerThirst }))}
+                            className={`px-4 py-2 border rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+                              remindersEnabled.hungerThirst 
+                                ? "bg-orange-500/10 border-orange-500/30 text-orange-400 shadow-[0_0_10px_rgba(249,115,22,0.05)]" 
+                                : "bg-zinc-900/50 border-zinc-800 text-zinc-500 hover:text-zinc-400"
+                            }`}
+                          >
+                            <Flame size={12} /> Fome & Sede: {remindersEnabled.hungerThirst ? "Ativo" : "Inativo"}
+                          </button>
+                          <button
+                            onClick={() => setRemindersEnabled(prev => ({ ...prev, fatigue: !prev.fatigue }))}
+                            className={`px-4 py-2 border rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+                              remindersEnabled.fatigue 
+                                ? "bg-blue-500/10 border-blue-500/30 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.05)]" 
+                                : "bg-zinc-900/50 border-zinc-800 text-zinc-500 hover:text-zinc-400"
+                            }`}
+                          >
+                            <Moon size={12} /> Cansaço: {remindersEnabled.fatigue ? "Ativo" : "Inativo"}
+                          </button>
                         </div>
                       </div>
                     </motion.div>
@@ -8970,10 +10299,7 @@ function App() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                const linkedChars = state.characters.filter(c => c.campaignId === camp.id);
-                                linkedChars.forEach(char => {
-                                  updateChar({ campaignId: "" }, char.id);
-                                });
+                                leaveCampaign(camp.id, user?.email || "");
                                 if (activeCampaignId === camp.id) setActiveCampaignIdWithSync(null);
                                 showToast(`Você saiu da campanha "${camp.name}"!`, "success");
                               }}
@@ -9213,6 +10539,7 @@ function App() {
                 isVttSheetOpen={isVttSheetOpen}
                 setIsVttSheetOpen={setIsVttSheetOpen}
                 renderCharacterSheet={renderSheetContent}
+                renderDiceContent={renderDiceContent}
                 onAddToken={async (t) => {
                   console.log("[App] onAddToken triggered:", t);
                   try {
@@ -9675,14 +11002,12 @@ function App() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
-                      if (window.confirm("Deseja realmente apagar esta imagem da galeria?")) {
-                        const newImgs = activeChar.imagens.filter(
-                          (i: any) => i.id !== selectedGalleryImage.id,
-                        );
-                        updateChar({ imagens: newImgs });
-                        setSelectedGalleryImage(null);
-                        showToast("Imagem apagada com sucesso!", "success");
-                      }
+                      const newImgs = activeChar.imagens.filter(
+                        (i: any) => i.id !== selectedGalleryImage.id,
+                      );
+                      updateChar({ imagens: newImgs });
+                      setSelectedGalleryImage(null);
+                      showToast("Imagem apagada com sucesso!", "success");
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/90 hover:bg-red-600 text-white font-bold rounded-xl text-xs uppercase transition-all shadow-md active:scale-95"
                   >
@@ -9710,7 +11035,7 @@ function App() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {toast && (
+        {toast && toast.message && (
           <motion.div
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -9795,6 +11120,169 @@ function App() {
             >
               Limpar
             </motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isQuotaModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[400] bg-zinc-950/90 backdrop-blur-md flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-zinc-900 border-2 border-amber-550 rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-2xl relative overflow-hidden text-zinc-300"
+            >
+              {/* Decorative forge elements */}
+              <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-amber-600 via-amber-400 to-amber-600" />
+              
+              <button
+                onClick={() => setIsQuotaModalOpen(false)}
+                className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-200 transition-colors p-1"
+                aria-label="Fechar"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-16 h-16 bg-amber-500/10 border-2 border-amber-500/40 rounded-full flex items-center justify-center text-amber-500 animate-pulse">
+                  <Flame size={32} />
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-xl md:text-2xl font-black text-amber-500 uppercase tracking-wider font-sans">
+                    Cota do Supabase Excedida
+                  </h3>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                    Mensagem de Hefesto, o Ferreiro das Almas
+                  </p>
+                </div>
+
+                <div className="w-full h-px bg-zinc-800" />
+
+                <div className="text-zinc-300 text-sm font-medium leading-relaxed space-y-4">
+                  <p>
+                    A cota de banco de dados do <span className="text-amber-400 font-bold">Supabase</span> foi esgotada ou o limite de requisições foi atingido temporariamente.
+                  </p>
+                  <p className="bg-zinc-950/60 p-4 border border-zinc-800 rounded-xl text-zinc-400 text-xs text-left leading-normal">
+                    🔥 <strong className="text-zinc-300 font-bold">Não entre em desespero!</strong> Hefesto salvou todas as suas fichas de personagem, campanhas e rolagens com total segurança no armazenamento offline do seu navegador (<strong className="text-amber-500/80">Local Storage</strong>).
+                  </p>
+                  <p className="text-xs text-zinc-400">
+                    Você pode continuar jogando, editando fichas e rolando dados normalmente! Suas alterações serão guardadas localmente e enviadas à nuvem de forma automática assim que os limites forem restaurados.
+                  </p>
+                </div>
+
+                <div className="w-full h-px bg-zinc-800 mt-2" />
+
+                <div className="flex flex-col sm:flex-row gap-3 w-full mt-4">
+                  <button
+                    onClick={() => setIsQuotaModalOpen(false)}
+                    className="flex-1 px-4 py-2.5 bg-amber-550 hover:bg-amber-500 text-zinc-950 font-black uppercase tracking-wider rounded-xl text-xs transition-all shadow-[0_0_15px_rgba(245,158,11,0.2)] active:scale-95"
+                  >
+                    Continuar em Modo Offline
+                  </button>
+
+                  {isQuotaExceeded && (
+                    <button
+                      onClick={() => {
+                        setSupabaseQuotaExceeded(false);
+                        setIsQuotaModalOpen(false);
+                        showToast("Cota simulada como restaurada!", "success");
+                      }}
+                      className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 font-bold rounded-xl text-xxs-tight uppercase transition-colors"
+                    >
+                      Restaurar (Debug)
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {masterReminderModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[400] bg-zinc-950/90 backdrop-blur-md flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-zinc-900 border-2 border-purple-500 rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-2xl relative overflow-hidden text-zinc-300"
+            >
+              {/* Decorative forge elements */}
+              <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-purple-600 via-purple-400 to-purple-600" />
+              
+              <button
+                onClick={() => setMasterReminderModal(null)}
+                className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-200 transition-colors p-1"
+                aria-label="Fechar"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="flex flex-col items-center text-center gap-4">
+                <div className="w-16 h-16 bg-purple-500/10 border-2 border-purple-500/40 rounded-full flex items-center justify-center text-purple-400 animate-pulse">
+                  <Shield size={32} />
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-xl md:text-2xl font-black text-purple-400 uppercase tracking-wider font-sans">
+                    Lembrete do Mestre
+                  </h3>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                    Hora do Jogo: {formatTime(masterReminderModal.hour, 0)}
+                  </p>
+                </div>
+
+                <div className="w-full h-px bg-zinc-800" />
+
+                <div className="text-zinc-300 text-sm font-medium leading-relaxed space-y-4 w-full">
+                  {masterReminderModal.showHungerThirst && (
+                    <div className="bg-zinc-950/60 p-4 border border-orange-500/20 rounded-xl text-left leading-normal">
+                      <div className="flex items-center gap-2 mb-1.5 text-orange-400 font-bold uppercase tracking-wider text-xs">
+                        <Flame size={14} /> Dados de Fome e Sede
+                      </div>
+                      <p className="text-zinc-400 text-xs">
+                        A hora atingiu <strong className="text-zinc-200 font-bold">{formatTime(masterReminderModal.hour, 0)}</strong>. Lembre os jogadores de rolarem os dados de <strong className="text-orange-400/90 font-bold">Fome e Sede</strong>!
+                      </p>
+                    </div>
+                  )}
+
+                  {masterReminderModal.showFatigue && (
+                    <div className="bg-zinc-950/60 p-4 border border-blue-500/20 rounded-xl text-left leading-normal">
+                      <div className="flex items-center gap-2 mb-1.5 text-blue-400 font-bold uppercase tracking-wider text-xs">
+                        <Moon size={14} /> Dado de Cansaço
+                      </div>
+                      <p className="text-zinc-400 text-xs">
+                        A hora atingiu <strong className="text-zinc-200 font-bold">{formatTime(masterReminderModal.hour, 0)}</strong>. Lembre os jogadores de rolarem o dado de <strong className="text-blue-400/90 font-bold">Cansaço</strong>!
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="w-full h-px bg-zinc-800 mt-2" />
+
+                <div className="flex flex-col sm:flex-row gap-3 w-full mt-4">
+                  <button
+                    onClick={() => setMasterReminderModal(null)}
+                    className="flex-1 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-black uppercase tracking-wider rounded-xl text-xs transition-all shadow-[0_0_15px_rgba(147,51,234,0.2)] active:scale-95"
+                  >
+                    Entendido, Mestre
+                  </button>
+                </div>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -9918,11 +11406,13 @@ const Input = React.memo(({
   value,
   onChange,
   className,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   className?: string;
+  placeholder?: string;
 }) => {
   return (
     <div className={className}>
@@ -9933,6 +11423,7 @@ const Input = React.memo(({
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value)}
         rows={1}
+        placeholder={placeholder}
         className="w-full bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all break-words whitespace-normal resize-none overflow-hidden min-h-[38px]"
         onInput={(e) => {
           const target = e.target as HTMLTextAreaElement;
@@ -9949,11 +11440,15 @@ const TextArea = React.memo(({
   value,
   onChange,
   className,
+  placeholder,
+  rows,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   className?: string;
+  placeholder?: string;
+  rows?: number;
 }) => {
   return (
     <div className={className}>
@@ -9963,7 +11458,8 @@ const TextArea = React.memo(({
       <textarea
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value)}
-        rows={2}
+        rows={rows ?? 2}
+        placeholder={placeholder}
         className="w-full bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all break-words whitespace-normal resize-none"
       />
     </div>
@@ -10662,9 +12158,10 @@ const NumericInput = React.memo(({
       value.toString() !== innerValue
     ) {
       if (value === 0 && innerValue === "") return;
+      if (value === 0 && innerValue === "-") return;
       setInnerValue(value.toString());
     }
-  }, [value]);
+  }, [value, innerValue]);
 
   return (
     <div className={cn("flex flex-col min-w-0", className)}>

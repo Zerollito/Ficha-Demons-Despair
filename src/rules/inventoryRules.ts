@@ -20,6 +20,10 @@ export interface Item {
   impacto?: number;
   perfuracao?: number;
   resistencia?: number;
+  categoria?: string;
+  municaoTotal?: number;
+  municaoCarregada?: number;
+  bulletId?: string;
   // Campos de Catalisador
   feitico?: number;
   elemental?: number;
@@ -28,6 +32,15 @@ export interface Item {
   // Campos de Armadura
   reducaoDano?: number;
   efeito?: string;
+  // Campos de Comida
+  isFood?: boolean;
+  validade?: number; // em dias
+  saciedade?: string; // ex: "30+15"
+  dataCriacao?: {
+    day: number;
+    month: number;
+    year: number;
+  };
 }
 
 export interface Compartment {

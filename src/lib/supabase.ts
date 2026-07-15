@@ -81,11 +81,18 @@ function getLocalTable(table: string): any[] {
   }
 }
 
-function saveLocalTable(table: string, data: any[]) {
+function saveLocalTable(table: string, data: any[], skipDispatch = false) {
   try {
-    localStorage.setItem(`supabase_table_${table}`, JSON.stringify(data));
-    // Trigger any local change listeners
-    window.dispatchEvent(new CustomEvent(`supabase_local_change_${table}`));
+    const serialized = JSON.stringify(data);
+    const existing = localStorage.getItem(`supabase_table_${table}`);
+    if (existing === serialized) {
+      return;
+    }
+    localStorage.setItem(`supabase_table_${table}`, serialized);
+    if (!skipDispatch) {
+      // Trigger any local change listeners
+      window.dispatchEvent(new CustomEvent(`supabase_local_change_${table}`));
+    }
   } catch (e) {
     console.error(`Error saving local table ${table}:`, e);
   }
@@ -175,6 +182,9 @@ class ResilientQueryBuilder {
           realSupabaseClient.from(this.table).upsert(values),
           2000
         )) as any;
+        if (error) {
+          checkSupabaseError(error);
+        }
         if (!error) {
           // Mirror to local table for offline robustness
           const local = getLocalTable(this.table);
@@ -186,9 +196,9 @@ class ResilientQueryBuilder {
           saveLocalTable(this.table, local);
           return { data, error: null };
         }
-        console.warn(`[Supabase Cloud Write Error] falling back to local storage:`, error);
+        console.log(`[Supabase Offline-First] Write Error, using local storage:`, error);
       } catch (err) {
-        console.warn(`[Supabase Cloud Exception] falling back to local storage:`, err);
+        console.log(`[Supabase Offline-First] Cloud Exception, using local storage:`, err);
       }
     }
 
@@ -234,6 +244,9 @@ class ResilientQueryBuilder {
                       .eq(column, value),
                     2000
                   )) as any;
+                  if (error) {
+                    checkSupabaseError(error);
+                  }
                   if (!error) {
                     // Mirror update locally
                     const local = getLocalTable(this.table);
@@ -247,9 +260,9 @@ class ResilientQueryBuilder {
                     const res = { data, error: null };
                     return onfulfilled ? onfulfilled(res) : res;
                   }
-                  console.warn(`[Supabase Cloud Update Error] falling back to local:`, error);
+                  console.log(`[Supabase Offline-First] Update Error, using local:`, error);
                 } catch (err) {
-                  console.warn(`[Supabase Cloud Update Exception] falling back to local:`, err);
+                  console.log(`[Supabase Offline-First] Update Exception, using local:`, err);
                 }
               }
 
@@ -290,6 +303,9 @@ class ResilientQueryBuilder {
                       .eq(column, value),
                     2000
                   )) as any;
+                  if (error) {
+                    checkSupabaseError(error);
+                  }
                   if (!error) {
                     const local = getLocalTable(this.table);
                     const filtered = local.filter(item => String(item[column]) !== String(value));
@@ -298,7 +314,7 @@ class ResilientQueryBuilder {
                     return onfulfilled ? onfulfilled(res) : res;
                   }
                 } catch (err) {
-                  console.warn(`[Supabase Cloud Delete Exception] falling back to local:`, err);
+                  console.log(`[Supabase Offline-First] Delete Exception, using local:`, err);
                 }
               }
 
@@ -348,6 +364,9 @@ class ResilientQueryBuilder {
           }
 
           const { data, error } = (await withTimeout(builder, 2000)) as any;
+          if (error) {
+            checkSupabaseError(error);
+          }
           if (!error && data) {
             rows = Array.isArray(data) ? data : [data];
             loadedFromCloud = true;
@@ -362,8 +381,16 @@ class ResilientQueryBuilder {
                 return isOwn;
               }
               if (this.table === 'campaigns') {
-                const isOwn = !item.master_id || item.master_id.startsWith('guest_') || (currentAuthUser && (item.master_id === currentAuthUser.uid || item.master_email === currentAuthUser.email));
-                return isOwn;
+                const isMaster = !item.master_id || item.master_id.startsWith('guest_') || (currentAuthUser && (item.master_id === currentAuthUser.uid || item.master_email === currentAuthUser.email));
+                if (isMaster) return true;
+                
+                // Allow player joined campaigns to be kept in local storage cache
+                const localChars = getLocalTable('characters');
+                const isJoined = localChars.some(char => {
+                  const charData = char.data || char;
+                  return charData.campaignId === item.id || char.campaign_id === item.id;
+                });
+                return isJoined;
               }
               return true;
             });
@@ -411,7 +438,7 @@ class ResilientQueryBuilder {
               if (idx >= 0) filteredLocal[idx] = { ...filteredLocal[idx], ...item };
               else filteredLocal.push(item);
             }
-            saveLocalTable(this.table, filteredLocal);
+            saveLocalTable(this.table, filteredLocal, true);
 
             // Temporarily include local-only items that match the filters but are not in the cloud yet
             const localOnly = filteredLocal.filter(l => {
@@ -432,7 +459,7 @@ class ResilientQueryBuilder {
             }
           }
         } catch (err) {
-          console.warn(`[Supabase Cloud Read Exception] falling back to offline:`, err);
+          console.log(`[Supabase Offline-First] Read Exception, using local fallback:`, err.message || err);
         }
       }
 
@@ -630,7 +657,7 @@ export const syncLocalToCloud = async () => {
             item.data.isRemoteSynced = true;
           }
 
-          await realSupabaseClient.from('characters').upsert({
+          const { error } = await realSupabaseClient.from('characters').upsert({
             id: item.id,
             user_id: item.user_id,
             user_email: item.user_email,
@@ -638,13 +665,17 @@ export const syncLocalToCloud = async () => {
             data: charData,
             updated_at: new Date().toISOString()
           });
+          if (error) {
+            checkSupabaseError(error);
+          }
         } catch (uploadErr) {
           console.error(`⚡ [Sync] Error uploading character ${item.id}:`, uploadErr);
+          checkSupabaseError(uploadErr);
         }
       }
 
       // Save local table after updating elements in-place with is_remote_synced flag
-      saveLocalTable('characters', updatedLocalCharacters);
+      saveLocalTable('characters', updatedLocalCharacters, true);
     }
 
     // 2. Sync Campaigns
@@ -688,14 +719,14 @@ export const syncLocalToCloud = async () => {
         }
       }
 
-      saveLocalTable('campaigns', updatedLocalCampaigns);
+      saveLocalTable('campaigns', updatedLocalCampaigns, true);
 
       for (const item of campaignsToUpload) {
         try {
           const campData = item.data || item;
           console.log(`⚡ [Sync] Uploading campaign ${item.name || item.id} to cloud...`);
           
-          await realSupabaseClient.from('campaigns').upsert({
+          const { error } = await realSupabaseClient.from('campaigns').upsert({
             id: item.id,
             master_id: item.master_id,
             master_email: item.master_email,
@@ -704,8 +735,12 @@ export const syncLocalToCloud = async () => {
             data: campData,
             updated_at: new Date().toISOString()
           });
+          if (error) {
+            checkSupabaseError(error);
+          }
         } catch (uploadErr) {
           console.error(`⚡ [Sync] Error uploading campaign ${item.id}:`, uploadErr);
+          checkSupabaseError(uploadErr);
         }
       }
     }
@@ -864,7 +899,6 @@ export const supabase = {
         // Setup local custom event listener
         const table = config?.table || 'campaigns';
         const listener = () => {
-          console.log(`📡 [Local Channel Signal] table change detected for: ${table}`);
           callback();
         };
         if (typeof window !== 'undefined') {
@@ -1079,10 +1113,54 @@ export const clearFirestoreCache = async () => {
   } catch (e) {}
 };
 
-export const isFirebaseQuotaExceeded = () => false;
+let supabaseQuotaExceeded = false;
+
+export const isFirebaseQuotaExceeded = () => {
+  return supabaseQuotaExceeded || localStorage.getItem('supabase_quota_exceeded_flag') === 'true';
+};
+
+export const setSupabaseQuotaExceeded = (exceeded: boolean) => {
+  supabaseQuotaExceeded = exceeded;
+  if (exceeded) {
+    localStorage.setItem('supabase_quota_exceeded_flag', 'true');
+  } else {
+    localStorage.removeItem('supabase_quota_exceeded_flag');
+  }
+  window.dispatchEvent(new CustomEvent('supabase_quota_exceeded_change', { detail: exceeded }));
+};
+
+export function checkSupabaseError(error: any) {
+  if (!error) return;
+  const message = (error.message || "").toLowerCase();
+  const code = String(error.code || "");
+  const status = Number(error.status || error.statusCode || 0);
+
+  // Checks for common indicators of Supabase / Postgres plan or request quota/rate limits:
+  // - HTTP 429 Too Many Requests
+  // - HTTP 413 Payload Too Large
+  // - HTTP 402 Payment Required (pricing limits)
+  // - DB Connection limit exceeded (e.g. connection pooled limit)
+  if (
+    status === 429 || 
+    status === 413 ||
+    status === 402 ||
+    code === '429' ||
+    message.includes('quota') ||
+    message.includes('limit exceeded') ||
+    message.includes('rate limit') ||
+    message.includes('exceeded your request quota') ||
+    message.includes('free tier') ||
+    message.includes('plan limit') ||
+    message.includes('too many requests')
+  ) {
+    console.warn("⚠️ [Supabase Quota/Limit Exceeded Detected]:", error);
+    setSupabaseQuotaExceeded(true);
+  }
+}
 
 export const handleFirestoreError = (error: unknown, operationType: any, path: string | null) => {
   console.warn("⚠️ [Supabase] Firebase handler suppressed. Error:", error);
+  checkSupabaseError(error);
 };
 
 export const db = {} as any;
@@ -1239,6 +1317,7 @@ export const onSnapshot = (
 ) => {
   const tableName = queryObj.collection.path;
   let active = true;
+  let lastDataSerialized = '';
 
   const fetchAndNotify = async () => {
     if (!active) return;
@@ -1303,6 +1382,12 @@ export const onSnapshot = (
         }
       }
 
+      const serialized = JSON.stringify(filtered);
+      if (serialized === lastDataSerialized) {
+        return; // Skip notifying if data hasn't changed
+      }
+      lastDataSerialized = serialized;
+
       const docs = filtered.map(row => {
         return {
           id: row.id,
@@ -1332,7 +1417,12 @@ export const onSnapshot = (
   window.addEventListener(`supabase_local_change_${tableName}`, changeListener);
 
   // Setup interval polling fallback (every 4s) to capture remote changes
-  const interval = setInterval(fetchAndNotify, 4000);
+  const interval = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      return;
+    }
+    fetchAndNotify();
+  }, 4000);
 
   return () => {
     active = false;
