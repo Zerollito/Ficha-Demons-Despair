@@ -31,18 +31,20 @@ if (rawUrl) {
 const supabaseUrl = rawUrl;
 const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim();
 
-const isConfigured = supabaseUrl && supabaseAnonKey && 
-                      supabaseUrl !== "placeholder_url" && 
-                      supabaseAnonKey !== "placeholder_key" &&
-                      supabaseUrl.startsWith('http') &&
-                      supabaseUrl.includes('.supabase.co');
+const isConfigured = Boolean(
+  supabaseUrl && 
+  supabaseAnonKey && 
+  supabaseUrl !== "placeholder_url" && 
+  supabaseAnonKey !== "placeholder_key" &&
+  (supabaseUrl.startsWith('http://') || supabaseUrl.startsWith('https://'))
+);
 
 export const realSupabaseClient = isConfigured 
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
 
 if (!isConfigured) {
-  console.warn("⚠️ [Supabase] Client not configured. Operating in high-performance Local Offline-First mode.");
+  console.warn("⚠️ [Supabase] Client not configured (ou URL 127.0.0.1 local em ambiente remoto). Operating in high-performance Local Offline-First mode.");
 } else {
   console.log("⚡ [Supabase] Connected directly to Supabase cloud database.");
 }
@@ -81,6 +83,65 @@ function getLocalTable(table: string): any[] {
   }
 }
 
+export const safeLocalStorageSetItem = (key: string, value: string): boolean => {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (error: any) {
+    const isQuotaError = 
+      error.name === 'QuotaExceededError' || 
+      error.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      error.code === 22 ||
+      error.code === 1014 ||
+      (error.message && error.message.toLowerCase().includes('quota'));
+      
+    if (isQuotaError) {
+      console.warn("⚠️ [Storage] Quota exceeded. Attempting to clear stale cache to free up space...");
+      try {
+        const keysToRemove: { key: string; length: number }[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k !== key) {
+            if (
+              k.startsWith('supabase_table_') || 
+              k.startsWith('supabase_cache_') || 
+              k.startsWith('vtt_logs_') ||
+              k.startsWith('vtt_tokens_') ||
+              k.startsWith('campaign_characters_')
+            ) {
+              const val = localStorage.getItem(k);
+              keysToRemove.push({ key: k, length: val ? val.length : 0 });
+            }
+          }
+        }
+        
+        keysToRemove.sort((a, b) => b.length - a.length);
+        
+        if (keysToRemove.length > 0) {
+          console.warn(`[Storage] Clearing ${keysToRemove.length} cache keys to free up space...`);
+          for (const item of keysToRemove) {
+            localStorage.removeItem(item.key);
+            console.log(`[Storage] Removed stale cache: ${item.key} (${Math.round(item.length / 1024)} KB)`);
+            
+            try {
+              localStorage.setItem(key, value);
+              console.log("⚡ [Storage] Successfully saved after freeing up space!");
+              return true;
+            } catch (e) {
+              // Still out of space, continue removing keys
+            }
+          }
+        }
+      } catch (cleanupError) {
+        console.error("Error during localStorage cleanup:", cleanupError);
+      }
+    }
+    
+    console.error(`❌ [Storage] Failed to save key "${key}" to localStorage:`, error);
+    return false;
+  }
+};
+
 function saveLocalTable(table: string, data: any[], skipDispatch = false) {
   try {
     const serialized = JSON.stringify(data);
@@ -88,7 +149,7 @@ function saveLocalTable(table: string, data: any[], skipDispatch = false) {
     if (existing === serialized) {
       return;
     }
-    localStorage.setItem(`supabase_table_${table}`, serialized);
+    safeLocalStorageSetItem(`supabase_table_${table}`, serialized);
     if (!skipDispatch) {
       // Trigger any local change listeners
       window.dispatchEvent(new CustomEvent(`supabase_local_change_${table}`));
@@ -1113,53 +1174,22 @@ export const clearFirestoreCache = async () => {
   } catch (e) {}
 };
 
-let supabaseQuotaExceeded = false;
-
 export const isFirebaseQuotaExceeded = () => {
-  return supabaseQuotaExceeded || localStorage.getItem('supabase_quota_exceeded_flag') === 'true';
+  return false;
 };
 
 export const setSupabaseQuotaExceeded = (exceeded: boolean) => {
-  supabaseQuotaExceeded = exceeded;
-  if (exceeded) {
-    localStorage.setItem('supabase_quota_exceeded_flag', 'true');
-  } else {
+  try {
     localStorage.removeItem('supabase_quota_exceeded_flag');
-  }
-  window.dispatchEvent(new CustomEvent('supabase_quota_exceeded_change', { detail: exceeded }));
+    localStorage.removeItem('firebase_quota_exceeded');
+  } catch (e) {}
 };
 
 export function checkSupabaseError(error: any) {
-  if (!error) return;
-  const message = (error.message || "").toLowerCase();
-  const code = String(error.code || "");
-  const status = Number(error.status || error.statusCode || 0);
-
-  // Checks for common indicators of Supabase / Postgres plan or request quota/rate limits:
-  // - HTTP 429 Too Many Requests
-  // - HTTP 413 Payload Too Large
-  // - HTTP 402 Payment Required (pricing limits)
-  // - DB Connection limit exceeded (e.g. connection pooled limit)
-  if (
-    status === 429 || 
-    status === 413 ||
-    status === 402 ||
-    code === '429' ||
-    message.includes('quota') ||
-    message.includes('limit exceeded') ||
-    message.includes('rate limit') ||
-    message.includes('exceeded your request quota') ||
-    message.includes('free tier') ||
-    message.includes('plan limit') ||
-    message.includes('too many requests')
-  ) {
-    console.warn("⚠️ [Supabase Quota/Limit Exceeded Detected]:", error);
-    setSupabaseQuotaExceeded(true);
-  }
+  // No quota warnings or triggers
 }
 
 export const handleFirestoreError = (error: unknown, operationType: any, path: string | null) => {
-  console.warn("⚠️ [Supabase] Firebase handler suppressed. Error:", error);
   checkSupabaseError(error);
 };
 

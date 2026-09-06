@@ -88,6 +88,7 @@ Este documento contém todas as regras lógicas e mecânicas do sistema para gar
   - **Fome**: `min(RES, ADP)`.
   - **Resistência**: `floor(RES / 2)`.
   - **Adaptabilidade**: `floor(ADP / 2)`.
+  - **Mentalidade**: `floor(MEN / 2)`.
   - **Clima**: `floor(ADP / 10)`.
 
 ---

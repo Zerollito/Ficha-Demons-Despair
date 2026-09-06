@@ -5,9 +5,10 @@ interface MiniInputProps {
   value: any;
   type?: string;
   onChange: (v: string) => void;
+  disabled?: boolean;
 }
 
-export function MiniInput({ label, value, type = "text", onChange }: MiniInputProps) {
+export function MiniInput({ label, value, type = "text", onChange, disabled = false }: MiniInputProps) {
   const [innerValue, setInnerValue] = useState(value?.toString() ?? '');
 
   useEffect(() => {
@@ -27,8 +28,9 @@ export function MiniInput({ label, value, type = "text", onChange }: MiniInputPr
             setInnerValue(e.target.value);
             onChange(e.target.value);
           }}
+          disabled={disabled}
           rows={1}
-          className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 break-words whitespace-normal resize-none overflow-hidden min-h-[20px] w-full"
+          className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 break-words whitespace-normal resize-none overflow-hidden min-h-[20px] w-full disabled:opacity-50"
           onInput={(e) => {
             const target = e.target as HTMLTextAreaElement;
             target.style.height = 'auto';
@@ -45,7 +47,8 @@ export function MiniInput({ label, value, type = "text", onChange }: MiniInputPr
             setInnerValue(val);
             onChange(val);
           }}
-          className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          disabled={disabled}
+          className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50"
         />
       )}
     </div>

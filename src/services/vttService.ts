@@ -1,4 +1,4 @@
-import { supabase, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, onSnapshot } from '../lib/supabase';
+import { supabase, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, onSnapshot, safeLocalStorageSetItem } from '../lib/supabase';
 import { TableToken, TableConfig } from '../types';
 
 // Helper to generate IDs
@@ -21,7 +21,7 @@ export const getLocalTokens = (campaignId: string): TableToken[] => {
 
 export const saveLocalTokens = (campaignId: string, tokens: TableToken[]) => {
   try {
-    localStorage.setItem(`vtt_tokens_${campaignId}`, JSON.stringify(tokens));
+    safeLocalStorageSetItem(`vtt_tokens_${campaignId}`, JSON.stringify(tokens));
   } catch (e) {
     console.error("Error saving local tokens:", e);
   }
@@ -48,7 +48,7 @@ export const getLocalConfig = (campaignId: string): TableConfig => {
 
 export const saveLocalConfig = (campaignId: string, config: TableConfig) => {
   try {
-    localStorage.setItem(`vtt_config_${campaignId}`, JSON.stringify(config));
+    safeLocalStorageSetItem(`vtt_config_${campaignId}`, JSON.stringify(config));
   } catch (e) {
     console.error("Error saving local config:", e);
   }
@@ -75,7 +75,7 @@ export const getLocalLogs = (campaignId: string): any[] => {
 
 export const saveLocalLogs = (campaignId: string, logs: any[]) => {
   try {
-    localStorage.setItem(`vtt_logs_${campaignId}`, JSON.stringify(logs));
+    safeLocalStorageSetItem(`vtt_logs_${campaignId}`, JSON.stringify(logs));
   } catch (e) {
     console.error("Error saving local logs:", e);
   }

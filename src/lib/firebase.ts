@@ -116,52 +116,21 @@ interface FirestoreErrorInfo {
 }
 
 export function isFirebaseQuotaExceeded(): boolean {
-  if (typeof window === 'undefined') return false;
-  if ((window as any).firebaseQuotaExceeded) return true;
-  
-  const exceededStr = localStorage.getItem('firebase_quota_exceeded');
-  if (exceededStr) {
-    try {
-      const { timestamp } = JSON.parse(exceededStr);
-      // Cota reseta diariamente. Consideramos excedido se definido nas últimas 12 horas.
-      if (Date.now() - timestamp < 12 * 60 * 60 * 1000) {
-        (window as any).firebaseQuotaExceeded = true;
-        return true;
-      } else {
-        localStorage.removeItem('firebase_quota_exceeded');
-      }
-    } catch {
-      localStorage.removeItem('firebase_quota_exceeded');
-    }
-  }
   return false;
 }
 
 export function setFirebaseQuotaExceeded() {
-  if (typeof window === 'undefined') return;
-  if (!(window as any).firebaseQuotaExceeded) {
-    (window as any).firebaseQuotaExceeded = true;
+  if (typeof window !== 'undefined') {
     try {
-      localStorage.setItem('firebase_quota_exceeded', JSON.stringify({
-        timestamp: Date.now()
-      }));
-    } catch (e) {
-      console.error('Erro ao salvar flag de cota excedida no localStorage:', e);
-    }
-    window.dispatchEvent(new CustomEvent("firebase-quota-exceeded"));
+      localStorage.removeItem('firebase_quota_exceeded');
+      (window as any).firebaseQuotaExceeded = false;
+    } catch (e) {}
   }
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const errText = error instanceof Error ? error.message : String(error);
-  const errCode = (error && typeof error === 'object' && 'code' in error) ? String((error as any).code) : '';
   
-  const isQuota = errText.toLowerCase().includes('resource-exhausted') || 
-                  errText.toLowerCase().includes('quota limit exceeded') || 
-                  errText.toLowerCase().includes('quota') ||
-                  errCode === 'resource-exhausted' ||
-                  errCode.toLowerCase().includes('quota');
-
   const errInfo: FirestoreErrorInfo = {
     error: errText,
     authInfo: {
@@ -179,12 +148,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   };
   const errorMessage = JSON.stringify(errInfo);
-
-  if (isQuota) {
-    console.warn('⚠️ [Firestore Quota] Firestore Error (Quota Exceeded): ', errorMessage);
-    setFirebaseQuotaExceeded();
-    return; // Retorna com segurança sem estourar exceções para não travar a aplicação
-  }
 
   console.error('Firestore Error: ', errorMessage);
   throw new Error(errorMessage);

@@ -68,6 +68,7 @@ import {
   ExternalLink,
   LogOut,
   Wand2,
+  Printer,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
@@ -103,9 +104,19 @@ import { VTTBoard } from "./components/VTTBoard";
 import { Bestiary } from "./components/Bestiary";
 import { TocaManager } from "./components/TocaManager";
 import { MaterialManagement } from "./components/MaterialManagement";
-import { OracleTab } from "./components/OracleTab";
 import { ItemLibrary } from "./components/ItemLibrary";
 import { SpellLibrary } from "./components/SpellLibrary";
+import { PrintSheetModal } from "./components/PrintSheetModal";
+import { Section } from "./components/ui/Section";
+import { SubSection } from "./components/ui/SubSection";
+import { Input, TextArea } from "./components/ui/Input";
+import { NumericInput } from "./components/ui/NumericInput";
+import { MiniInput } from "./components/ui/MiniInput";
+import { ProgressBar } from "./components/ui/ProgressBar";
+import { MiniBar } from "./components/ui/MiniBar";
+import { WeaponProperties } from "./components/ui/WeaponProperties";
+import { ArmorProperties } from "./components/ui/ArmorProperties";
+import { CatalystProperties, AmmunitionProperties } from "./components/TocaManager";
 import { subscribeToMaterials, saveMaterial, deleteMaterial } from "./services/materialService";
 import { subscribeToBestiary, saveMonsterToBestiary } from "./services/bestiaryService";
 import { MaterialData } from "./data/materials";
@@ -598,7 +609,7 @@ function App() {
     [],
   );
   const [activePage, setActivePage] = useState<
-    "sheet" | "notes" | "dice" | "gallery" | "master" | "table" | "bestiary" | "library" | "materials" | "oracle" | "toca" | "items" | "spells"
+    "sheet" | "notes" | "dice" | "gallery" | "master" | "table" | "bestiary" | "library" | "materials" | "toca" | "items" | "spells"
   >("sheet");
   const [customMaterials, setCustomMaterials] = useState<MaterialData[]>([]);
   const [masterCampaigns, setMasterCampaigns] = useState<Campaign[]>([]);
@@ -638,6 +649,7 @@ function App() {
   const [charIdToDelete, setCharIdToDelete] = useState<string | null>(null);
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<{ id: string; url: string; titulo: string } | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
@@ -1054,7 +1066,7 @@ function App() {
     if (!isLoadingSync && state.characters.length === 0) {
       const allowedPagesWithoutChar = [
         "library", "master", "bestiary", "toca", 
-        "materials", "items", "spells", "oracle"
+        "materials", "items", "spells"
       ];
       if (!allowedPagesWithoutChar.includes(activePage)) {
         setActivePage("library");
@@ -1133,6 +1145,7 @@ function App() {
   const [bestiaryEditingMonsterId, setBestiaryEditingMonsterId] = useState<string | null>(null);
   const [bestiaryMonsters, setBestiaryMonsters] = useState<BestiaryMonster[]>([]);
   const [isVttSheetOpen, setIsVttSheetOpen] = useState(false);
+  const [activeNoteImageModal, setActiveNoteImageModal] = useState<{ url: string; title?: string } | null>(null);
 
   useEffect(() => {
     if (!user?.uid) {
@@ -3412,6 +3425,66 @@ function App() {
     reader.readAsDataURL(file);
   };
 
+  const handleNoteImageFileUpload = async (noteIdx: number, files: FileList | null) => {
+    if (!files || files.length === 0 || !activeChar) return;
+    const fileArray = Array.from(files);
+    const dataUrls: string[] = [];
+
+    for (const file of fileArray) {
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const compressed = await compressImageDataUrl(dataUrl, 1024, 0.8);
+        dataUrls.push(compressed);
+      } catch (err) {
+        console.error("Erro ao carregar ou comprimir imagem da nota:", err);
+      }
+    }
+
+    if (dataUrls.length > 0) {
+      const currentNotes = [...(activeChar.anotacoes || [])];
+      if (!currentNotes[noteIdx]) return;
+      const existingImgs = currentNotes[noteIdx].imagens || [];
+      currentNotes[noteIdx] = {
+        ...currentNotes[noteIdx],
+        imagens: [...existingImgs, ...dataUrls],
+      };
+      updateChar({ anotacoes: currentNotes });
+      showToast(`${dataUrls.length} imagem(ns) adicionada(s) à nota!`, "success");
+    }
+  };
+
+  const handleAddNoteImageUrl = (noteIdx: number, url: string) => {
+    if (!url || !url.trim() || !activeChar) return;
+    const currentNotes = [...(activeChar.anotacoes || [])];
+    if (!currentNotes[noteIdx]) return;
+    const existingImgs = currentNotes[noteIdx].imagens || [];
+    currentNotes[noteIdx] = {
+      ...currentNotes[noteIdx],
+      imagens: [...existingImgs, url.trim()],
+    };
+    updateChar({ anotacoes: currentNotes });
+    showToast("Imagem adicionada à nota!", "success");
+  };
+
+  const handleRemoveNoteImage = (noteIdx: number, imgIdx: number) => {
+    if (!activeChar) return;
+    const currentNotes = [...(activeChar.anotacoes || [])];
+    if (!currentNotes[noteIdx]) return;
+    const existingImgs = currentNotes[noteIdx].imagens || [];
+    const updatedImgs = existingImgs.filter((_, i) => i !== imgIdx);
+    currentNotes[noteIdx] = {
+      ...currentNotes[noteIdx],
+      imagens: updatedImgs,
+    };
+    updateChar({ anotacoes: currentNotes });
+    showToast("Imagem removida da nota.", "info");
+  };
+
   const isFullScreenPage = activePage === "table" || activePage === "dice" || activePage === "master";
 
   return (
@@ -3454,7 +3527,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.12.3</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.12.18</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -3553,16 +3626,6 @@ function App() {
                           color="blue"
                         />
                       )}
-
-                      <div className="my-1 border-t border-zinc-800/20" />
-
-                      <MenuButton 
-                        active={activePage === "oracle"} 
-                        onClick={() => { setActivePage("oracle"); setIsSideMenuOpen(false); }}
-                        icon={<Sparkles size={20} className="text-amber-500" />}
-                        label="Oráculo"
-                        color="amber"
-                      />
                     </div>
                   </motion.div>
                 </>
@@ -3574,14 +3637,14 @@ function App() {
           <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
             <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
             <div className="w-[1px] h-3 bg-zinc-800" />
-            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.12.3</span>
+            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.12.18</span>
           </div>
 
           {/* Quick Active Page Status - desktop only */}
           <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
               <div className="flex flex-col">
                 <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.12.3</span>
+                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.12.18</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -3844,6 +3907,16 @@ function App() {
               className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
             >
               <Activity size={18} className="text-amber-500" /> Exportar PDF
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => {
+                setIsPrintModalOpen(true);
+                setIsMenuOpen(false);
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
+            >
+              <Printer size={18} className="text-amber-500" /> Versão de Impressão (Papel)
             </motion.button>
 
             <div className="pt-1 border-t border-zinc-800 mt-1">
@@ -7205,13 +7278,17 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                             <select
                               value={m.escola || "Feitiço"}
                               onChange={(e) => {
-                                const val = e.target.value; updateChar(c => { const na = [...(c.magias || [])]; if (na[idx]) na[idx].escola = val; return { magias: na }; });
+                                const val = e.target.value;
+                                const newMags = (activeChar?.magias || []).map((mag, i) =>
+                                  i === idx ? { ...mag, escola: val } : mag
+                                );
+                                updateChar({ magias: newMags });
                               }}
                               className="bg-black/40 border border-zinc-700/50 rounded px-2 py-0.5 text-xs text-zinc-300 font-bold focus:outline-none focus:border-amber-500/50"
                             >
-                              <option value="Feitiço">Feitiço</option>
-                              <option value="elemental">Elemental</option>
-                              <option value="magia negra">Magia Negra</option>
+                              <option value="Feitiço" className="bg-zinc-900 text-zinc-100">Feitiço</option>
+                              <option value="elemental" className="bg-zinc-900 text-zinc-100">Elemental</option>
+                              <option value="magia negra" className="bg-zinc-900 text-zinc-100">Magia Negra</option>
                             </select>
                           </div>
                           <div className="flex flex-col min-w-0">
@@ -7221,13 +7298,17 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                             <select
                                value={m.tipo || "Ataque"}
                                onChange={(e) => {
-                                 const val = e.target.value; updateChar(c => { const na = [...(c.magias || [])]; if (na[idx]) na[idx].tipo = val as any; return { magias: na }; });
+                                 const val = e.target.value as 'Ataque' | 'Efeito' | 'Utilidade';
+                                 const newMags = (activeChar?.magias || []).map((mag, i) =>
+                                   i === idx ? { ...mag, tipo: val } : mag
+                                 );
+                                 updateChar({ magias: newMags });
                                }}
                               className="bg-black/40 border border-zinc-700/50 rounded px-2 py-0.5 text-xs text-zinc-300 font-bold focus:outline-none focus:border-amber-500/50"
                             >
-                              <option value="Ataque">Ataque</option>
-                              <option value="Efeito">Efeito</option>
-                              <option value="Utilidade">Utilidade</option>
+                              <option value="Ataque" className="bg-zinc-900 text-zinc-100">Ataque</option>
+                              <option value="Efeito" className="bg-zinc-900 text-zinc-100">Efeito</option>
+                              <option value="Utilidade" className="bg-zinc-900 text-zinc-100">Utilidade</option>
                             </select>
                           </div>
                         </div>
@@ -7236,9 +7317,10 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                             label="Dano"
                             value={m.dano}
                             onChange={(v) => {
-                              const na = [...(activeChar?.magias || [])];
-                              na[idx].dano = v;
-                              updateChar(c => { const na = [...(c.magias || [])]; if (na[idx]) na[idx].dano = v; return { magias: na }; });
+                              const newMags = (activeChar?.magias || []).map((mag, i) =>
+                                i === idx ? { ...mag, dano: v } : mag
+                              );
+                              updateChar({ magias: newMags });
                             }}
                             disabled={m.tipo === "Utilidade"}
                           />
@@ -7247,9 +7329,11 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                             value={m.acerto}
                             type="number"
                             onChange={(v) => {
-                              const na = [...(activeChar?.magias || [])];
-                              na[idx].acerto = parseInt(v) || 0;
-                              updateChar(c => { const na = [...(c.magias || [])]; if (na[idx]) na[idx].acerto = parseInt(v) || 0; return { magias: na }; });
+                              const val = parseInt(v) || 0;
+                              const newMags = (activeChar?.magias || []).map((mag, i) =>
+                                i === idx ? { ...mag, acerto: val } : mag
+                              );
+                              updateChar({ magias: newMags });
                             }}
                             disabled={m.tipo === "Utilidade"}
                           />
@@ -7260,9 +7344,11 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                             value={m.mana}
                             type="number"
                             onChange={(v) => {
-                              const na = [...(activeChar?.magias || [])];
-                              na[idx].mana = parseInt(v) || 0;
-                              updateChar(c => { const na = [...(c.magias || [])]; if (na[idx]) na[idx].mana = parseInt(v) || 0; return { magias: na }; });
+                              const val = parseInt(v) || 0;
+                              const newMags = (activeChar?.magias || []).map((mag, i) =>
+                                i === idx ? { ...mag, mana: val } : mag
+                              );
+                              updateChar({ magias: newMags });
                             }}
                           />
                           <div className="flex flex-col min-w-0">
@@ -7272,15 +7358,19 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                             <select
                               value={m.escala || "0"}
                               onChange={(e) => {
-                                const val = e.target.value; updateChar(c => { const na = [...(c.magias || [])]; if (na[idx]) na[idx].escala = val as any; return { magias: na }; });
+                                const val = e.target.value as any;
+                                const newMags = (activeChar?.magias || []).map((mag, i) =>
+                                  i === idx ? { ...mag, escala: val } : mag
+                                );
+                                updateChar({ magias: newMags });
                               }}
                               className="bg-black/40 border border-zinc-700/50 rounded px-2 py-0.5 text-xs text-zinc-300 font-bold focus:outline-none focus:border-amber-500/50"
                             >
-                              <option value="0">0</option>
-                              <option value="D">D</option>
-                              <option value="C">C</option>
-                              <option value="B">B</option>
-                              <option value="A">A</option>
+                              <option value="0" className="bg-zinc-900 text-zinc-100">0</option>
+                              <option value="D" className="bg-zinc-900 text-zinc-100">D</option>
+                              <option value="C" className="bg-zinc-900 text-zinc-100">C</option>
+                              <option value="B" className="bg-zinc-900 text-zinc-100">B</option>
+                              <option value="A" className="bg-zinc-900 text-zinc-100">A</option>
                             </select>
                           </div>
                         </div>
@@ -7430,9 +7520,10 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                           label="Efeito"
                           value={m.efeito}
                           onChange={(v) => {
-                            const na = [...(activeChar?.magias || [])];
-                            na[idx].efeito = v;
-                            updateChar(c => { const na = [...(c.magias || [])]; if (na[idx]) na[idx].efeito = v; return { magias: na }; });
+                            const newMags = (activeChar?.magias || []).map((mag, i) =>
+                              i === idx ? { ...mag, efeito: v } : mag
+                            );
+                            updateChar({ magias: newMags });
                           }}
                         />
                       </div>
@@ -7498,11 +7589,11 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                               <input
                                 value={h.nome || ""}
                                 onChange={(e) => {
-                                  const newHabs = [
-                                    ...(activeChar?.habilidades || []),
-                                  ];
-                                  newHabs[idx].nome = e.target.value;
-                                  updateChar((char) => ({ habilidades: newHabs }));
+                                  const val = e.target.value;
+                                  const newHabs = (activeChar?.habilidades || []).map((hab, i) =>
+                                    i === idx ? { ...hab, nome: val } : hab
+                                  );
+                                  updateChar({ habilidades: newHabs });
                                 }}
                                 className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
                               />
@@ -7526,9 +7617,10 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                             label="Efeito"
                             value={h.efeito}
                             onChange={(v) => {
-                              const na = [...(activeChar?.habilidades || [])];
-                              na[idx].efeito = v;
-                              updateChar({ habilidades: na });
+                              const newHabs = (activeChar?.habilidades || []).map((hab, i) =>
+                                i === idx ? { ...hab, efeito: v } : hab
+                              );
+                              updateChar({ habilidades: newHabs });
                             }}
                           />
                         </div>
@@ -7563,11 +7655,19 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                               <NumericInput
                                 value={k.nivel}
                                 onChange={(v) => {
-                                  const newKs = [
-                                    ...(activeChar?.conhecimentos || []),
-                                  ];
-                                  newKs[idx].nivel = Math.min(5, v);
-                                  updateChar(c => ({ conhecimentos: newKs }));
+                                  const newLevel = Math.max(0, Math.min(5, v));
+                                  const newMaxXp = getXpToNextLevel(newLevel);
+                                  const newKs = (activeChar?.conhecimentos || []).map((item, i) =>
+                                    i === idx
+                                      ? {
+                                          ...item,
+                                          nivel: newLevel,
+                                          limite: newMaxXp,
+                                          xp: Math.min(item.xp, Math.max(0, newMaxXp - 1)),
+                                        }
+                                      : item
+                                  );
+                                  updateChar({ conhecimentos: newKs });
                                 }}
                                 className="w-20"
                                 size="sm"
@@ -7594,11 +7694,14 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                                   <motion.button
                                     whileTap={{ scale: 0.95 }}
                                     onClick={() => {
-                                      const newKs = [
-                                        ...(activeChar?.conhecimentos || []),
-                                      ];
-                                      newKs[idx].xp = Math.max(0, k.xp - 1);
-                                      updateChar(c => ({ conhecimentos: newKs }));
+                                      const newKs = (activeChar?.conhecimentos || []).map((item, i) => {
+                                        if (i === idx) {
+                                          const nextXp = getXpToNextLevel(item.nivel);
+                                          return { ...item, xp: Math.max(0, item.xp - 1), limite: nextXp };
+                                        }
+                                        return item;
+                                      });
+                                      updateChar({ conhecimentos: newKs });
                                     }}
                                     className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded text-zinc-400 hover:text-white"
                                   >
@@ -7607,19 +7710,25 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                                   <NumericInput
                                     value={k.xp}
                                     onChange={(v) => {
-                                      const nextXp = getXpToNextLevel(k.nivel);
-                                      let updatedK = { ...k, xp: v };
-                                      if (v >= nextXp) {
-                                        updatedK.nivel = Math.min(
-                                          5,
-                                          updatedK.nivel + 1,
-                                        );
-                                        updatedK.xp = 0;
-                                      }
-                                      const newKs = [
-                                        ...(activeChar?.conhecimentos || []),
-                                      ];
-                                      newKs[idx] = updatedK;
+                                      const newKs = (activeChar?.conhecimentos || []).map((item, i) => {
+                                        if (i === idx) {
+                                          let currentNivel = item.nivel;
+                                          let currentXp = Math.max(0, v);
+                                          let nextXp = getXpToNextLevel(currentNivel);
+                                          if (currentXp >= nextXp && currentNivel < 5) {
+                                            currentNivel = Math.min(5, currentNivel + 1);
+                                            currentXp = 0;
+                                            nextXp = getXpToNextLevel(currentNivel);
+                                          }
+                                          return {
+                                            ...item,
+                                            nivel: currentNivel,
+                                            xp: currentNivel >= 5 ? 0 : currentXp,
+                                            limite: nextXp,
+                                          };
+                                        }
+                                        return item;
+                                      });
                                       updateChar({ conhecimentos: newKs });
                                     }}
                                     className="w-16"
@@ -7628,19 +7737,25 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                                   <motion.button
                                     whileTap={{ scale: 0.95 }}
                                     onClick={() => {
-                                      const nextXp = getXpToNextLevel(k.nivel);
-                                      let updatedK = { ...k, xp: k.xp + 1 };
-                                      if (updatedK.xp >= nextXp) {
-                                        updatedK.nivel = Math.min(
-                                          5,
-                                          updatedK.nivel + 1,
-                                        );
-                                        updatedK.xp = 0;
-                                      }
-                                      const newKs = [
-                                        ...(activeChar?.conhecimentos || []),
-                                      ];
-                                      newKs[idx] = updatedK;
+                                      const newKs = (activeChar?.conhecimentos || []).map((item, i) => {
+                                        if (i === idx) {
+                                          let currentNivel = item.nivel;
+                                          let currentXp = item.xp + 1;
+                                          let nextXp = getXpToNextLevel(currentNivel);
+                                          if (currentXp >= nextXp && currentNivel < 5) {
+                                            currentNivel = Math.min(5, currentNivel + 1);
+                                            currentXp = 0;
+                                            nextXp = getXpToNextLevel(currentNivel);
+                                          }
+                                          return {
+                                            ...item,
+                                            nivel: currentNivel,
+                                            xp: currentNivel >= 5 ? 0 : currentXp,
+                                            limite: nextXp,
+                                          };
+                                        }
+                                        return item;
+                                      });
                                       updateChar({ conhecimentos: newKs });
                                     }}
                                     className="w-6 h-6 flex items-center justify-center bg-zinc-800 rounded text-zinc-400 hover:text-white"
@@ -7825,7 +7940,13 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                                               onClick={() => {
                                                 const newEscalas = (activeChar.escalas || []).map((item, i) => {
                                                   if (i === idx) {
-                                                    return { ...item, nivel: lIdx };
+                                                    const nextXp = getXpToNextLevel(lIdx);
+                                                    return {
+                                                      ...item,
+                                                      nivel: lIdx,
+                                                      limite: nextXp,
+                                                      xp: Math.min(item.xp, Math.max(0, nextXp - 1)),
+                                                    };
                                                   }
                                                   return item;
                                                 });
@@ -9353,6 +9474,81 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                           <Trash2 size={20} />
                         </motion.button>
                       </div>
+                      {/* Seção de Imagens Anexadas da Nota (Acima do Conteúdo) */}
+                      <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-xl p-3.5 space-y-3 mb-4 shadow-inner">
+                        <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-2">
+                          <div className="flex items-center gap-2">
+                            <Image size={16} className="text-amber-500" />
+                            <span className="text-xs font-bold uppercase tracking-wider text-zinc-200">
+                              Imagens {note.imagens && note.imagens.length > 0 ? `(${note.imagens.length})` : ""}
+                            </span>
+                          </div>
+
+                          {/* Botão + para Enviar Imagem por Arquivo */}
+                          <label
+                            className="flex items-center justify-center p-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:border-amber-500/60 rounded-lg cursor-pointer transition-all shadow-sm active:scale-95"
+                            title="Adicionar imagem"
+                          >
+                            <Plus size={16} />
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              className="hidden"
+                              onChange={(e) => {
+                                handleNoteImageFileUpload(idx, e.target.files);
+                                e.target.value = "";
+                              }}
+                            />
+                          </label>
+                        </div>
+
+                        {/* Grid de Miniaturas com Expansão ao Clicar */}
+                        {note.imagens && note.imagens.length > 0 ? (
+                          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3 pt-1">
+                            {note.imagens.map((imgUrl, imgIdx) => (
+                              <div
+                                key={imgIdx}
+                                className="group relative aspect-square rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800 hover:border-amber-500/80 shadow-md transition-all cursor-pointer"
+                                onClick={() =>
+                                  setActiveNoteImageModal({
+                                    url: imgUrl,
+                                    title: `${note.titulo || "Anotação"} (Imagem ${imgIdx + 1})`,
+                                  })
+                                }
+                              >
+                                <img
+                                  src={imgUrl}
+                                  alt={`Imagem ${imgIdx + 1} de ${note.titulo}`}
+                                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+                                />
+                                {/* Overlay ao passar o mouse */}
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                                  <Maximize size={18} className="text-white drop-shadow-md" />
+                                </div>
+
+                                {/* Botão para Excluir Imagem */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveNoteImage(idx, imgIdx);
+                                  }}
+                                  className="absolute top-1.5 right-1.5 p-1 bg-black/80 hover:bg-red-600 text-zinc-300 hover:text-white rounded-md opacity-0 group-hover:opacity-100 transition-all shadow-md z-10"
+                                  title="Remover Imagem"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-zinc-500 italic py-0.5">
+                            Nenhuma imagem anexada. Clique no botão + para adicionar.
+                          </p>
+                        )}
+                      </div>
+
                       <div>
                         <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
                           Conteúdo
@@ -9365,7 +9561,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                             );
                             updateChar({ anotacoes: newNotes });
                           }}
-                          rows={15}
+                          rows={12}
                           className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all resize-none leading-relaxed"
                           placeholder="Escreva suas anotações aqui..."
                         />
@@ -10432,7 +10628,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                 Gerencie as criaturas e inimigos que aparecerão em suas campanhas.
               </p>
             </div>
-            <Bestiary 
+            <Bestiary
               onEditMonsterSheet={(monsterId) => {
                 setBestiaryEditingMonsterId(monsterId);
                 setActivePage("sheet");
@@ -10455,1827 +10651,139 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
               />
             ) : (
               <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/10 border border-dashed border-zinc-800 rounded-3xl">
-                <PawPrint size={48} className="text-zinc-700 mb-4 animate-pulse" />
-                <p className="text-zinc-400 font-black uppercase text-sm tracking-wider mb-1">Ficha Não Selecionada</p>
-                <p className="text-zinc-500 text-xs">Por favor, selecione ou crie um personagem na aba "Ficha" para acessar a Toca.</p>
+                <Backpack size={48} className="text-zinc-800 mb-4" />
+                <p className="text-zinc-500 italic">Selecione um personagem para acessar a Toca.</p>
               </div>
             )}
           </div>
-        ) : activePage === "materials" ? (
-          <div className="max-w-6xl mx-auto p-6">
-            <div className="mb-8">
-              <h1 className="text-3xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
-                <Hammer size={32} className="text-amber-500" /> Biblioteca de Materiais
-              </h1>
-              <p className="text-zinc-500 text-sm mt-1">
-                Customize os materiais base para criação de equipamentos no gerador.
-              </p>
-            </div>
-            <MaterialManagement 
-              materials={customMaterials}
-              onSave={async (m) => {
-                if (user) {
-                  await saveMaterial(user.uid, m);
-                  showToast("Material salvo com sucesso!", "success");
-                }
-              }}
-              onDelete={async (id) => {
-                if (user) {
-                  await deleteMaterial(id);
-                  showToast("Material removido.", "info");
-                }
-              }}
-            />
-          </div>
         ) : activePage === "items" ? (
-          <div className="max-w-7xl mx-auto p-6">
-            <div className="mb-6">
-              <h1 className="text-3xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
-                <Package size={32} className="text-amber-500" /> Biblioteca de Itens
-              </h1>
-              <p className="text-zinc-500 text-sm mt-1">
-                Gerencie itens personalizados salvos no banco de dados e envie-os diretamente para a mochila dos personagens.
-              </p>
-            </div>
+          <div className="max-w-6xl mx-auto">
             <ItemLibrary 
               characters={state.characters}
-              activeCharId={state.activeCharacterId}
+              activeCharId={activeChar?.id || null}
               onAddItemToCharacter={handleAddItemToCharacterCompartment}
               showToast={showToast}
               user={user}
             />
           </div>
         ) : activePage === "spells" ? (
-          <div className="max-w-7xl mx-auto p-6">
-            <div className="mb-6">
-              <h1 className="text-3xl font-black uppercase tracking-tighter text-white flex items-center gap-3">
-                <Wand2 size={32} className="text-amber-500" /> Biblioteca de Magias
-              </h1>
-              <p className="text-zinc-500 text-sm mt-1">
-                Gerencie magias personalizadas salvas no banco de dados e envie-as diretamente para a lista de magias dos personagens.
-              </p>
-            </div>
+          <div className="max-w-6xl mx-auto">
             <SpellLibrary 
               characters={state.characters}
-              activeCharId={state.activeCharacterId}
+              activeCharId={activeChar?.id || null}
               onAddSpellToCharacter={handleAddSpellToCharacter}
               showToast={showToast}
               user={user}
             />
           </div>
+        ) : activePage === "materials" ? (
+          <div className="max-w-6xl mx-auto">
+            <MaterialManagement 
+              materials={customMaterials} 
+              onSave={(mat) => saveMaterial(user?.uid || "guest", mat)} 
+              onDelete={deleteMaterial} 
+            />
+          </div>
         ) : activePage === "table" ? (
-          <div className="flex-1 h-full overflow-hidden relative overscroll-none touch-none">
-            {activeCampaignId && campaigns.some(c => c.id === activeCampaignId) ? (
+          <div className="w-full flex-1">
+            {activeCampaignId ? (
               <VTTBoard 
                 campaignId={activeCampaignId}
-                isMaster={campaigns.find(c => c.id === activeCampaignId)?.masterId === user?.uid}
+                isMaster={!!(activeCampaignId && campaigns.some(c => c.id === activeCampaignId && c.masterId === user?.uid))}
                 tokens={tokens}
                 config={tableConfig}
-                availableCharacters={allAvailableCharacters}
-                activeCharacterId={state.activeCharacterId}
+                availableCharacters={campaignCharacters}
+                activeCharacterId={activeChar?.id || null}
                 customMaterials={customMaterials}
+                onAddToken={(t) => addToken(activeCampaignId, t)}
+                onRemoveToken={(id) => removeToken(activeCampaignId, id)}
+                onUpdateConfig={(cfg) => updateTableConfig(activeCampaignId, cfg)}
                 showToast={showToast}
                 onUpdateCharacter={updateChar}
-                isVttSheetOpen={isVttSheetOpen}
-                setIsVttSheetOpen={setIsVttSheetOpen}
                 renderCharacterSheet={renderSheetContent}
                 renderDiceContent={renderDiceContent}
-                onAddToken={async (t) => {
-                  console.log("[App] onAddToken triggered:", t);
-                  try {
-                    await addToken(activeCampaignId, t);
-                    showToast(`Token de ${t.name} adicionado.`, "success");
-                  } catch (err) {
-                    console.error("[App] Error in addToken:", err);
-                    showToast("Erro ao adicionar token.", "error");
-                  }
-                }}
-                onAddCharacter={(char) => handleAddCharacter({ ...char, campaignId: activeCampaignId || undefined })}
-                onRemoveToken={(tid) => removeToken(activeCampaignId, tid)}
-                onUpdateConfig={(cfg) => updateTableConfig(activeCampaignId, cfg)}
-                onRollResult={handleRollResult}
+                isVttSheetOpen={isVttSheetOpen}
+                setIsVttSheetOpen={setIsVttSheetOpen}
               />
             ) : (
-                <div className="h-full flex items-center justify-center bg-zinc-950">
-                    <div className="text-center p-8 bg-zinc-900 border border-zinc-800 rounded-3xl max-w-md">
-                        <Shield size={48} className="mx-auto text-zinc-700 mb-6" />
-                        <h2 className="text-xl font-bold text-white mb-2">Sem Mesa Ativa</h2>
-                        <p className="text-zinc-500 text-sm">Selecione uma campanha no Painel do Mestre para entrar na mesa.</p>
-                    </div>
-                </div>
+              <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/10 border border-dashed border-zinc-800 rounded-3xl max-w-md mx-auto">
+                <Shield size={48} className="text-zinc-800 mb-4" />
+                <p className="text-zinc-500 italic">Selecione uma campanha para acessar a Mesa de Jogo.</p>
+              </div>
             )}
           </div>
-        ) : activePage === "oracle" ? (
-          <div className="w-full max-w-5xl mx-auto px-2 md:px-4 py-2">
-            <div className="w-full h-[calc(100vh-190px)] min-h-[720px] flex flex-col">
-              <OracleTab 
-                characters={state.characters}
-                activeCharacterId={state.activeCharacterId}
-                onUpdateCharacter={updateChar}
-                showToast={showToast}
-              />
-            </div>
-          </div>
-        ) : null;
-          };
-
-          return renderOtherPages();
-        })()}
-
-        {/* Floating Action Bars for Multi-Copy/Paste */}
-        <AnimatePresence>
-          {selectedItems.size > 0 && (
-            <motion.div
-              initial={{ y: 100, x: "-50%", opacity: 0 }}
-              animate={{ y: 0, x: "-50%", opacity: 1 }}
-              exit={{ y: 100, x: "-50%", opacity: 0 }}
-              className="fixed bottom-6 left-1/2 z-[100] flex items-center gap-3 bg-zinc-900 border border-amber-500/50 p-4 rounded-xl shadow-2xl shadow-amber-500/20 ring-1 ring-amber-500/20"
-            >
-              <div className="flex flex-col">
-                <span className="text-amber-500 font-black text-[10px] uppercase tracking-[0.2em]">
-                  {selectedItems.size} {selectedItems.size === 1 ? "Item" : "Itens"} Selecionado{selectedItems.size === 1 ? "" : "s"}
-                </span>
-                <span className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">Gestão de Inventário</span>
-              </div>
-              <div className="h-8 w-px bg-zinc-800 mx-1" />
-              <div className="flex items-center gap-2">
-                <motion.button
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => copySelected(activeChar)}
-                  className="flex items-center gap-2 bg-amber-500 text-zinc-950 px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all hover:bg-amber-400 active:scale-95"
-                >
-                  <Copy size={14} />
-                  Copiar
-                </motion.button>
-                <motion.button
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => {
-                    setSelectionMode(false);
-                    setSelectedItems(new Set());
-                  }}
-                  className="flex items-center gap-2 bg-zinc-800 text-zinc-400 px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700"
-                >
-                  <X size={14} />
-                  Cancelar
-                </motion.button>
-              </div>
-            </motion.div>
-          )}
-
-          {cutItem && (
-            <motion.div
-              initial={{ y: 100, x: "-50%", opacity: 0 }}
-              animate={{ y: 0, x: "-50%", opacity: 1 }}
-              exit={{ y: 100, x: "-50%", opacity: 0 }}
-              className="fixed bottom-6 left-1/2 z-[100] flex flex-col sm:flex-row items-center gap-3 bg-zinc-950/95 border border-amber-500/50 p-4 rounded-xl shadow-2xl shadow-amber-500/10 backdrop-blur-md font-mono"
-            >
-              <div className="flex items-center gap-2 max-w-[220px]">
-                <div className="p-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-lg">
-                  <Scissors size={14} />
-                </div>
-                <div className="min-w-0">
-                  <span className="text-[8px] text-zinc-500 font-bold uppercase block tracking-wider">Item Recortado</span>
-                  <span className="text-xs font-black text-white truncate block">{cutItem.item.nome}</span>
-                </div>
-              </div>
-              
-              <div className="h-px sm:h-8 w-full sm:w-px bg-zinc-800" />
-              
-              <div className="flex items-center gap-2">
-                {cutItem.companionId ? (
-                  <motion.button
-                    whileTap={{ scale: 0.95 }}
-                    onClick={handleSendToMochila}
-                    className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all"
-                  >
-                    Mandar p/ Mochila
-                  </motion.button>
-                ) : (
-                  (activeChar?.tocaCreatures || []).length > 0 ? (
-                    <div className="relative group">
-                      <motion.button
-                        whileTap={{ scale: 0.95 }}
-                        className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all cursor-pointer"
-                      >
-                        Enviar p/ Companheiro <ChevronDown size={12} />
-                      </motion.button>
-                      <div className="absolute bottom-full mb-2 right-0 bg-zinc-900 border border-zinc-805 rounded-xl p-1 shadow-xl hidden group-hover:block z-50 min-w-[160px] max-h-48 overflow-y-auto">
-                        <span className="text-[8px] text-zinc-500 font-extrabold uppercase p-1.5 block border-b border-zinc-800">Selecione:</span>
-                        {(activeChar.tocaCreatures || []).map(creature => (
-                          <button
-                            key={creature.id}
-                            onClick={() => handleSendToCompanion(creature.id)}
-                            className="w-full text-left px-2 py-1.5 text-xs text-zinc-300 hover:bg-amber-500 hover:text-zinc-950 rounded-lg font-bold truncate block transition-colors cursor-pointer"
-                          >
-                            {creature.name}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <span className="text-[10px] text-zinc-500 font-extrabold uppercase px-2">Crie um companheiro para enviar</span>
-                  )
-                )}
-                
-                <motion.button
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setCutItem(null)}
-                  className="flex items-center gap-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all border border-zinc-800/80 cursor-pointer"
-                >
-                  Cancelar
-                </motion.button>
-              </div>
-            </motion.div>
-          )}
-
-          {multiClipboard.length > 0 && !selectionMode && (
-            <motion.div
-              initial={{ y: 100, x: "-50%", opacity: 0 }}
-              animate={{ y: 0, x: "-50%", opacity: 1 }}
-              exit={{ y: 100, x: "-50%", opacity: 0 }}
-              className="fixed bottom-6 left-1/2 z-[100] flex items-center gap-3 bg-zinc-900 border border-emerald-500/50 p-4 rounded-xl shadow-2xl shadow-emerald-500/20 ring-1 ring-emerald-500/20"
-            >
-              <div className="flex flex-col">
-                <span className="text-emerald-500 font-black text-[10px] uppercase tracking-[0.2em]">
-                  {multiClipboard.length} {multiClipboard.length === 1 ? "Item" : "Itens"} no Clipboard
-                </span>
-                <span className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">Pronto para colar</span>
-              </div>
-              <div className="h-8 w-px bg-zinc-800 mx-1" />
-              <div className="flex items-center gap-2">
-                <motion.button
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handlePasteSelected}
-                  className="flex items-center gap-2 bg-emerald-500 text-zinc-950 px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all hover:bg-emerald-400 active:scale-95"
-                >
-                  <Plus size={14} />
-                  Colar Todos
-                </motion.button>
-                <motion.button
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setMultiClipboard([])}
-                  className="flex items-center gap-2 bg-zinc-800 text-zinc-400 px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all hover:bg-zinc-700 hover:text-zinc-200 border border-zinc-700"
-                >
-                  <Trash2 size={14} />
-                  Limpar
-                </motion.button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </main>
-
-      {lastRoll && (
-        <div
-          onClick={() => setLastRoll(null)}
-          className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] cursor-pointer p-4 backdrop-blur-sm"
-        >
-          <div
-            className={cn(
-              "bg-zinc-900 border-2 border-amber-500 rounded-3xl flex flex-col items-center pointer-events-auto shadow-2xl overflow-y-auto max-h-full custom-scrollbar",
-              lastRoll.isCombat
-                ? "max-w-md w-full"
-                : "max-w-[280px] w-full p-8 gap-4",
-            )}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {lastRoll.isCombat ? (
-              <div className="w-full">
-                {/* Combat Banner */}
-                <div className={cn(
-                  "p-3 flex flex-col items-center justify-center text-center border-b border-zinc-800/60 rounded-t-[22px]",
-                  lastRoll.hitSucceeded === false 
-                    ? (
-                        getDetailedCombatTitle(lastRoll).includes("defendeu") 
-                          ? "bg-gradient-to-r from-blue-950/90 to-indigo-950/90 border-b border-blue-500/20" 
-                          : "bg-zinc-800"
-                      ) 
-                    : "bg-gradient-to-r from-amber-600 to-amber-500"
-                )}>
-                  <div className="flex items-center gap-2">
-                    <Sword size={12} className={lastRoll.hitSucceeded === false ? "text-blue-400" : "text-zinc-950"} />
-                    <span className={cn(
-                      "text-[9px] font-black uppercase tracking-widest opacity-85",
-                      lastRoll.hitSucceeded === false ? "text-zinc-400" : "text-zinc-900"
-                    )}>
-                      {lastRoll.armaNome || "Ataque"}
-                    </span>
-                  </div>
-                  <span className={cn(
-                    "text-xs font-black uppercase tracking-widest mt-1",
-                    lastRoll.hitSucceeded === false ? "text-zinc-100" : "text-zinc-950"
-                  )}>
-                    {getDetailedCombatTitle(lastRoll)}
-                  </span>
-                </div>
-
-                {lastRoll.combatNote && (
-                  <div className="mx-4 mt-4 p-2 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-center gap-2 animate-pulse">
-                    <Zap size={14} className="text-amber-500" />
-                    <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest text-center">
-                      {lastRoll.combatNote}
-                    </span>
-                  </div>
-                )}
-
-                <div className="p-4 space-y-4">
-                  {/* Results Row */}
-                  <div className={cn(
-                    "grid gap-3",
-                    (lastRoll.defenseRolls && lastRoll.hitSucceeded !== false) ? "grid-cols-3" : 
-                    ((lastRoll.hitSucceeded === false && !lastRoll.defenseRolls) ? "grid-cols-1" : "grid-cols-2")
-                  )}>
-                    <div className={cn(
-                      "flex flex-col items-center p-2.5 rounded-xl border border-zinc-800 transition-all shadow-lg",
-                      lastRoll.hitSucceeded === false ? "bg-zinc-950/30 opacity-60" : "bg-amber-500/5 border-amber-500/20"
-                    )}>
-                      <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest mb-1">
-                        Acurácia
-                      </span>
-                      <div className="flex items-baseline gap-1">
-                        <span className={cn(
-                          "text-3xl font-black",
-                          lastRoll.hitSucceeded === false ? "text-zinc-500" : "text-amber-500"
-                        )}>
-                          {lastRoll.hitResult}
-                        </span>
-                      </div>
-                      <span className="text-[7px] font-black text-zinc-500 uppercase tracking-tighter mt-1 opacity-80 text-center line-clamp-1">
-                        {lastRoll.hitFormula}
-                      </span>
-                    </div>
-
-                    {lastRoll.defenseRolls && (
-                      <div className="flex flex-col items-center p-2.5 rounded-xl border border-blue-500/20 bg-blue-500/5 transition-all shadow-lg">
-                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest mb-1">
-                          Defesa
-                        </span>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-3xl font-black text-blue-500">
-                            {lastRoll.defenseResult}
-                          </span>
-                        </div>
-                        <span className="text-[7px] font-black text-zinc-500 uppercase tracking-tighter mt-1 opacity-80 text-center line-clamp-1">
-                          Rolagem
-                        </span>
-                      </div>
-                    )}
-
-                    {lastRoll.hitSucceeded !== false && (
-                      <div className="flex flex-col items-center p-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 transition-all shadow-lg">
-                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest mb-1">
-                          Dano Total
-                        </span>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-3xl font-black text-emerald-500">
-                            {lastRoll.dmgResult}
-                          </span>
-                        </div>
-                        <span className="text-[7px] font-black text-zinc-500 uppercase tracking-tighter mt-1 opacity-80 text-center line-clamp-1">
-                          {lastRoll.dmgFormula || "Aplicação"}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Hit Location Row */}
-                  {lastRoll.hitLocation && (
-                    <div className="bg-zinc-950/40 p-2 rounded-xl border border-amber-500/10 flex items-center justify-between px-4">
-                      <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">
-                        Alvo: <span className="text-zinc-100 ml-1">{lastRoll.hitLocation}</span>
-                      </span>
-                      <Target size={12} className="text-amber-500 opacity-50" />
-                    </div>
-                  )}
-
-                  {/* Dice Results Grid */}
-                  <div className={cn(
-                    "grid gap-4 bg-zinc-950/30 p-3 rounded-xl border border-zinc-800/50",
-                    (lastRoll.defenseRolls && lastRoll.hitSucceeded !== false) ? "grid-cols-3" : 
-                    ((lastRoll.hitSucceeded === false && !lastRoll.defenseRolls) ? "grid-cols-1" : "grid-cols-2")
-                  )}>
-                    <div className="space-y-2">
-                      <span className="text-[7px] font-black text-zinc-500 uppercase tracking-widest block text-center opacity-70">
-                        Acurácia
-                      </span>
-                      <div className="flex flex-wrap justify-center gap-1">
-                        {lastRoll.hitRolls?.map((roll, idx) => (
-                          <div
-                            key={idx}
-                            className={cn(
-                              "w-6 h-6 rounded flex items-center justify-center font-black text-[9px] shadow-sm border relative",
-                              roll === 1 ? "bg-red-500/10 border-red-500/30 text-red-400" : 
-                              roll === 8 ? "bg-amber-500/10 border-amber-500/30 text-amber-400" :
-                              "bg-zinc-800 border-zinc-700 text-zinc-100"
-                            )}
-                          >
-                            <span className="relative z-10">{roll}</span>
-                          </div>
-                        ))}
-                        <div className="w-6 h-6 bg-zinc-500/5 border border-zinc-500/20 rounded flex items-center justify-center text-zinc-500 font-black text-[8px]">
-                          {lastRoll.hitBonus! >= 0 ? "+" : ""}{lastRoll.hitBonus}
-                        </div>
-                      </div>
-                    </div>
-
-                    {lastRoll.defenseRolls && lastRoll.defenseRolls.length > 0 && (
-                      <div className="space-y-2 border-l border-zinc-800/50 pl-2">
-                        <span className="text-[7px] font-black text-zinc-500 uppercase tracking-widest block text-center opacity-70">
-                          Defesa
-                        </span>
-                        <div className="flex flex-wrap justify-center gap-1">
-                          {lastRoll.defenseRolls.map((roll, idx) => (
-                            <div
-                              key={idx}
-                              className={cn(
-                                "w-6 h-6 rounded flex items-center justify-center font-black text-[9px] shadow-sm border relative",
-                                roll === 8 ? "bg-blue-400/10 border-blue-400/30 text-blue-400" :
-                                "bg-zinc-800 border-zinc-700 text-zinc-400"
-                              )}
-                            >
-                              <span className="relative z-10">{roll}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {lastRoll.hitSucceeded !== false && (
-                      <div className={cn(
-                        "space-y-2",
-                        (lastRoll.defenseRolls && lastRoll.defenseRolls.length > 0) ? "border-l border-zinc-800/50 pl-2" : ""
-                      )}>
-                        <span className="text-[7px] font-black text-zinc-500 uppercase tracking-widest block text-center opacity-70">
-                          Dano
-                        </span>
-                        <div className="flex flex-wrap justify-center gap-1">
-                          {lastRoll.dmgRolls?.length === 0 ? (
-                            <span className="text-[8px] font-bold text-zinc-600 uppercase">Fixo</span>
-                          ) : (
-                            lastRoll.dmgRolls?.map((roll, idx) => (
-                              <div
-                                key={idx}
-                                className="w-6 h-6 bg-zinc-900 border border-zinc-800 rounded flex items-center justify-center text-zinc-300 font-bold text-[9px] shadow-sm"
-                              >
-                                {roll}
-                              </div>
-                            ))
-                          )}
-                          <div className="w-6 h-6 bg-emerald-500/10 border border-emerald-500/20 rounded flex items-center justify-center text-emerald-500 font-bold text-[8px]">
-                            {lastRoll.dmgBonus! >= 0 ? "+" : ""}{lastRoll.dmgBonus}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-
-                  <motion.button
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setLastRoll(null)}
-                    className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-black text-[10px] uppercase tracking-widest rounded-lg transition-all border border-zinc-700/50"
-                  >
-                    Fechar Resultado
-                  </motion.button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">
-                    {lastRoll.formula}
-                  </span>
-                  <span className="text-6xl font-black text-amber-500">
-                    {lastRoll.result}
-                  </span>
-                </div>
-
-                {lastRoll.rolls.length > 1 && (
-                  <div className="w-full space-y-2">
-                    <div className="h-px bg-zinc-800 w-full" />
-                    <div className="flex flex-wrap justify-center gap-1.5">
-                      {lastRoll.rolls.map((roll, idx) => (
-                        <div
-                          key={idx}
-                          className="w-8 h-8 bg-zinc-800 border border-zinc-700 rounded-lg flex items-center justify-center text-zinc-300 font-bold text-xs relative"
-                        >
-                          <DiceImage sides={lastRoll.sides || 6} className="absolute inset-0 w-full h-full opacity-10" />
-                          <span className="relative z-10">{roll}</span>
-                        </div>
-                      ))}
-                      {lastRoll.bonus !== 0 && (
-                        <div className="w-8 h-8 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-center text-amber-500 font-bold text-xs">
-                          {lastRoll.bonus > 0
-                            ? `+${lastRoll.bonus}`
-                            : lastRoll.bonus}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      <AnimatePresence>
-        {selectedGalleryImage && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[300] bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center p-4 md:p-12 cursor-zoom-out"
-            onClick={() => setSelectedGalleryImage(null)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="relative max-w-full max-h-full flex flex-col items-center gap-4"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between w-full max-w-3xl bg-zinc-900/80 backdrop-blur border border-zinc-800 px-4 py-2.5 rounded-2xl">
-                <span className="text-zinc-200 font-bold text-sm truncate">
-                  {selectedGalleryImage.titulo || "Imagem da Galeria"}
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      const newImgs = activeChar.imagens.filter(
-                        (i: any) => i.id !== selectedGalleryImage.id,
-                      );
-                      updateChar({ imagens: newImgs });
-                      setSelectedGalleryImage(null);
-                      showToast("Imagem apagada com sucesso!", "success");
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/90 hover:bg-red-600 text-white font-bold rounded-xl text-xs uppercase transition-all shadow-md active:scale-95"
-                  >
-                    <Trash2 size={13} />
-                    <span>Apagar</span>
-                  </button>
-                  <button
-                    onClick={() => setSelectedGalleryImage(null)}
-                    className="w-7 h-7 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg flex items-center justify-center transition-colors"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              </div>
-              
-              <img
-                src={selectedGalleryImage.url}
-                alt="Zoom"
-                className="max-w-full max-h-[75vh] rounded-2xl shadow-2xl object-contain border border-zinc-800"
-                referrerPolicy="no-referrer"
-              />
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {toast && toast.message && (
-          <motion.div
-            initial={{ opacity: 0, y: 50, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.9 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 border border-zinc-700/50 backdrop-blur-md bg-zinc-900/90 text-white"
-          >
-            {toast.type === "error" && (
-              <Zap size={18} className="text-red-500" />
-            )}
-            {toast.type === "success" && (
-              <RotateCw size={18} className="text-emerald-500 animate-spin" />
-            )}
-            {toast.type === "info" && (
-              <Zap size={18} className="text-blue-500" />
-            )}
-            <span className="font-bold text-sm tracking-tight">
-              {toast.message}
-            </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {selectedItems.size > 0 && selectionMode && (
-          <motion.div
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[300] bg-zinc-900 border border-amber-500/50 p-4 rounded-2xl shadow-2xl flex items-center gap-4 backdrop-blur-xl"
-          >
-            <div className="flex flex-col">
-              <span className="text-[10px] font-black text-amber-500 uppercase tracking-tighter">
-                {selectedItems.size} ITENS SELECIONADOS
-              </span>
-            </div>
-            <div className="h-8 w-px bg-zinc-800" />
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={() => {
-                if (activeChar) copySelected(activeChar);
-              }}
-              className="bg-amber-500 text-zinc-950 px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-amber-400 transition-colors"
-            >
-              <Copy size={18} />
-              Copiar Selecionados
-            </motion.button>
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={toggleSelectionMode}
-              className="bg-zinc-800 text-zinc-400 px-4 py-2 rounded-xl font-bold text-sm hover:bg-zinc-700 transition-colors"
-            >
-              Cancelar
-            </motion.button>
-          </motion.div>
-        )}
-
-        {multiClipboard.length > 0 && !selectionMode && (
-          <motion.div
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[300] bg-zinc-900 border border-emerald-500/50 p-4 rounded-2xl shadow-2xl flex items-center gap-4 backdrop-blur-xl"
-          >
-            <div className="flex flex-col">
-              <span className="text-[10px] font-black text-emerald-500 uppercase tracking-tighter">
-                {multiClipboard.length} ITENS NO CLIPBOARD
-              </span>
-            </div>
-            <div className="h-8 w-px bg-zinc-800" />
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={handlePasteSelected}
-              className="bg-emerald-500 text-zinc-950 px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-emerald-400 transition-colors"
-            >
-              <Plus size={18} />
-              Colar Todos
-            </motion.button>
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setMultiClipboard([])}
-              className="bg-zinc-800 text-zinc-400 px-4 py-2 rounded-xl font-bold text-sm hover:bg-zinc-700 transition-colors"
-            >
-              Limpar
-            </motion.button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {isQuotaModalOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[400] bg-zinc-950/90 backdrop-blur-md flex items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.95, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 20 }}
-              className="bg-zinc-900 border-2 border-amber-550 rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-2xl relative overflow-hidden text-zinc-300"
-            >
-              {/* Decorative forge elements */}
-              <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-amber-600 via-amber-400 to-amber-600" />
-              
-              <button
-                onClick={() => setIsQuotaModalOpen(false)}
-                className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-200 transition-colors p-1"
-                aria-label="Fechar"
-              >
-                <X size={18} />
-              </button>
-
-              <div className="flex flex-col items-center text-center gap-4">
-                <div className="w-16 h-16 bg-amber-500/10 border-2 border-amber-500/40 rounded-full flex items-center justify-center text-amber-500 animate-pulse">
-                  <Flame size={32} />
-                </div>
-
-                <div className="space-y-2">
-                  <h3 className="text-xl md:text-2xl font-black text-amber-500 uppercase tracking-wider font-sans">
-                    Cota do Supabase Excedida
-                  </h3>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                    Mensagem de Hefesto, o Ferreiro das Almas
-                  </p>
-                </div>
-
-                <div className="w-full h-px bg-zinc-800" />
-
-                <div className="text-zinc-300 text-sm font-medium leading-relaxed space-y-4">
-                  <p>
-                    A cota de banco de dados do <span className="text-amber-400 font-bold">Supabase</span> foi esgotada ou o limite de requisições foi atingido temporariamente.
-                  </p>
-                  <p className="bg-zinc-950/60 p-4 border border-zinc-800 rounded-xl text-zinc-400 text-xs text-left leading-normal">
-                    🔥 <strong className="text-zinc-300 font-bold">Não entre em desespero!</strong> Hefesto salvou todas as suas fichas de personagem, campanhas e rolagens com total segurança no armazenamento offline do seu navegador (<strong className="text-amber-500/80">Local Storage</strong>).
-                  </p>
-                  <p className="text-xs text-zinc-400">
-                    Você pode continuar jogando, editando fichas e rolando dados normalmente! Suas alterações serão guardadas localmente e enviadas à nuvem de forma automática assim que os limites forem restaurados.
-                  </p>
-                </div>
-
-                <div className="w-full h-px bg-zinc-800 mt-2" />
-
-                <div className="flex flex-col sm:flex-row gap-3 w-full mt-4">
-                  <button
-                    onClick={() => setIsQuotaModalOpen(false)}
-                    className="flex-1 px-4 py-2.5 bg-amber-550 hover:bg-amber-500 text-zinc-950 font-black uppercase tracking-wider rounded-xl text-xs transition-all shadow-[0_0_15px_rgba(245,158,11,0.2)] active:scale-95"
-                  >
-                    Continuar em Modo Offline
-                  </button>
-
-                  {isQuotaExceeded && (
-                    <button
-                      onClick={() => {
-                        setSupabaseQuotaExceeded(false);
-                        setIsQuotaModalOpen(false);
-                        showToast("Cota simulada como restaurada!", "success");
-                      }}
-                      className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 font-bold rounded-xl text-xxs-tight uppercase transition-colors"
-                    >
-                      Restaurar (Debug)
-                    </button>
-                  )}
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {masterReminderModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[400] bg-zinc-950/90 backdrop-blur-md flex items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.95, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 20 }}
-              className="bg-zinc-900 border-2 border-purple-500 rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-2xl relative overflow-hidden text-zinc-300"
-            >
-              {/* Decorative forge elements */}
-              <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-purple-600 via-purple-400 to-purple-600" />
-              
-              <button
-                onClick={() => setMasterReminderModal(null)}
-                className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-200 transition-colors p-1"
-                aria-label="Fechar"
-              >
-                <X size={18} />
-              </button>
-
-              <div className="flex flex-col items-center text-center gap-4">
-                <div className="w-16 h-16 bg-purple-500/10 border-2 border-purple-500/40 rounded-full flex items-center justify-center text-purple-400 animate-pulse">
-                  <Shield size={32} />
-                </div>
-
-                <div className="space-y-2">
-                  <h3 className="text-xl md:text-2xl font-black text-purple-400 uppercase tracking-wider font-sans">
-                    Lembrete do Mestre
-                  </h3>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                    Hora do Jogo: {formatTime(masterReminderModal.hour, 0)}
-                  </p>
-                </div>
-
-                <div className="w-full h-px bg-zinc-800" />
-
-                <div className="text-zinc-300 text-sm font-medium leading-relaxed space-y-4 w-full">
-                  {masterReminderModal.showHungerThirst && (
-                    <div className="bg-zinc-950/60 p-4 border border-orange-500/20 rounded-xl text-left leading-normal">
-                      <div className="flex items-center gap-2 mb-1.5 text-orange-400 font-bold uppercase tracking-wider text-xs">
-                        <Flame size={14} /> Dados de Fome e Sede
-                      </div>
-                      <p className="text-zinc-400 text-xs">
-                        A hora atingiu <strong className="text-zinc-200 font-bold">{formatTime(masterReminderModal.hour, 0)}</strong>. Lembre os jogadores de rolarem os dados de <strong className="text-orange-400/90 font-bold">Fome e Sede</strong>!
-                      </p>
-                    </div>
-                  )}
-
-                  {masterReminderModal.showFatigue && (
-                    <div className="bg-zinc-950/60 p-4 border border-blue-500/20 rounded-xl text-left leading-normal">
-                      <div className="flex items-center gap-2 mb-1.5 text-blue-400 font-bold uppercase tracking-wider text-xs">
-                        <Moon size={14} /> Dado de Cansaço
-                      </div>
-                      <p className="text-zinc-400 text-xs">
-                        A hora atingiu <strong className="text-zinc-200 font-bold">{formatTime(masterReminderModal.hour, 0)}</strong>. Lembre os jogadores de rolarem o dado de <strong className="text-blue-400/90 font-bold">Cansaço</strong>!
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="w-full h-px bg-zinc-800 mt-2" />
-
-                <div className="flex flex-col sm:flex-row gap-3 w-full mt-4">
-                  <button
-                    onClick={() => setMasterReminderModal(null)}
-                    className="flex-1 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-black uppercase tracking-wider rounded-xl text-xs transition-all shadow-[0_0_15px_rgba(147,51,234,0.2)] active:scale-95"
-                  >
-                    Entendido, Mestre
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b; }
-      `}</style>
-    </div>
-  );
-}
-
-const SubSection = React.memo(({
-  title,
-  icon,
-  children,
-  defaultCollapsed = true,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-  defaultCollapsed?: boolean;
-}) => {
-  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
-  const hasChildren = React.Children.toArray(children).some(
-    (child) => child !== null,
-  );
-
-  if (!hasChildren) return null;
-
-  return (
-    <div className="border border-zinc-800 rounded-lg bg-zinc-900/20">
-      <div
-        className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-zinc-800/30 transition-colors bg-zinc-800/20"
-        onClick={() => setIsCollapsed(!isCollapsed)}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-amber-500 shrink-0">{icon}</span>
-          <h4 className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 truncate safe-lock">
-            {title}
-          </h4>
-        </div>
-        {isCollapsed ? (
-          <ChevronDown size={14} className="text-zinc-500" />
         ) : (
-          <ChevronUp size={14} className="text-zinc-500" />
-        )}
-      </div>
-      <AnimatePresence initial={false}>
-        {!isCollapsed && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="!overflow-visible"
-          >
-            <div className="p-2 space-y-2 border-t border-zinc-800 !overflow-visible">
-              {children}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-});
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <p className="text-zinc-500 italic">Página desconhecida ou em desenvolvimento.</p>
+          </div>
+        );
+      };
 
-const Section = React.memo(({
-  title,
-  icon,
-  children,
-  collapsible = false,
-  defaultCollapsed = false,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-  collapsible?: boolean;
-  defaultCollapsed?: boolean;
-}) => {
-  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
-  return (
-    <div className="bg-zinc-900/30 border-y sm:border border-zinc-800 sm:rounded-xl -mx-4 sm:mx-0">
+      return renderOtherPages();
+    })()}
+  </main>
+
+  <PrintSheetModal
+    isOpen={isPrintModalOpen}
+    onClose={() => setIsPrintModalOpen(false)}
+    character={activeChar}
+    stats={stats}
+    vidaMax={vidaMax}
+    manaMax={manaMax}
+    sanidadeMax={sanidadeMax}
+    cargaMax={cargaMax}
+    deslocamentoFinal={deslocamentoFinal}
+    pesoTotal={pesoTotal}
+    climateProficiency={climateProficiency}
+  />
+
+  {activeNoteImageModal && (
+    <div
+      className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200"
+      onClick={() => setActiveNoteImageModal(null)}
+    >
       <div
-        className={cn(
-          "px-4 py-3 flex items-center justify-between border-b border-zinc-800 bg-zinc-900/50",
-          collapsible && "cursor-pointer hover:bg-zinc-800/50",
-        )}
-        onClick={() => collapsible && setIsCollapsed(!isCollapsed)}
+        className="relative max-w-5xl w-full max-h-[90vh] flex flex-col items-center justify-center bg-zinc-950/90 border border-zinc-800 rounded-2xl p-4 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-amber-500 shrink-0">{icon}</span>
-          <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-300 truncate safe-lock">
-            {title}
+        {/* Cabeçalho do Modal da Imagem */}
+        <div className="w-full flex items-center justify-between pb-3 mb-2 border-b border-zinc-800/80">
+          <h3 className="text-sm font-bold text-amber-500 uppercase tracking-wider flex items-center gap-2 truncate">
+            <Image size={18} />
+            {activeNoteImageModal.title || "Visualizar Imagem"}
           </h3>
-        </div>
-        {collapsible &&
-          (isCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />)}
-      </div>
-      <AnimatePresence initial={false}>
-        {!isCollapsed && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="!overflow-visible"
-          >
-            <div className="p-4 !overflow-visible">{children}</div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-});
-
-const Input = React.memo(({
-  label,
-  value,
-  onChange,
-  className,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  className?: string;
-  placeholder?: string;
-}) => {
-  return (
-    <div className={className}>
-      <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-        {label}
-      </label>
-      <textarea
-        value={value ?? ""}
-        onChange={(e) => onChange(e.target.value)}
-        rows={1}
-        placeholder={placeholder}
-        className="w-full bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all break-words whitespace-normal resize-none overflow-hidden min-h-[38px]"
-        onInput={(e) => {
-          const target = e.target as HTMLTextAreaElement;
-          target.style.height = "auto";
-          target.style.height = `${target.scrollHeight}px`;
-        }}
-      />
-    </div>
-  );
-});
-
-const TextArea = React.memo(({
-  label,
-  value,
-  onChange,
-  className,
-  placeholder,
-  rows,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  className?: string;
-  placeholder?: string;
-  rows?: number;
-}) => {
-  return (
-    <div className={className}>
-      <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-        {label}
-      </label>
-      <textarea
-        value={value ?? ""}
-        onChange={(e) => onChange(e.target.value)}
-        rows={rows ?? 2}
-        placeholder={placeholder}
-        className="w-full bg-zinc-900 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all break-words whitespace-normal resize-none"
-      />
-    </div>
-  );
-});
-
-const ProgressBar = React.memo(({
-  label,
-  current,
-  max,
-  color,
-  onChange,
-}: {
-  label: string;
-  current: number;
-  max: number;
-  color: string;
-  onChange: (v: number) => void;
-}) => {
-  const percent = Math.min(100, (current / max) * 100);
-  const [innerValue, setInnerValue] = useState(current?.toString() ?? "");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (document.activeElement === inputRef.current) return;
-
-    if (
-      current !== undefined &&
-      current !== null &&
-      current.toString() !== innerValue
-    ) {
-      setInnerValue(current.toString());
-    }
-  }, [current]);
-
-  return (
-    <div
-      onDoubleClick={() => current < max && onChange(max)}
-      className="space-y-1 cursor-pointer"
-    >
-      <div className="flex justify-between items-end mb-1.5">
-        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest truncate">
-          {label}
-        </span>
-        <div className="flex items-center gap-1">
-          <input
-            ref={inputRef}
-            type="number"
-            value={innerValue}
-            onDoubleClick={(e) => e.stopPropagation()}
-            onChange={(e) => {
-              setInnerValue(e.target.value);
-              onChange(parseInt(e.target.value) || 0);
-            }}
-            onBlur={() => {
-              if (current !== undefined && current !== null) {
-                setInnerValue(current.toString());
-              }
-            }}
-            className="w-12 bg-transparent text-right font-bold text-sm focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-          />
-          <span
-            className="text-xs text-zinc-600"
-            onDoubleClick={(e) => e.stopPropagation()}
-          >
-            / {max}
-          </span>
-        </div>
-      </div>
-      <div className="h-3 bg-zinc-800 rounded-full p-0.5 border border-zinc-700/50">
-        <motion.div
-          className={cn("h-full rounded-full", color)}
-          initial={{ width: 0 }}
-          animate={{ width: `${percent}%` }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
-        />
-      </div>
-    </div>
-  );
-});
-
-const MiniBar = React.memo(({
-  label,
-  value,
-  max = 100,
-  color,
-  onChange,
-  extra,
-}: {
-  label: string;
-  value: number;
-  max?: number;
-  color: string;
-  onChange: (v: number) => void;
-  extra?: React.ReactNode;
-}) => {
-  const percent = Math.min(100, (value / max) * 100);
-  const [innerValue, setInnerValue] = useState(value?.toString() ?? "");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (document.activeElement === inputRef.current) return;
-
-    if (
-      value !== undefined &&
-      value !== null &&
-      value.toString() !== innerValue
-    ) {
-      setInnerValue(value.toString());
-    }
-  }, [value]);
-
-  return (
-    <div
-      onDoubleClick={() => value < max && onChange(max)}
-      className="bg-zinc-900/50 border border-zinc-800 p-2 rounded-lg cursor-pointer"
-    >
-      <div className="flex items-center justify-between mb-1">
-        <div className="text-[9px] text-zinc-500 font-bold uppercase">
-          {label}
-        </div>
-        {extra}
-      </div>
-      <div className="flex items-center gap-2">
-        <input
-          ref={inputRef}
-          type="number"
-          value={innerValue}
-          onDoubleClick={(e) => e.stopPropagation()}
-          onChange={(e) => {
-            setInnerValue(e.target.value);
-            onChange(parseInt(e.target.value) || 0);
-          }}
-          onBlur={() => {
-            if (value !== undefined && value !== null) {
-              setInnerValue(value.toString());
-            }
-          }}
-          className="w-10 bg-transparent text-xs font-bold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-        />
-      </div>
-      <div className="h-1 bg-zinc-800 rounded-full mt-1 overflow-hidden">
-        <div className={cn("h-full", color)} style={{ width: `${percent}%` }} />
-      </div>
-    </div>
-  );
-});
-
-const WeaponProperties = React.memo(({
-  item,
-  character,
-  updateCharacter,
-  onChange,
-}: {
-  item: any;
-  character: any;
-  updateCharacter?: (fn: any) => void;
-  onChange: (updates: any) => void;
-}) => {
-  const [showTypeSelector, setShowTypeSelector] = React.useState(false);
-  const isFirearm = item.categoria === 'Arma de Fogo';
-  const isBow = item.categoria === 'Arco';
-  const isMelee = item.categoria === 'Arma Branca' || !item.categoria;
-
-  // Find available bullets in internal compartments
-  const internalBullets = (character?.compartimentos || [])
-    .filter((c: any) => !c.externo)
-    .flatMap((c: any) => (c.itens || []))
-    .filter((i: any) => {
-      const n = (i.nome || "").toLowerCase();
-      const t = (i.tipo || "").toLowerCase();
-      return n.includes("bala") || n.includes("munição") || n.includes("projetil") || n.includes("flecha") || t === "munição";
-    });
-
-  const handleConvertType = (newCategory: 'Arma Branca' | 'Arma de Fogo' | 'Arco') => {
-    if (item.categoria === newCategory) return;
-    
-    const updates: any = {
-      categoria: newCategory,
-      atributoBase: newCategory === 'Arma Branca' ? 'Força' : 'Destreza',
-    };
-
-    const oldCat = item.categoria || 'Arma Branca';
-    const customName = item.nome || '';
-    if (customName === `Nova ${oldCat}` || customName === `Novo ${oldCat}` || customName === 'Nova Arma' || !customName) {
-      const article = newCategory === 'Arco' ? 'Novo' : 'Nova';
-      updates.nome = `${article} ${newCategory}`;
-    }
-
-    if (newCategory === 'Arma de Fogo' || newCategory === 'Arco') {
-      updates.municaoTotal = item.municaoTotal !== undefined ? item.municaoTotal : (newCategory === 'Arco' ? 12 : 6);
-      updates.municaoCarregada = item.municaoCarregada !== undefined ? item.municaoCarregada : (newCategory === 'Arco' ? 12 : 6);
-    } else {
-      updates.municaoTotal = undefined;
-      updates.municaoCarregada = undefined;
-      updates.bulletId = undefined;
-    }
-
-    onChange(updates);
-  };
-
-  return (
-    <div className="space-y-2 pt-1 border-t border-zinc-800/30">
-      {/* Mini Seletor de Tipo de Arma */}
-      <div className="flex items-center justify-between bg-zinc-950/20 px-2 py-1 rounded border border-zinc-800/20 relative">
-        <span className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">Tipo/Propriedades</span>
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setShowTypeSelector(!showTypeSelector)}
-            className="flex items-center gap-1 px-2 py-0.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-amber-500 text-[8px] font-black uppercase rounded shadow-sm transition-colors cursor-pointer select-none"
-          >
-            <RotateCw size={8} />
-            <span>{item.categoria || 'Arma Branca'} ▾</span>
-          </button>
-          
-          {showTypeSelector && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowTypeSelector(false)} />
-              <div className="absolute right-0 mt-1 w-28 bg-zinc-950 border border-zinc-800 rounded shadow-xl z-50 py-0.5 font-mono overflow-hidden">
-                {[
-                  { cat: "Arma Branca", icon: <Sword size={10} /> },
-                  { cat: "Arma de Fogo", icon: <Zap size={10} /> },
-                  { cat: "Arco", icon: <Target size={10} /> }
-                ].map((opt) => (
-                  <button
-                    key={opt.cat}
-                    type="button"
-                    onClick={() => {
-                      handleConvertType(opt.cat as any);
-                      setShowTypeSelector(false);
-                    }}
-                    className={cn(
-                      "w-full flex items-center gap-1.5 px-2 py-1 text-[9px] font-bold uppercase transition-colors text-left",
-                      (item.categoria === opt.cat || (opt.cat === 'Arma Branca' && !item.categoria))
-                        ? "bg-amber-500 text-zinc-950"
-                        : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
-                    )}
-                  >
-                    {opt.icon}
-                    <span>{opt.cat}</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-1.5">
-        {!isFirearm ? ( 
-          <MiniInput
-            label="Dano"
-            value={item.dano || "0"}
-            onChange={(v) => onChange({ dano: v })}
-          />
-        ) : (
-          <div className="flex flex-col gap-0.5 bg-zinc-950/30 p-1 rounded border border-dashed border-zinc-800/50 justify-center">
-            <span className="text-[7px] text-zinc-600 font-bold uppercase px-0.5">Dano Arma de Fogo</span>
-            <span className="text-[9px] text-amber-500 font-mono px-0.5">Definido pelas Balas</span>
-          </div>
-        )}
-        <MiniInput
-          label="Acerto"
-          value={item.acerto || 0}
-          type="number"
-          onChange={(v) => onChange({ acerto: parseInt(v) || 0 })}
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-1.5">
-        <MiniInput
-          label="Durabilidade Atual"
-          value={item.durabilidade || 0}
-          type="number"
-          onChange={(v) => onChange({ durabilidade: parseInt(v) || 0 })}
-        />
-        <MiniInput
-          label="Durabilidade Total"
-          value={item.maxDurabilidade || 0}
-          type="number"
-          onChange={(v) => onChange({ 
-            maxDurabilidade: parseInt(v) || 0,
-            durabilidadeMaxUtil: parseInt(v) || 0 
-          })}
-        />
-      </div>
-
-      {!isFirearm && (
-        <div className="grid grid-cols-2 gap-1.5 bg-zinc-950/20 p-1 rounded border border-zinc-800/30">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[7px] text-zinc-600 font-bold uppercase px-0.5">Escala</span>
-            <select
-              value={item.escala || "0"}
-              onChange={(e) => onChange({ escala: e.target.value })}
-              className="bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-[10px] text-amber-500 font-bold focus:outline-none"
+          <div className="flex items-center gap-2">
+            <a
+              href={activeNoteImageModal.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors text-xs flex items-center gap-1 font-bold"
+              title="Abrir em nova aba"
             >
-              {['0', 'D', 'C', 'B', 'A'].map(v => <option key={v} value={v}>{v}</option>)}
-            </select>
-          </div>
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[7px] text-zinc-600 font-bold uppercase px-0.5">Atrib.</span>
-            <select
-              value={item.atributoBase || "Força"}
-              onChange={(e) => onChange({ atributoBase: e.target.value })}
-              className="bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-[10px] text-amber-500 font-bold focus:outline-none"
-            >
-              {['Força', 'Destreza', 'Inteligência', 'Ritual'].map(v => <option key={v} value={v}>{v}</option>)}
-            </select>
-          </div>
-        </div>
-      )}
-
-      {isMelee && (
-        <div className="grid grid-cols-4 gap-1">
-          <MiniInput label="Corte" value={item.corte || 0} type="number" onChange={(v) => onChange({ corte: parseInt(v) || 0 })} />
-          <MiniInput label="Imp." value={item.impacto || 0} type="number" onChange={(v) => onChange({ impacto: parseInt(v) || 0 })} />
-          <MiniInput label="Perf." value={item.perfuracao || 0} type="number" onChange={(v) => onChange({ perfuracao: parseInt(v) || 0 })} />
-          <MiniInput label="Res." value={item.resistencia || 0} type="number" onChange={(v) => onChange({ resistencia: parseInt(v) || 0 })} />
-        </div>
-      )}
-
-      {(isFirearm || isBow) && (
-        <div className="space-y-1.5 border-l-2 border-amber-500/30 pl-2">
-           <div className="grid grid-cols-2 gap-1.5">
-             <MiniInput 
-               label={isBow ? "Aljava/Capac. Total" : "Munição Total"}
-               value={item.municaoTotal || 0} 
-               type="number" 
-               onChange={(v) => onChange({ municaoTotal: parseInt(v) || 0 })} 
-             />
-             <MiniInput 
-               label={isBow ? "Flechas Carregadas" : "No Tambor/Pente"}
-               value={item.municaoCarregada || 0} 
-               type="number" 
-               onChange={(v) => onChange({ municaoCarregada: parseInt(v) || 0 })} 
-             />
-           </div>
-           <div className="flex flex-col gap-0.5">
-             <span className="text-[7px] text-zinc-600 font-bold uppercase px-0.5">
-               {isBow ? "Flecha em Uso (Ativo)" : "Munição em Uso (Membro)"}
-             </span>
-             <select
-               value={item.bulletId || ""}
-               onChange={(e) => onChange({ bulletId: e.target.value })}
-               className="bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-[9px] text-amber-500 font-medium focus:outline-none"
-             >
-               <option value="">Nenhuma selecionada</option>
-               {internalBullets.map(b => (
-                 <option key={b.id} value={b.id}>{b.nome} ({b.quantidade}x)</option>
-               ))}
-             </select>
-           </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-3 gap-1">
-        <MiniInput label="Peso" value={item.peso || 0} type="number" onChange={(v) => onChange({ peso: parseFloat(v) || 0 })} />
-        <MiniInput label="Vol" value={item.volume || 0} type="number" onChange={(v) => onChange({ volume: parseFloat(v) || 0 })} />
-        <MiniInput label="Qtd" value={item.quantidade || 1} type="number" onChange={(v) => onChange({ quantidade: parseInt(v) || 1 })} />
-      </div>
-
-      <div className="flex gap-1 pt-1">
-        <button
-          type="button"
-          onClick={() => onChange({ durabilidade: item.durabilidadeMaxUtil || item.maxDurabilidade || 100 })}
-          className="flex-1 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[8px] font-black uppercase text-zinc-400 border border-zinc-700"
-        >
-          Fazer Manutenção
-        </button>
-        {(isFirearm || isBow) && (
-          <>
+              <Maximize size={16} />
+              <span className="hidden sm:inline">Nova Aba</span>
+            </a>
             <button
-              type="button"
-              onClick={() => {
-                const bullet = internalBullets.find(it => it.id === item.bulletId);
-                if (bullet && bullet.quantidade > 0 && (item.municaoCarregada || 0) < (item.municaoTotal || 0) && updateCharacter) {
-                  const amountToLoad = 1;
-                  const bulletProperties = { perfuracao: bullet.perfuracao || 0, impacto: bullet.impacto || 0, resistencia: bullet.resistencia || 0, nome: bullet.nome, dano: bullet.dano || "0" };
-                  const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...bulletProperties, id: generateId() }));
-                  updateCharacter((c: any) => {
-                    const newCompartimentos = (c.compartimentos || []).map((comp: any) => ({ ...comp, itens: (comp.itens || []).map((i: any) => i.id === bullet.id ? { ...i, quantidade: Math.max(0, i.quantidade - amountToLoad) } : i) }));
-                    const newArmas = (c.armas || []).map((w: any) => w.id === item.id ? { ...w, municaoCarregada: (w.municaoCarregada || 0) + amountToLoad, magazineAmmo: [...(w.magazineAmmo || []), ...ammoToAdd] } : w );
-                    const finalCompartimentos = newCompartimentos.map((comp: any) => ({ ...comp, itens: comp.itens.map((i: any) => i.id === item.id ? { ...i, municaoCarregada: (i.municaoCarregada || 0) + amountToLoad, magazineAmmo: [...(i.magazineAmmo || []), ...ammoToAdd] } : i) }));
-                    return { compartimentos: finalCompartimentos, armas: newArmas };
-                  });
-                }
-              }}
-              className="flex-1 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-[8px] font-black uppercase text-amber-500 border border-amber-500/30"
+              onClick={() => setActiveNoteImageModal(null)}
+              className="p-1.5 text-zinc-400 hover:text-white hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors"
+              title="Fechar"
             >
-              Recarregar 1
+              <X size={20} />
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                const bullet = internalBullets.find(it => it.id === item.bulletId);
-                if (bullet && bullet.quantidade > 0 && (item.municaoCarregada || 0) < (item.municaoTotal || 0) && updateCharacter) {
-                  const needed = (item.municaoTotal || 0) - (item.municaoCarregada || 0);
-                  const amountToLoad = Math.min(bullet.quantidade, needed);
-                  const bulletProperties = { perfuracao: bullet.perfuracao || 0, impacto: bullet.impacto || 0, resistencia: bullet.resistencia || 0, nome: bullet.nome, dano: bullet.dano || "0" };
-                  const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...bulletProperties, id: generateId() }));
-                  updateCharacter((c: any) => {
-                    const newCompartimentos = (c.compartimentos || []).map((comp: any) => ({ ...comp, itens: (comp.itens || []).map((i: any) => i.id === bullet.id ? { ...i, quantidade: Math.max(0, i.quantidade - amountToLoad) } : i) }));
-                    const newArmas = (c.armas || []).map((w: any) => w.id === item.id ? { ...w, municaoCarregada: (w.municaoCarregada || 0) + amountToLoad, magazineAmmo: [...(w.magazineAmmo || []), ...ammoToAdd] } : w );
-                    const finalCompartimentos = newCompartimentos.map((comp: any) => ({ ...comp, itens: comp.itens.map((i: any) => i.id === item.id ? { ...i, municaoCarregada: (i.municaoCarregada || 0) + amountToLoad, magazineAmmo: [...(i.magazineAmmo || []), ...ammoToAdd] } : i) }));
-                    return { compartimentos: finalCompartimentos, armas: newArmas };
-                  });
-                }
-              }}
-              className="flex-1 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-[8px] font-black uppercase text-amber-500 border border-amber-500/30"
-            >
-              Recarregar Tudo
-            </button>
-          </>
-        )}
-      </div>
-
-      <TextArea
-        label="Descrição / Efeitos"
-        value={item.descricao || item.efeito || ""}
-        onChange={(v) => onChange({ descricao: v, efeito: v })}
-      />
-    </div>
-  );
-});
-
-const CatalystProperties = React.memo(({
-  item,
-  onChange,
-}: {
-  item: any;
-  onChange: (updates: any) => void;
-}) => {
-  return (
-    <div className="space-y-4">
-      <div className="bg-zinc-950/30 p-2 rounded-lg border border-zinc-800/50 space-y-2">
-        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
-          Escala
-        </span>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="flex flex-col gap-1">
-            <span className="text-[9px] text-zinc-600 font-bold uppercase">
-              Nível
-            </span>
-            <select
-              value={item.escala || "0"}
-              onChange={(e) => onChange({ escala: e.target.value })}
-              className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-amber-500 font-bold focus:outline-none focus:border-amber-500/50"
-            >
-              <option value="0">0</option>
-              <option value="D">D</option>
-              <option value="C">C</option>
-              <option value="B">B</option>
-              <option value="A">A</option>
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-[9px] text-zinc-600 font-bold uppercase">
-              Bônus
-            </span>
-            <div className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-amber-500 font-bold">
-              Inteligência
-            </div>
           </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <MiniInput
-          label="Feitiço"
-          value={item.feitico || 0}
-          type="number"
-          onChange={(v) => onChange({ feitico: parseInt(v) || 0 })}
-        />
-        <MiniInput
-          label="Elemental"
-          value={item.elemental || 0}
-          type="number"
-          onChange={(v) => onChange({ elemental: parseInt(v) || 0 })}
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <MiniInput
-          label="Magia Negra"
-          value={item.magiaNegra || 0}
-          type="number"
-          onChange={(v) => onChange({ magiaNegra: parseInt(v) || 0 })}
-        />
-        <MiniInput
-          label="Potencial"
-          value={item.potencial || 0}
-          type="number"
-          onChange={(v) => onChange({ potencial: parseInt(v) || 0 })}
-        />
-      </div>
-      <div className="grid grid-cols-3 gap-2">
-        <MiniInput
-          label="Durab."
-          value={item.durabilidade || 0}
-          type="number"
-          onChange={(v) => onChange({ durabilidade: parseInt(v) || 0 })}
-        />
-        <MiniInput
-          label="Peso (x100g)"
-          value={item.peso || 0}
-          type="number"
-          onChange={(v) => onChange({ peso: parseFloat(v) || 0 })}
-        />
-        <MiniInput
-          label="Vol"
-          value={item.volume || 0}
-          type="number"
-          onChange={(v) => onChange({ volume: parseFloat(v) || 0 })}
-        />
-      </div>
-      <TextArea
-        label="Descrição"
-        value={item.descricao || item.efeito || ""}
-        onChange={(v) => onChange({ descricao: v, efeito: v })}
-      />
-    </div>
-  );
-});
-
-const AmmunitionProperties = React.memo(({
-  item,
-  onChange,
-}: {
-  item: any;
-  onChange: (updates: any) => void;
-}) => {
-  const templates = [
-    { name: 'Bala', weight: 0.1, vol: 0.3, dano: '2d6' },
-    { name: 'Flecha (A. Curto)', weight: 0.5, vol: 0.9, dano: '1d6' },
-    { name: 'Flecha (A. Longo)', weight: 0.6, vol: 1.3, dano: '1d8' },
-  ];
-
-  return (
-    <div className="space-y-2 pt-1 border-t border-zinc-800/30">
-      <div className="flex flex-wrap gap-1">
-        {templates.map(tmp => (
-          <motion.button
-            key={tmp.name}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => onChange({ 
-              nome: item.nome === "Nova Munição" ? tmp.name : item.nome, 
-              peso: tmp.weight, 
-              volume: tmp.vol,
-              dano: tmp.dano
-            })}
-            className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-[7px] font-black uppercase text-zinc-400 border border-zinc-700 transition-colors"
-          >
-            {tmp.name}
-          </motion.button>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <MiniInput 
-          label="Dano (ex: 2d6, 1d10)" 
-          value={item.dano || ""} 
-          onChange={(v) => onChange({ dano: v })} 
-        />
-        <MiniInput 
-          label="Perf." 
-          value={item.perfuracao || 0} 
-          type="number" 
-          onChange={(v) => onChange({ perfuracao: parseInt(v) || 0 })} 
-        />
-        <MiniInput 
-          label="Imp." 
-          value={item.impacto || 0} 
-          type="number" 
-          onChange={(v) => onChange({ impacto: parseInt(v) || 0 })} 
-        />
-        <MiniInput 
-          label="Res." 
-          value={item.resistencia || 0} 
-          type="number" 
-          onChange={(v) => onChange({ resistencia: parseInt(v) || 0 })} 
-        />
-        <MiniInput 
-          label="Peso (Un)" 
-          value={item.peso || 0} 
-          type="number" 
-          onChange={(v) => onChange({ peso: parseFloat(v) || 0 })} 
-        />
-        <MiniInput 
-          label="Vol (Un)" 
-          value={item.volume || 0} 
-          type="number" 
-          onChange={(v) => onChange({ volume: parseFloat(v) || 0 })} 
-        />
-        <div className="col-span-2">
-          <TextArea
-            label="Efeito / Descrição"
-            value={item.efeito || item.descricao || ""}
-            onChange={(v) => onChange({ efeito: v, descricao: v })}
+        {/* Conteúdo da Imagem Expandida */}
+        <div className="relative flex-1 w-full flex items-center justify-center overflow-auto max-h-[78vh] rounded-xl bg-zinc-900/50 p-2">
+          <img
+            src={activeNoteImageModal.url}
+            alt={activeNoteImageModal.title || "Imagem Expandida"}
+            className="max-h-[75vh] max-w-full object-contain rounded-lg shadow-2xl"
           />
         </div>
       </div>
     </div>
-  );
-});
-
-const ArmorProperties = React.memo(({
-  item,
-  onChange,
-}: {
-  item: any;
-  onChange: (updates: any) => void;
-}) => {
-  return (
-    <div className="space-y-2">
-      {item.tipo !== "Acessório" && item.tipo !== "Acessórios" && (
-        <div className="grid grid-cols-3 gap-2">
-          <MiniInput
-            label="Corte"
-            value={item.corte || 0}
-            type="number"
-            onChange={(v) => onChange({ corte: parseInt(v) || 0 })}
-          />
-          <MiniInput
-            label="Impacto"
-            value={item.impacto || 0}
-            type="number"
-            onChange={(v) => onChange({ impacto: parseInt(v) || 0 })}
-          />
-          <MiniInput
-            label="Perf."
-            value={item.perfuracao || 0}
-            type="number"
-            onChange={(v) => onChange({ perfuracao: parseInt(v) || 0 })}
-          />
-        </div>
-      )}
-      <div className="grid grid-cols-4 gap-2">
-        <MiniInput
-          label="Durab."
-          value={item.durabilidade || 0}
-          type="number"
-          onChange={(v) => onChange({ durabilidade: parseInt(v) || 0 })}
-        />
-        <MiniInput
-          label="Peso (x100g)"
-          value={item.peso || 0}
-          type="number"
-          onChange={(v) => onChange({ peso: parseFloat(v) || 0 })}
-        />
-        <MiniInput
-          label="Vol"
-          value={item.volume || 0}
-          type="number"
-          onChange={(v) => onChange({ volume: parseFloat(v) || 0 })}
-        />
-        <MiniInput
-          label="Redução de Dano"
-          value={item.reducaoDano || 0}
-          type="number"
-          onChange={(v) => onChange({ reducaoDano: parseInt(v) || 0 })}
-        />
-      </div>
-
-      <TextArea
-        label="Descrição"
-        value={item.descricao || item.efeito || ""}
-        onChange={(v) => onChange({ descricao: v, efeito: v })}
-      />
-    </div>
-  );
-});
-
-const NumericInput = React.memo(({
-  label,
-  value,
-  onChange,
-  className,
-  min,
-  max,
-  size = "md",
-}: {
-  label?: string;
-  value: number;
-  onChange: (v: number) => void;
-  className?: string;
-  min?: number;
-  max?: number;
-  size?: "sm" | "md" | "lg";
-}) => {
-  const [innerValue, setInnerValue] = useState(value?.toString() ?? "");
-
-  useEffect(() => {
-    if (
-      value !== undefined &&
-      value !== null &&
-      value.toString() !== innerValue
-    ) {
-      if (value === 0 && innerValue === "") return;
-      if (value === 0 && innerValue === "-") return;
-      setInnerValue(value.toString());
-    }
-  }, [value, innerValue]);
-
-  return (
-    <div className={cn("flex flex-col min-w-0", className)}>
-      {label && (
-        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 truncate">
-          {label}
-        </label>
-      )}
-      <input
-        type="text"
-        inputMode="numeric"
-        value={innerValue}
-        onChange={(e) => {
-          const val = e.target.value
-            .replace(/[^0-9.,-]/g, "")
-            .replace(",", ".");
-          setInnerValue(val);
-          onChange(parseFloat(val) || 0);
-        }}
-        className={cn(
-          "bg-black/40 border border-zinc-700/50 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-400 font-bold text-center w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none shadow-inner",
-          size === "sm" && "py-1 px-1 text-sm",
-          size === "md" && "py-2 px-2 text-base",
-          size === "lg" && "py-3 px-1 text-3xl",
-        )}
-      />
-    </div>
-  );
-});
-
-const MiniInput = React.memo(({
-  label,
-  value,
-  type = "text",
-  onChange,
-  disabled,
-}: {
-  label: string;
-  value: any;
-  type?: string;
-  onChange: (v: string) => void;
-  disabled?: boolean;
-}) => {
-  const [innerValue, setInnerValue] = useState(value?.toString() ?? "");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    const isFocused = document.activeElement === inputRef.current || document.activeElement === textareaRef.current;
-    if (isFocused) return;
-
-    if (
-      value !== undefined &&
-      value !== null &&
-      value.toString() !== innerValue
-    ) {
-      setInnerValue(value.toString());
-    }
-  }, [value]);
-
-  return (
-    <div
-      className={cn(
-        "flex flex-col min-w-0 transition-opacity",
-        disabled && "opacity-40 grayscale pointer-events-none",
-      )}
-    >
-      <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter mb-0.5 truncate">
-        {label}
-      </span>
-      {type === "text" ? (
-        <textarea
-          ref={textareaRef}
-          value={innerValue}
-          disabled={disabled}
-          onChange={(e) => {
-            setInnerValue(e.target.value);
-            onChange(e.target.value);
-          }}
-          onBlur={() => {
-            if (value !== undefined && value !== null) {
-              setInnerValue(value.toString());
-            }
-          }}
-          rows={1}
-          className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 break-words whitespace-normal resize-none overflow-hidden min-h-[20px] w-full"
-          onInput={(e) => {
-            const target = e.target as HTMLTextAreaElement;
-            target.style.height = "auto";
-            target.style.height = `${target.scrollHeight}px`;
-          }}
-        />
-      ) : (
-        <input
-          ref={inputRef}
-          type="text"
-          inputMode="numeric"
-          value={innerValue}
-          disabled={disabled}
-          onChange={(e) => {
-            const val = e.target.value
-              .replace(/[^0-9.,-]/g, "")
-              .replace(",", ".");
-            setInnerValue(val);
-            onChange(val);
-          }}
-          onBlur={() => {
-            if (value !== undefined && value !== null) {
-              setInnerValue(value.toString());
-            }
-          }}
-          className="bg-transparent text-sm font-bold focus:outline-none border-b border-zinc-800 focus:border-amber-500/50 w-full min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-        />
-      )}
-    </div>
-  );
-});
+  )}
+</div>
+);
+}

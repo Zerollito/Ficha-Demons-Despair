@@ -1,4 +1,4 @@
-import { supabase, auth, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, onSnapshot } from '../lib/supabase';
+import { supabase, auth, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, onSnapshot, safeLocalStorageSetItem } from '../lib/supabase';
 import { Campaign, Character } from '../types';
 import { generateInviteCode } from '../lib/random';
 
@@ -406,9 +406,63 @@ export const getLocalCampaignCharacters = (campaignId: string): Character[] => {
   return [];
 };
 
+export const optimizeCharactersForCache = (characters: Character[]): Character[] => {
+  if (!characters) return [];
+  return characters.map(char => {
+    try {
+      // 1. Shallow copy
+      const optimized = { ...char };
+      
+      // 2. Clear out the gallery array (imagens) as it's not needed in VTT/campaign summary cache
+      if (optimized.imagens && optimized.imagens.length > 0) {
+        optimized.imagens = [];
+      }
+      
+      // 3. Keep notes (anotacoes) but clear/truncate them
+      if (optimized.anotacoes && optimized.anotacoes.length > 0) {
+        optimized.anotacoes = optimized.anotacoes.map(n => ({
+          ...n,
+          conteudo: n.conteudo && n.conteudo.length > 100 ? n.conteudo.substring(0, 100) + '...' : n.conteudo
+        }));
+      }
+      
+      // 4. Recursively clean huge base64 strings
+      const cleanObject = (obj: any): any => {
+        if (!obj) return obj;
+        if (typeof obj === 'string') {
+          if (obj.startsWith('data:image/') && obj.length > 100000) {
+            // Remove excessive base64 images from campaign characters cache to save storage space
+            return "";
+          }
+          return obj;
+        }
+        if (Array.isArray(obj)) {
+          return obj.map(item => cleanObject(item));
+        }
+        if (typeof obj === 'object') {
+          const cleaned: any = {};
+          for (const k in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, k)) {
+              cleaned[k] = cleanObject(obj[k]);
+            }
+          }
+          return cleaned;
+        }
+        return obj;
+      };
+      
+      return cleanObject(optimized) as Character;
+    } catch (err) {
+      console.error("Error optimizing character for cache:", err);
+      return char;
+    }
+  });
+};
+
 export const saveLocalCampaignCharacters = (campaignId: string, characters: Character[]) => {
   try {
-    localStorage.setItem(`campaign_characters_${campaignId}`, JSON.stringify(characters));
+    const optimized = optimizeCharactersForCache(characters);
+    safeLocalStorageSetItem(`campaign_characters_${campaignId}`, JSON.stringify(optimized));
   } catch (e) {
     console.error("Error saving local campaign characters:", e);
   }

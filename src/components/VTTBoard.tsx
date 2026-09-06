@@ -6,6 +6,7 @@ import Konva from 'konva';
 import { TableToken, TableConfig, Character, MonsterAction, NegativeEffect } from '../types';
 import { updateTokenPosition, addCombatLog, subscribeToCombatLogs } from '../services/vttService';
 import { saveCharacterToFirestore } from '../services/characterService';
+import { optimizeCharactersForCache } from '../services/campaignService';
 import { Shield, User, Trash2, Plus, Settings, ZoomIn, ZoomOut, Maximize, Eye, EyeOff, Upload, ChevronLeft, ChevronRight, Skull, Info, Heart, Minus, FileText, Zap, Dices, Swords, AlertTriangle, RefreshCw, Calendar, Clock, Sun, Cloud, Wind, Snowflake, Target, X, Package, PawPrint, ChevronUp, ChevronDown, GripHorizontal } from 'lucide-react';
 import { randomInt, randomElement, generateId, secureRandom } from '../lib/random';
 import { cn } from '../lib/utils';
@@ -21,7 +22,8 @@ import {
   updateDoc as supabaseUpdateDoc, 
   writeBatch as supabaseWriteBatch, 
   serverTimestamp, 
-  arrayUnion 
+  arrayUnion,
+  safeLocalStorageSetItem
 } from '../lib/supabase';
 import { Bestiary } from './Bestiary';
 import { BestiaryMonster } from '../types';
@@ -635,7 +637,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           const idx = chars.findIndex(c => c.id === characterId);
           if (idx !== -1) {
             chars[idx] = { ...chars[idx], ...updates };
-            localStorage.setItem(`campaign_characters_${campaignId}`, JSON.stringify(chars));
+            const optimized = optimizeCharactersForCache(chars);
+            safeLocalStorageSetItem(`campaign_characters_${campaignId}`, JSON.stringify(optimized));
           }
         }
       } catch (e) {

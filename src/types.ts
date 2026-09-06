@@ -306,7 +306,7 @@ export interface Character {
   compartimentos: Compartment[];
   conhecimentos: Knowledge[];
   efeitosNegativos: NegativeEffect[];
-  anotacoes: { id: string; titulo: string; conteudo: string }[];
+  anotacoes: { id: string; titulo: string; conteudo: string; imagens?: string[] }[];
   escalas: Escala[];
   dadosCustomizados: { id: string; lados: number; nome: string }[];
   imagens: { id: string; url: string; titulo: string }[];

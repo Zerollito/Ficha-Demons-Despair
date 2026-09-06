@@ -7,9 +7,10 @@ interface MiniBarProps {
   max?: number;
   color: string;
   onChange: (v: number) => void;
+  extra?: React.ReactNode;
 }
 
-export function MiniBar({ label, value, max = 100, color, onChange }: MiniBarProps) {
+export function MiniBar({ label, value, max = 100, color, onChange, extra }: MiniBarProps) {
   const percent = Math.min(100, (value / max) * 100);
   const [innerValue, setInnerValue] = useState(value?.toString() ?? '');
 
@@ -22,7 +23,10 @@ export function MiniBar({ label, value, max = 100, color, onChange }: MiniBarPro
 
   return (
     <div className="bg-zinc-900/50 border border-zinc-800 p-2 rounded-lg">
-      <div className="text-[9px] text-zinc-500 font-bold uppercase mb-1">{label}</div>
+      <div className="flex justify-between items-center mb-1">
+        <div className="text-[9px] text-zinc-500 font-bold uppercase">{label}</div>
+        {extra}
+      </div>
       <div className="flex items-center gap-2">
         <input 
           type="number" 

@@ -484,7 +484,7 @@ const WeaponProperties = React.memo(({
   );
 });
 
-const CatalystProperties = React.memo(({
+export const CatalystProperties = React.memo(({
   item,
   onChange,
 }: {
@@ -649,7 +649,7 @@ const ArmorProperties = React.memo(({
   );
 });
 
-const AmmunitionProperties = React.memo(({
+export const AmmunitionProperties = React.memo(({
   item,
   onChange,
 }: {

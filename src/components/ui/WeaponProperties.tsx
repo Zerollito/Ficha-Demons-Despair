@@ -5,9 +5,11 @@ import { TextArea } from './Input';
 interface WeaponPropertiesProps {
   item: any;
   onChange: (updates: any) => void;
+  character?: any;
+  updateCharacter?: any;
 }
 
-export function WeaponProperties({ item, onChange }: WeaponPropertiesProps) {
+export function WeaponProperties({ item, onChange, character, updateCharacter }: WeaponPropertiesProps) {
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-3 gap-2">

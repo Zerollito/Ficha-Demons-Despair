@@ -41,6 +41,9 @@ export const calculateProficiencyBonus = (
   } else if (name === 'Adaptabilidade') {
     // Every 2 points = +1
     baseBonus = Math.floor(stats.ADP / 2);
+  } else if (name === 'Mentalidade') {
+    // Every 2 points in MEN = +1
+    baseBonus = Math.floor(stats.MEN / 2);
   } else if (name === 'Clima') {
     // 10 points = 1
     baseBonus = Math.floor(stats.ADP / 10);
