@@ -24,7 +24,13 @@ export function ProgressBar({ label, current, max, color, onChange }: ProgressBa
   return (
     <div>
       <div className="flex justify-between items-end mb-1.5">
-        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{label}</span>
+        <span 
+          className="text-[10px] font-bold text-zinc-400 hover:text-zinc-200 uppercase tracking-widest cursor-pointer select-none transition-colors"
+          onDoubleClick={() => onChange(max)}
+          title="Clique duplo para recuperar totalmente"
+        >
+          {label}
+        </span>
         <div className="flex items-center gap-1">
           <input 
             type="number" 

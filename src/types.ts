@@ -63,10 +63,11 @@ export interface TableToken {
   size: number;
   imageUrl?: string;
   type: 'character' | 'creature' | 'aoe';
-  aoeShape?: 'circle' | 'square' | 'rectangle';
+  aoeShape?: 'circle' | 'square' | 'rectangle' | 'cone' | 'arc';
   aoeColor?: string;
   aoeWidth?: number; // width in grid units (e.g., 2, 3, etc.)
   aoeHeight?: number; // height in grid units
+  rotation?: number; // rotation in degrees (0 - 360)
   characterId?: string;
   userId?: string;
   hp?: number;

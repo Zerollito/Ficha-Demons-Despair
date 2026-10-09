@@ -1,4 +1,7 @@
 import express from "express";
+import http from "http";
+import https from "https";
+import { URL } from "url";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import dotenv from "dotenv";
@@ -75,6 +78,81 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(cors({ origin: true, credentials: true }));
+
+  // Supabase reverse proxy using native Node.js HTTP/HTTPS: allows mobile clients via Cloudflare Tunnel,
+  // LAN, or remote domains to transparently communicate with the host PC's local Supabase without CORS,
+  // Mixed Content, or extra tunnel ports, with zero external dependencies.
+  const targetSupabase = (process.env.SUPABASE_INTERNAL_URL || process.env.VITE_SUPABASE_URL || "http://127.0.0.1:54321").trim();
+  
+  const createNativeSupabaseProxy = (targetBaseUrl: string, pathPrefixStrip?: string) => {
+    return (req: express.Request, res: express.Response) => {
+      try {
+        const parsedTarget = new URL(targetBaseUrl);
+        const isHttps = parsedTarget.protocol === 'https:';
+        const clientLib = isHttps ? https : http;
+
+        let targetPath = req.originalUrl || req.url;
+        if (pathPrefixStrip && targetPath.startsWith(pathPrefixStrip)) {
+          targetPath = targetPath.slice(pathPrefixStrip.length) || '/';
+        }
+
+        const headers: Record<string, string | string[] | undefined> = {
+          ...req.headers,
+          host: parsedTarget.host,
+        };
+        delete headers['content-length'];
+
+        const proxyReq = clientLib.request({
+          hostname: parsedTarget.hostname,
+          port: parsedTarget.port || (isHttps ? 443 : 80),
+          path: targetPath,
+          method: req.method,
+          headers: headers,
+          timeout: 10000,
+        }, (proxyRes) => {
+          res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+          proxyRes.pipe(res);
+        });
+
+        proxyReq.on('error', (err: any) => {
+          if (!res.headersSent) {
+            res.status(502).json({
+              error: 'Supabase local indisponível no host.',
+              details: err.message,
+              code: 'PGRST_CONNECTION_REFUSED'
+            });
+          }
+        });
+
+        proxyReq.on('timeout', () => {
+          proxyReq.destroy();
+          if (!res.headersSent) {
+            res.status(504).json({
+              error: 'Gateway Timeout ao conectar com Supabase.',
+              code: 'PGRST_GATEWAY_TIMEOUT'
+            });
+          }
+        });
+
+        req.pipe(proxyReq);
+      } catch (err: any) {
+        if (!res.headersSent) {
+          res.status(502).json({ error: 'Erro no proxy do Supabase', details: err.message });
+        }
+      }
+    };
+  };
+
+  const supabaseProxy = createNativeSupabaseProxy(targetSupabase);
+
+  // Mount Supabase standard routes BEFORE express.json() so body streaming is untouched
+  app.use('/auth/v1', supabaseProxy);
+  app.use('/rest/v1', supabaseProxy);
+  app.use('/storage/v1', supabaseProxy);
+  app.use('/realtime/v1', supabaseProxy);
+  app.use('/functions/v1', supabaseProxy);
+  app.use('/supabase-proxy', createNativeSupabaseProxy(targetSupabase, '/supabase-proxy'));
+
   app.use(express.json({ limit: '10mb' }));
 
   app.get("/api/health", (req, res) => {
@@ -91,6 +169,610 @@ async function startServer() {
       geminiConfigured: !!geminiKey,
       geminiLength: geminiKey ? geminiKey.length : 0
     });
+  });
+
+  // Supabase ping diagnostic endpoint
+  app.get("/api/supabase/ping", async (req, res) => {
+    const rawUrl = (req.query.url as string) || process.env.VITE_SUPABASE_URL || "http://127.0.0.1:54321";
+    const anonKey = (req.query.key as string) || process.env.VITE_SUPABASE_ANON_KEY || "";
+    let cleanUrl = rawUrl.trim();
+    if (cleanUrl.endsWith("/")) cleanUrl = cleanUrl.slice(0, -1);
+    if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
+      cleanUrl = "http://" + cleanUrl;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3500);
+      const start = Date.now();
+      const headers: Record<string, string> = { "User-Agent": "DemonsDespair/1.12" };
+      if (anonKey) headers["apikey"] = anonKey;
+
+      const healthRes = await fetch(`${cleanUrl}/auth/v1/health`, {
+        headers,
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      const latency = Date.now() - start;
+
+      return res.json({
+        online: healthRes.ok || healthRes.status < 500,
+        status: healthRes.status,
+        statusText: healthRes.statusText,
+        latency,
+        url: cleanUrl,
+      });
+    } catch (err: any) {
+      return res.json({
+        online: false,
+        error: err.name === "AbortError" ? "Tempo limite de conexão esgotado (timeout 3.5s)" : (err.message || "Erro de rede"),
+        url: cleanUrl,
+      });
+    }
+  });
+
+  // Campaign characters persistence store (failsafe across restarts and network disruptions)
+  const CAMPAIGN_STORE_PATH = path.join(process.cwd(), "data", "campaign_characters_store.json");
+
+  function getCampaignCharactersStore(): Record<string, any[]> {
+    try {
+      if (fs.existsSync(CAMPAIGN_STORE_PATH)) {
+        const raw = fs.readFileSync(CAMPAIGN_STORE_PATH, "utf-8");
+        return JSON.parse(raw) || {};
+      }
+    } catch (e) {
+      console.error("[CampaignStore] Read error:", e);
+    }
+    return {};
+  }
+
+  function saveCampaignCharactersStore(data: Record<string, any[]>) {
+    try {
+      const dir = path.dirname(CAMPAIGN_STORE_PATH);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(CAMPAIGN_STORE_PATH, JSON.stringify(data, null, 2), "utf-8");
+    } catch (e) {
+      console.error("[CampaignStore] Save error:", e);
+    }
+  }
+
+  // VTT Table persistence store (tokens and map configs for real-time sub-second sync)
+  const VTT_STORE_PATH = path.join(process.cwd(), "data", "vtt_store.json");
+
+  function getVttStore(): Record<string, { tokens?: any[]; config?: any }> {
+    try {
+      if (fs.existsSync(VTT_STORE_PATH)) {
+        const raw = fs.readFileSync(VTT_STORE_PATH, "utf-8");
+        return JSON.parse(raw) || {};
+      }
+    } catch (e) {
+      console.error("[VttStore] Read error:", e);
+    }
+    return {};
+  }
+
+  function saveVttStore(data: Record<string, { tokens?: any[]; config?: any }>) {
+    try {
+      const dir = path.dirname(VTT_STORE_PATH);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(VTT_STORE_PATH, JSON.stringify(data, null, 2), "utf-8");
+    } catch (e) {
+      console.error("[VttStore] Save error:", e);
+    }
+  }
+
+  const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM7JyUXp7fZ83VvlN-BRwsPIgtcqbyUTR21s-TqF4";
+
+  // Dedicated VTT API: Get tokens and table config for a campaign
+  app.get("/api/campaigns/:campaignId/vtt", async (req, res) => {
+    const { campaignId } = req.params;
+    if (!campaignId) return res.status(400).json({ error: "campaignId é obrigatório" });
+
+    const store = getVttStore();
+    const campVtt = store[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "" } };
+    const tokenMap = new Map<string, any>();
+
+    (campVtt.tokens || []).forEach((t: any) => {
+      if (t && t.id) tokenMap.set(t.id, t);
+    });
+
+    let mergedConfig: any = { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", ...(campVtt.config || {}) };
+
+    // Fetch directly from Supabase with SERVICE_ROLE_KEY to bypass RLS
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+
+      // Fetch tokens
+      const tokenRes = await fetch(`${targetSupabase}/rest/v1/tokens?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+        headers: {
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+          Accept: "application/json"
+        },
+        signal: controller.signal
+      });
+
+      if (tokenRes.ok) {
+        const rows = await tokenRes.json();
+        if (Array.isArray(rows)) {
+          rows.forEach((row: any) => {
+            const tkData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
+            const tkObj = { ...row, ...tkData, id: row.id };
+            tokenMap.set(row.id, tkObj);
+          });
+        }
+      }
+
+      // Fetch config
+      const configRes = await fetch(`${targetSupabase}/rest/v1/campaign_configs?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+        headers: {
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+          Accept: "application/json"
+        },
+        signal: controller.signal
+      });
+
+      if (configRes.ok) {
+        const cRows = await configRes.json();
+        if (Array.isArray(cRows)) {
+          cRows.forEach((row: any) => {
+            const cData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
+            const merged = { ...row, ...cData };
+            const { id, campaign_id, campaignId: _, config_id, configId: __, data, updated_at, ...configProps } = merged;
+            Object.assign(mergedConfig, configProps);
+            if (merged.mapUrl || merged.map_url) {
+              mergedConfig.mapUrl = merged.mapUrl || merged.map_url;
+            }
+          });
+        }
+      }
+
+      clearTimeout(timeout);
+    } catch (e: any) {
+      console.warn("[API VTT] Supabase read warning:", e.message || e);
+    }
+
+    // Retain mapUrl from server memory/file store if query didn't return a non-empty mapUrl
+    if (!mergedConfig.mapUrl && campVtt.config?.mapUrl) {
+      mergedConfig.mapUrl = campVtt.config.mapUrl;
+    }
+
+    const tokens = Array.from(tokenMap.values());
+
+    // Sync back to local store
+    try {
+      store[campaignId] = { tokens, config: mergedConfig };
+      saveVttStore(store);
+    } catch (e) {}
+
+    return res.json({ success: true, tokens, config: mergedConfig });
+  });
+
+  // Dedicated VTT API: Add or update tokens
+  app.post("/api/campaigns/:campaignId/vtt/tokens", async (req, res) => {
+    const { campaignId } = req.params;
+    const { token, tokens: bulkTokens } = req.body;
+
+    if (!campaignId) return res.status(400).json({ error: "campaignId é obrigatório" });
+
+    const store = getVttStore();
+    const campVtt = store[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "" } };
+    let currentTokens = campVtt.tokens || [];
+
+    const incoming: any[] = bulkTokens && Array.isArray(bulkTokens) ? bulkTokens : (token ? [token] : []);
+    if (incoming.length === 0) {
+      return res.status(400).json({ error: "Nenhum token fornecido para salvar." });
+    }
+
+    for (const tk of incoming) {
+      if (!tk || !tk.id) continue;
+      currentTokens = [...currentTokens.filter((t: any) => t.id !== tk.id), tk];
+    }
+
+    campVtt.tokens = currentTokens;
+    store[campaignId] = campVtt;
+    saveVttStore(store);
+
+    // Save to Supabase in background
+    try {
+      for (const tk of incoming) {
+        if (!tk || !tk.id) continue;
+        fetch(`${targetSupabase}/rest/v1/tokens`, {
+          method: "POST",
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            "Content-Type": "application/json",
+            Prefer: "resolution=merge-duplicates"
+          },
+          body: JSON.stringify({
+            id: tk.id,
+            campaign_id: campaignId,
+            data: tk,
+            updated_at: new Date().toISOString()
+          })
+        }).catch(() => {});
+      }
+    } catch (e) {}
+
+    return res.json({ success: true, count: currentTokens.length, tokens: currentTokens });
+  });
+
+  // Dedicated VTT API: Delete single token
+  app.delete("/api/campaigns/:campaignId/vtt/tokens/:tokenId", async (req, res) => {
+    const { campaignId, tokenId } = req.params;
+    if (!campaignId || !tokenId) return res.status(400).json({ error: "campaignId e tokenId são obrigatórios" });
+
+    const store = getVttStore();
+    if (store[campaignId]) {
+      store[campaignId].tokens = (store[campaignId].tokens || []).filter((t: any) => t.id !== tokenId);
+      saveVttStore(store);
+    }
+
+    try {
+      fetch(`${targetSupabase}/rest/v1/tokens?id=eq.${encodeURIComponent(tokenId)}`, {
+        method: "DELETE",
+        headers: {
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`
+        }
+      }).catch(() => {});
+    } catch (e) {}
+
+    return res.json({ success: true, tokenId });
+  });
+
+  // Dedicated VTT API: Clear all tokens for campaign
+  app.post("/api/campaigns/:campaignId/vtt/clear-tokens", async (req, res) => {
+    const { campaignId } = req.params;
+    if (!campaignId) return res.status(400).json({ error: "campaignId é obrigatório" });
+
+    const store = getVttStore();
+    if (store[campaignId]) {
+      store[campaignId].tokens = [];
+      saveVttStore(store);
+    }
+
+    try {
+      fetch(`${targetSupabase}/rest/v1/tokens?campaign_id=eq.${encodeURIComponent(campaignId)}`, {
+        method: "DELETE",
+        headers: {
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`
+        }
+      }).catch(() => {});
+    } catch (e) {}
+
+    return res.json({ success: true, campaignId });
+  });
+
+  // Dedicated VTT API: Update table config (mapUrl, gridSize, etc.)
+  app.post("/api/campaigns/:campaignId/vtt/config", async (req, res) => {
+    const { campaignId } = req.params;
+    const { config } = req.body;
+
+    if (!campaignId || !config) return res.status(400).json({ error: "campaignId e config são obrigatórios" });
+
+    const store = getVttStore();
+    const campVtt = store[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "" } };
+    const updatedConfig = { ...(campVtt.config || {}), ...config, updatedAt: new Date().toISOString() };
+    campVtt.config = updatedConfig;
+    store[campaignId] = campVtt;
+    saveVttStore(store);
+
+    // Save map config to Supabase
+    try {
+      fetch(`${targetSupabase}/rest/v1/campaign_configs`, {
+        method: "POST",
+        headers: {
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+          "Content-Type": "application/json",
+          Prefer: "resolution=merge-duplicates"
+        },
+        body: JSON.stringify({
+          id: `${campaignId}_map`,
+          campaign_id: campaignId,
+          config_id: "map",
+          data: updatedConfig,
+          mapUrl: updatedConfig.mapUrl || "",
+          updated_at: new Date().toISOString()
+        })
+      }).catch(() => {});
+    } catch (e) {}
+
+    return res.json({ success: true, config: updatedConfig });
+  });
+
+  // Dedicated API: Get all characters linked to a campaign (bypasses RLS using service role and local store)
+  app.get("/api/campaigns/:campaignId/characters", async (req, res) => {
+    const { campaignId } = req.params;
+    if (!campaignId) return res.status(400).json({ error: "campaignId é obrigatório" });
+
+    const charMap = new Map<string, any>();
+
+    // 1. Load from persistent disk store
+    try {
+      const store = getCampaignCharactersStore();
+      const storedList = store[campaignId] || [];
+      storedList.forEach((c: any) => {
+        if (c && c.id) charMap.set(c.id, c);
+      });
+    } catch (e) {}
+
+    // 2. Fetch directly from Supabase using SERVICE_ROLE_KEY (bypasses all RLS)
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+
+      // A. Fetch campaign details to get player emails and embedded characters
+      const campRes = await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+        headers: {
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+          Accept: "application/json"
+        },
+        signal: controller.signal
+      });
+
+      let allowedEmails: string[] = [];
+      if (campRes.ok) {
+        const campDataList = await campRes.json();
+        if (Array.isArray(campDataList) && campDataList.length > 0) {
+          const campRow = campDataList[0];
+          const cData = campRow.data || {};
+          const pEmails = cData.playerEmails || campRow.player_emails || [];
+          if (Array.isArray(pEmails)) {
+            allowedEmails = pEmails.map((e: string) => (e || "").trim().toLowerCase()).filter(Boolean);
+          }
+          if (campRow.master_email) allowedEmails.push(campRow.master_email.trim().toLowerCase());
+          if (cData.masterEmail) allowedEmails.push(cData.masterEmail.trim().toLowerCase());
+
+          // Embeds inside campaign.data
+          const embedded = cData.playerCharacters || cData.characters || [];
+          if (Array.isArray(embedded)) {
+            embedded.forEach((c: any) => {
+              if (c && c.id) charMap.set(c.id, { ...c, campaignId });
+            });
+          }
+        }
+      }
+
+      // B. Fetch characters where campaign_id = campaignId
+      const charCampRes = await fetch(`${targetSupabase}/rest/v1/characters?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+        headers: {
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+          Accept: "application/json"
+        },
+        signal: controller.signal
+      });
+
+      if (charCampRes.ok) {
+        const rows = await charCampRes.json();
+        if (Array.isArray(rows)) {
+          rows.forEach((row: any) => {
+            const cData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
+            const charObj = { ...row, ...cData, id: row.id, campaignId };
+            charMap.set(row.id, charObj);
+          });
+        }
+      }
+
+      // C. Also fetch characters belonging to player emails
+      if (allowedEmails.length > 0) {
+        const emailFilter = allowedEmails.map(e => `"${e}"`).join(',');
+        const charEmailRes = await fetch(`${targetSupabase}/rest/v1/characters?user_email=in.(${encodeURIComponent(allowedEmails.join(','))})&select=*`, {
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            Accept: "application/json"
+          },
+          signal: controller.signal
+        });
+
+        if (charEmailRes.ok) {
+          const emailRows = await charEmailRes.json();
+          if (Array.isArray(emailRows)) {
+            emailRows.forEach((row: any) => {
+              const cData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
+              const charObj = { ...row, ...cData, id: row.id };
+              // Include if it's already mapped, or if it has matching campaign_id or email
+              if (charMap.has(row.id) || row.campaign_id === campaignId || !row.campaign_id) {
+                charMap.set(row.id, { ...charObj, campaignId: row.campaign_id || campaignId });
+              }
+            });
+          }
+        }
+      }
+
+      clearTimeout(timeout);
+    } catch (e: any) {
+      console.warn("[API campaign characters] Supabase fetch warning:", e.message || e);
+    }
+
+    const characters = Array.from(charMap.values());
+    
+    // Update local disk cache with freshest state
+    try {
+      const store = getCampaignCharactersStore();
+      store[campaignId] = characters;
+      saveCampaignCharactersStore(store);
+    } catch (e) {}
+
+    return res.json({ success: true, count: characters.length, characters });
+  });
+
+  // Dedicated API: Link or save a character to a campaign
+  app.post("/api/campaigns/:campaignId/characters", async (req, res) => {
+    const { campaignId } = req.params;
+    const { character } = req.body;
+
+    if (!campaignId || !character || !character.id) {
+      return res.status(400).json({ error: "campaignId e character com ID são obrigatórios." });
+    }
+
+    const cleanChar = { ...character, campaignId };
+
+    // 1. Save to persistent disk store
+    try {
+      const store = getCampaignCharactersStore();
+      const currentList = store[campaignId] || [];
+      const updatedList = [...currentList.filter((c: any) => c.id !== cleanChar.id), cleanChar];
+      store[campaignId] = updatedList;
+      saveCampaignCharactersStore(store);
+    } catch (e) {
+      console.error("[API link character] Store error:", e);
+    }
+
+    // 2. Persist to Supabase using SERVICE_ROLE_KEY
+    try {
+      const targetUserId = cleanChar.userId || cleanChar.userEmail || "anonymous";
+      const userEmail = (cleanChar.userEmail || "").trim().toLowerCase();
+
+      // Upsert into characters table
+      await fetch(`${targetSupabase}/rest/v1/characters`, {
+        method: "POST",
+        headers: {
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+          "Content-Type": "application/json",
+          Prefer: "resolution=merge-duplicates"
+        },
+        body: JSON.stringify({
+          id: cleanChar.id,
+          user_id: targetUserId,
+          user_email: userEmail,
+          campaign_id: campaignId,
+          data: cleanChar,
+          updated_at: new Date().toISOString()
+        })
+      });
+
+      // Update campaign row data to include this character in playerCharacters list
+      const campGetRes = await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+        headers: {
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+          Accept: "application/json"
+        }
+      });
+
+      if (campGetRes.ok) {
+        const campList = await campGetRes.json();
+        if (Array.isArray(campList) && campList.length > 0) {
+          const campRow = campList[0];
+          const campData = campRow.data || {};
+          let playerCharacters = campData.playerCharacters || [];
+          if (!Array.isArray(playerCharacters)) playerCharacters = [];
+          playerCharacters = [...playerCharacters.filter((c: any) => c.id !== cleanChar.id), cleanChar];
+
+          let playerEmails = campData.playerEmails || [];
+          if (!Array.isArray(playerEmails)) playerEmails = [];
+          if (userEmail && !playerEmails.includes(userEmail)) {
+            playerEmails.push(userEmail);
+          }
+
+          const updatedCampData = {
+            ...campData,
+            playerCharacters,
+            playerEmails
+          };
+
+          await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
+            method: "PATCH",
+            headers: {
+              apikey: SERVICE_ROLE_KEY,
+              Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              data: updatedCampData,
+              updated_at: new Date().toISOString()
+            })
+          });
+        }
+      }
+    } catch (e: any) {
+      console.warn("[API link character] Supabase write warning:", e.message || e);
+    }
+
+    return res.json({ success: true, character: cleanChar });
+  });
+
+  // Dedicated API: Unlink character from campaign
+  app.post("/api/campaigns/:campaignId/unlink-character", async (req, res) => {
+    const { campaignId } = req.params;
+    const { characterId } = req.body;
+
+    if (!campaignId || !characterId) {
+      return res.status(400).json({ error: "campaignId e characterId são obrigatórios." });
+    }
+
+    // 1. Remove from disk store
+    try {
+      const store = getCampaignCharactersStore();
+      if (store[campaignId]) {
+        store[campaignId] = store[campaignId].filter((c: any) => c.id !== characterId);
+        saveCampaignCharactersStore(store);
+      }
+    } catch (e) {}
+
+    // 2. Remove campaign_id in Supabase
+    try {
+      await fetch(`${targetSupabase}/rest/v1/characters?id=eq.${encodeURIComponent(characterId)}`, {
+        method: "PATCH",
+        headers: {
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          campaign_id: null,
+          updated_at: new Date().toISOString()
+        })
+      });
+
+      // Update campaign's playerCharacters array
+      const campGetRes = await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+        headers: {
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+          Accept: "application/json"
+        }
+      });
+
+      if (campGetRes.ok) {
+        const campList = await campGetRes.json();
+        if (Array.isArray(campList) && campList.length > 0) {
+          const campRow = campList[0];
+          const campData = campRow.data || {};
+          let playerCharacters = campData.playerCharacters || [];
+          if (Array.isArray(playerCharacters)) {
+            playerCharacters = playerCharacters.filter((c: any) => c.id !== characterId);
+            const updatedCampData = { ...campData, playerCharacters };
+            await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
+              method: "PATCH",
+              headers: {
+                apikey: SERVICE_ROLE_KEY,
+                Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                data: updatedCampData,
+                updated_at: new Date().toISOString()
+              })
+            });
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn("[API unlink character] Supabase write warning:", e.message || e);
+    }
+
+    return res.json({ success: true, characterId });
   });
 
   // chat oracle endpoint
@@ -364,7 +1046,57 @@ Escreva o relatório em português técnico, refinado, mas muito prático e pres
     app.use(vite.middlewares);
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = http.createServer(app);
+
+  // Handle WebSocket upgrades for Supabase Realtime
+  server.on('upgrade', (req, socket, head) => {
+    const url = req.url || '';
+    if (url.startsWith('/realtime/v1') || url.startsWith('/supabase-proxy/realtime/v1')) {
+      try {
+        const parsedTarget = new URL(targetSupabase);
+        const isHttps = parsedTarget.protocol === 'https:';
+        const clientLib = isHttps ? https : http;
+        
+        let targetPath = url;
+        if (targetPath.startsWith('/supabase-proxy')) {
+          targetPath = targetPath.replace('/supabase-proxy', '') || '/';
+        }
+
+        const proxyReq = clientLib.request({
+          hostname: parsedTarget.hostname,
+          port: parsedTarget.port || (isHttps ? 443 : 80),
+          path: targetPath,
+          method: req.method,
+          headers: {
+            ...req.headers,
+            host: parsedTarget.host,
+          },
+        });
+
+        proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+          socket.write(`HTTP/1.1 101 Switching Protocols\r\n` +
+            Object.entries(proxyRes.headers)
+              .map(([k, v]) => `${k}: ${v}\r\n`)
+              .join('') + '\r\n');
+          if (proxyHead && proxyHead.length) {
+            socket.unshift(proxyHead);
+          }
+          proxySocket.pipe(socket);
+          socket.pipe(proxySocket);
+        });
+
+        proxyReq.on('error', () => {
+          socket.destroy();
+        });
+
+        proxyReq.end();
+      } catch (e) {
+        socket.destroy();
+      }
+    }
+  });
+
+  server.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
   });
 }

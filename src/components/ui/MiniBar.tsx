@@ -24,7 +24,13 @@ export function MiniBar({ label, value, max = 100, color, onChange, extra }: Min
   return (
     <div className="bg-zinc-900/50 border border-zinc-800 p-2 rounded-lg">
       <div className="flex justify-between items-center mb-1">
-        <div className="text-[9px] text-zinc-500 font-bold uppercase">{label}</div>
+        <div 
+          className="text-[9px] text-zinc-500 hover:text-zinc-300 font-bold uppercase cursor-pointer select-none transition-colors"
+          onDoubleClick={() => onChange(max)}
+          title="Clique duplo para recuperar totalmente"
+        >
+          {label}
+        </div>
         {extra}
       </div>
       <div className="flex items-center gap-2">
@@ -40,7 +46,8 @@ export function MiniBar({ label, value, max = 100, color, onChange, extra }: Min
       </div>
       <div 
         className="h-2 bg-zinc-800 rounded-full mt-1 overflow-hidden cursor-pointer"
-        onDoubleClick={() => value < max && onChange(max)}
+        onDoubleClick={() => onChange(max)}
+        title="Clique duplo para recuperar totalmente"
       >
         <div className={cn("h-full", color)} style={{ width: `${percent}%` }} />
       </div>

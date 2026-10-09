@@ -1,22 +1,25 @@
-import { supabase, auth, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, onSnapshot, safeLocalStorageSetItem } from '../lib/supabase';
+import { supabase, auth, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, onSnapshot, safeLocalStorageSetItem, safeLocalStorageGetItem } from '../lib/supabase';
 import { Campaign, Character } from '../types';
 import { generateInviteCode } from '../lib/random';
+import { getDeletedCharactersBlacklist } from './characterService';
 
 const CAMPAIGNS_TABLE = 'campaigns';
 const CHARACTERS_TABLE = 'characters';
 
 export const createCampaign = async (name: string) => {
-  if (!auth.currentUser) {
+  const userEmail = (auth.currentUser?.email || "").trim().toLowerCase();
+  if (!userEmail) {
     throw new Error("Você precisa estar autenticado para criar uma campanha.");
   }
 
   const inviteCode = generateInviteCode();
-  const campaignData = {
+  const campaignData: Partial<Campaign> = {
     name,
-    masterId: auth.currentUser.uid,
-    masterEmail: auth.currentUser.email,
+    masterId: auth.currentUser?.uid || userEmail,
+    masterEmail: userEmail,
     inviteCode,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    playerEmails: [userEmail]
   };
 
   try {
@@ -25,8 +28,8 @@ export const createCampaign = async (name: string) => {
       .from(CAMPAIGNS_TABLE)
       .insert({
         id,
-        master_id: auth.currentUser.uid,
-        master_email: auth.currentUser.email || "",
+        master_id: auth.currentUser?.uid || userEmail,
+        master_email: userEmail,
         name,
         invite_code: inviteCode,
         data: campaignData,
@@ -43,35 +46,73 @@ export const createCampaign = async (name: string) => {
 
 export const mapRowToCampaign = (row: any): Campaign => {
   const campData = row.data || {};
+  const masterEmail = (row.master_email || campData.masterEmail || campData.master_email || "").trim().toLowerCase();
+  let playerEmails: string[] = campData.playerEmails || row.player_emails || [];
+  if (Array.isArray(playerEmails)) {
+    playerEmails = playerEmails.map((e: string) => (e || '').trim().toLowerCase());
+  } else {
+    playerEmails = [];
+  }
+
   return {
     ...campData,
     id: row.id,
     name: row.name || campData.name || "Sem Nome",
-    masterId: row.master_id || campData.masterId || "",
-    masterEmail: row.master_email || campData.masterEmail || "",
+    masterId: row.master_id || campData.masterId || masterEmail,
+    masterEmail: masterEmail,
     inviteCode: row.invite_code || row.inviteCode || campData.inviteCode || "",
+    playerEmails,
     createdAt: row.created_at || row.createdAt || campData.createdAt || null,
   };
 };
 
-export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => void) => {
-  if (!auth.currentUser) return () => {};
+export const saveCampaign = async (campaign: Campaign) => {
+  const userEmail = (campaign.masterEmail || auth.currentUser?.email || "").trim().toLowerCase();
+  const masterId = campaign.masterId || auth.currentUser?.uid || userEmail;
 
-  const userId = auth.currentUser.uid;
-  const userEmail = auth.currentUser.email || "";
+  try {
+    const { error } = await supabase
+      .from(CAMPAIGNS_TABLE)
+      .upsert({
+        id: campaign.id,
+        master_id: masterId,
+        master_email: userEmail,
+        name: campaign.name || "Sem Nome",
+        invite_code: campaign.inviteCode || generateInviteCode(),
+        data: { ...campaign, masterEmail: userEmail, masterId },
+        updated_at: new Date().toISOString()
+      });
+
+    if (error) {
+      console.error("[Supabase saveCampaign] Upsert error:", error);
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(`supabase_local_change_${CAMPAIGNS_TABLE}`));
+    }
+  } catch (e) {
+    console.error("[Supabase saveCampaign] Exception:", e);
+  }
+};
+
+export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => void) => {
+  const userEmail = (auth.currentUser?.email || "").trim().toLowerCase();
+  if (!userEmail) {
+    onUpdate([]);
+    return () => {};
+  }
+
   let active = true;
+  let isFetching = false;
   let lastSerialized = '';
 
   const fetchAndNotify = async () => {
+    if (!active || isFetching) return;
+    isFetching = true;
     try {
-      let queryBuilder = supabase.from(CAMPAIGNS_TABLE).select('*');
-      if (userEmail) {
-        queryBuilder = queryBuilder.or(`master_email.eq.${userEmail},master_id.eq.${userId}`);
-      } else {
-        queryBuilder = queryBuilder.eq('master_id', userId);
-      }
-
-      const { data, error } = await queryBuilder;
+      const { data, error } = await supabase
+        .from(CAMPAIGNS_TABLE)
+        .select('*')
+        .eq('master_email', userEmail);
 
       if (error) {
         console.warn("[Supabase subscribeToMasterCampaigns] Info/Error:", error);
@@ -88,6 +129,8 @@ export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => 
       }
     } catch (e) {
       console.warn("[Supabase subscribeToMasterCampaigns] Exception handled gracefully:", e);
+    } finally {
+      isFetching = false;
     }
   };
 
@@ -108,7 +151,7 @@ export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => 
   }
 
   const channel = supabase
-    .channel(`campaigns_master_${userId}`)
+    .channel(`campaigns_master_${userEmail}`)
     .on(
       'postgres_changes',
       {
@@ -128,12 +171,15 @@ export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => 
     if (typeof window !== 'undefined') {
       window.removeEventListener(`supabase_local_change_${CAMPAIGNS_TABLE}`, localListener);
     }
-    supabase.removeChannel(channel);
+    if (channel) {
+      supabase.removeChannel(channel);
+    }
   };
 };
 
 export const joinCampaign = async (inviteCode: string, playerEmail: string) => {
-  if (!playerEmail) {
+  const cleanEmail = (playerEmail || '').trim().toLowerCase();
+  if (!cleanEmail) {
     throw new Error('Você precisa estar autenticado com um email válido.');
   }
 
@@ -149,10 +195,12 @@ export const joinCampaign = async (inviteCode: string, playerEmail: string) => {
   const campaignRow = data[0];
   const campaignId = campaignRow.id;
   const campData = campaignRow.data || {};
-  const playerEmails = campData.playerEmails || [];
+  let playerEmails: string[] = campData.playerEmails || campaignRow.player_emails || [];
+  if (!Array.isArray(playerEmails)) playerEmails = [];
+  playerEmails = playerEmails.map((e: string) => (e || '').trim().toLowerCase());
 
-  if (!playerEmails.includes(playerEmail)) {
-    playerEmails.push(playerEmail);
+  if (!playerEmails.includes(cleanEmail)) {
+    playerEmails.push(cleanEmail);
   }
 
   const updatedCampData = {
@@ -182,7 +230,8 @@ export const joinCampaign = async (inviteCode: string, playerEmail: string) => {
 };
 
 export const leaveCampaign = async (campaignId: string, playerEmail: string) => {
-  if (!playerEmail) return;
+  const cleanEmail = (playerEmail || '').trim().toLowerCase();
+  if (!cleanEmail) return;
 
   try {
     const { data, error } = await supabase
@@ -194,8 +243,11 @@ export const leaveCampaign = async (campaignId: string, playerEmail: string) => 
 
     const campaignRow = data[0];
     const campData = campaignRow.data || {};
-    let playerEmails = campData.playerEmails || [];
-    playerEmails = playerEmails.filter((email: string) => email !== playerEmail);
+    let playerEmails: string[] = campData.playerEmails || campaignRow.player_emails || [];
+    if (!Array.isArray(playerEmails)) playerEmails = [];
+    playerEmails = playerEmails
+      .map((e: string) => (e || '').trim().toLowerCase())
+      .filter((email: string) => email !== cleanEmail);
 
     const updatedCampData = {
       ...campData,
@@ -221,15 +273,19 @@ export const leaveCampaign = async (campaignId: string, playerEmail: string) => 
 };
 
 export const subscribeToJoinedCampaigns = (userEmail: string, onUpdate: (campaigns: Campaign[]) => void) => {
-  if (!userEmail) {
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  if (!cleanEmail) {
     onUpdate([]);
     return () => {};
   }
 
   let active = true;
+  let isFetching = false;
   let lastSerialized = '';
 
   const fetchAndNotify = async () => {
+    if (!active || isFetching) return;
+    isFetching = true;
     try {
       const { data, error } = await supabase
         .from(CAMPAIGNS_TABLE)
@@ -244,8 +300,8 @@ export const subscribeToJoinedCampaigns = (userEmail: string, onUpdate: (campaig
         const campaigns = data
           .map(row => mapRowToCampaign(row))
           .filter(camp => {
-            const playerEmails = (camp as any).playerEmails || [];
-            return playerEmails.includes(userEmail);
+            const playerEmails = ((camp as any).playerEmails || []).map((e: string) => (e || '').toLowerCase());
+            return playerEmails.includes(cleanEmail);
           });
         
         const serialized = JSON.stringify(campaigns);
@@ -256,6 +312,8 @@ export const subscribeToJoinedCampaigns = (userEmail: string, onUpdate: (campaig
       }
     } catch (e) {
       console.warn("[Supabase subscribeToJoinedCampaigns] Exception handled gracefully:", e);
+    } finally {
+      isFetching = false;
     }
   };
 
@@ -398,10 +456,10 @@ const campaignCharListeners = new Map<string, Set<(characters: Character[]) => v
 
 export const getLocalCampaignCharacters = (campaignId: string): Character[] => {
   try {
-    const stored = localStorage.getItem(`campaign_characters_${campaignId}`);
+    const stored = safeLocalStorageGetItem(`campaign_characters_${campaignId}`) || localStorage.getItem(`campaign_characters_${campaignId}`);
     if (stored) return JSON.parse(stored);
   } catch (e) {
-    console.error("Error reading local campaign characters:", e);
+    console.warn("Warning reading local campaign characters:", e);
   }
   return [];
 };
@@ -418,19 +476,25 @@ export const optimizeCharactersForCache = (characters: Character[]): Character[]
         optimized.imagens = [];
       }
       
-      // 3. Keep notes (anotacoes) but clear/truncate them
-      if (optimized.anotacoes && optimized.anotacoes.length > 0) {
-        optimized.anotacoes = optimized.anotacoes.map(n => ({
-          ...n,
-          conteudo: n.conteudo && n.conteudo.length > 100 ? n.conteudo.substring(0, 100) + '...' : n.conteudo
-        }));
+      // 3. Strip notes (anotacoes) from campaign cache as they are large and private to the character
+      optimized.anotacoes = [];
+      
+      // 4. Truncate history log in campaign cache
+      const optAny = optimized as any;
+      if (optAny.historico && Array.isArray(optAny.historico) && optAny.historico.length > 5) {
+        optAny.historico = optAny.historico.slice(0, 5);
+      }
+
+      // 5. Clean large base64 avatar images
+      if (optimized.imagem && typeof optimized.imagem === 'string' && optimized.imagem.startsWith('data:image/') && optimized.imagem.length > 20000) {
+        optimized.imagem = "";
       }
       
-      // 4. Recursively clean huge base64 strings
+      // 6. Recursively clean huge base64 strings
       const cleanObject = (obj: any): any => {
         if (!obj) return obj;
         if (typeof obj === 'string') {
-          if (obj.startsWith('data:image/') && obj.length > 100000) {
+          if (obj.startsWith('data:image/') && obj.length > 15000) {
             // Remove excessive base64 images from campaign characters cache to save storage space
             return "";
           }
@@ -453,7 +517,7 @@ export const optimizeCharactersForCache = (characters: Character[]): Character[]
       
       return cleanObject(optimized) as Character;
     } catch (err) {
-      console.error("Error optimizing character for cache:", err);
+      console.warn("Warning optimizing character for cache:", err);
       return char;
     }
   });
@@ -464,7 +528,7 @@ export const saveLocalCampaignCharacters = (campaignId: string, characters: Char
     const optimized = optimizeCharactersForCache(characters);
     safeLocalStorageSetItem(`campaign_characters_${campaignId}`, JSON.stringify(optimized));
   } catch (e) {
-    console.error("Error saving local campaign characters:", e);
+    console.warn("Warning saving local campaign characters:", e);
   }
 };
 
@@ -477,103 +541,269 @@ export const notifyCampaignCharListeners = (campaignId: string, characters: Char
   }
 };
 
+export const linkCharacterToCampaign = async (campaignId: string, character: Character): Promise<Character> => {
+  if (!campaignId || !character || !character.id) {
+    throw new Error("Campanha e personagem válidos são obrigatórios para vincular.");
+  }
+
+  const linkedChar: Character = {
+    ...character,
+    campaignId: campaignId
+  };
+
+  // 1. Atualizar cache local imediatamente para resposta instantânea
+  try {
+    const currentLocals = getLocalCampaignCharacters(campaignId);
+    const updatedLocals = [...currentLocals.filter(c => c.id !== linkedChar.id), linkedChar];
+    saveLocalCampaignCharacters(campaignId, updatedLocals);
+    notifyCampaignCharListeners(campaignId, updatedLocals);
+
+    // Também salvar nas tabelas locais de characters
+    const tableKey = `supabase_table_${CHARACTERS_TABLE}`;
+    if (typeof localStorage !== 'undefined') {
+      const existing = localStorage.getItem(tableKey);
+      let list = existing ? JSON.parse(existing) : [];
+      if (Array.isArray(list)) {
+        list = [...list.filter((c: any) => c.id !== linkedChar.id), { id: linkedChar.id, campaign_id: campaignId, data: linkedChar }];
+        localStorage.setItem(tableKey, JSON.stringify(list));
+      }
+    }
+  } catch (e) {
+    console.warn("[linkCharacterToCampaign] Cache local warning:", e);
+  }
+
+  // Disparar eventos locais
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(`supabase_local_change_${CHARACTERS_TABLE}`));
+    window.dispatchEvent(new CustomEvent(`supabase_local_change_${CAMPAIGNS_TABLE}`));
+    window.dispatchEvent(new CustomEvent('campaign_characters_updated', { detail: { campaignId, character: linkedChar } }));
+  }
+
+  // 2. Notificar o servidor backend dedicado (/api/campaigns/:id/characters)
+  try {
+    fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/characters`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ character: linkedChar })
+    }).catch(() => {});
+  } catch (e) {}
+
+  // 3. Atualizar no banco Supabase
+  try {
+    const targetUserId = linkedChar.userId || auth.currentUser?.uid || linkedChar.userEmail || "anonymous";
+    const userEmail = (linkedChar.userEmail || auth.currentUser?.email || "").trim().toLowerCase();
+
+    await supabase
+      .from(CHARACTERS_TABLE)
+      .upsert({
+        id: linkedChar.id,
+        user_id: targetUserId,
+        user_email: userEmail,
+        campaign_id: campaignId,
+        data: linkedChar,
+        updated_at: new Date().toISOString()
+      });
+  } catch (err) {
+    console.warn("[linkCharacterToCampaign] Supabase direct upsert warning:", err);
+  }
+
+  return linkedChar;
+};
+
+export const unlinkCharacterFromCampaign = async (campaignId: string, characterId: string): Promise<void> => {
+  if (!campaignId || !characterId) return;
+
+  // 1. Remover do cache local
+  try {
+    const currentLocals = getLocalCampaignCharacters(campaignId);
+    const updatedLocals = currentLocals.filter(c => c.id !== characterId);
+    saveLocalCampaignCharacters(campaignId, updatedLocals);
+    notifyCampaignCharListeners(campaignId, updatedLocals);
+  } catch (e) {}
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(`supabase_local_change_${CHARACTERS_TABLE}`));
+    window.dispatchEvent(new CustomEvent(`supabase_local_change_${CAMPAIGNS_TABLE}`));
+  }
+
+  // 2. Chamar endpoint de desvinculação no servidor backend
+  try {
+    fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/unlink-character`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ characterId })
+    }).catch(() => {});
+  } catch (e) {}
+
+  // 3. Desvincular no Supabase
+  try {
+    await supabase
+      .from(CHARACTERS_TABLE)
+      .update({ campaign_id: null, updated_at: new Date().toISOString() })
+      .eq('id', characterId);
+  } catch (err) {}
+};
+
 export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (characters: Character[]) => void) => {
   if (!campaignCharListeners.has(campaignId)) {
     campaignCharListeners.set(campaignId, new Set());
   }
   campaignCharListeners.get(campaignId)!.add(onUpdate);
 
-  // Return local immediately so sheets and lists work even under quota limits
+  // Retorna os dados locais imediatamente para não travar a UI
   const localChars = getLocalCampaignCharacters(campaignId);
   onUpdate(localChars);
 
-  if (isFirebaseQuotaExceeded()) {
-    console.warn("⚠️ [Campaign] Firestore quota exceeded. Skipping snapshot listener for campaign characters.");
-    return () => {
-      const listeners = campaignCharListeners.get(campaignId);
-      if (listeners) {
-        listeners.delete(onUpdate);
-        if (listeners.size === 0) {
-          campaignCharListeners.delete(campaignId);
-        }
-      }
-    };
-  }
-
   let active = true;
-  let currentUnsubscribe: (() => void) | null = null;
+  let lastSerialized = '';
 
-  const fetchCampaignAndSubscribe = async () => {
+  const fetchAndNotify = async () => {
+    if (!active) return;
     try {
-      const { data: campRow, error: campError } = await supabase
-        .from(CAMPAIGNS_TABLE)
-        .select('*')
-        .eq('id', campaignId)
-        .single();
+      const blacklist = getDeletedCharactersBlacklist();
+      const matchedCharacters: Character[] = [];
+      const seenIds = new Set<string>();
 
-      if (campError || !campRow) {
-        console.warn("[subscribeToCampaignCharacters] Campaign not found:", campaignId);
-        return;
-      }
-
-      if (!active) return;
-
-      const campaign = mapRowToCampaign(campRow);
-      const playerEmails = campaign.playerEmails || [];
-      const masterEmail = campaign.masterEmail || "";
-      const allowedEmails = Array.from(new Set([masterEmail, ...playerEmails].filter(Boolean)));
-
-      if (allowedEmails.length === 0) {
-        notifyCampaignCharListeners(campaignId, []);
-        return;
-      }
-
-      const q = query(collection(db, CHARACTERS_TABLE));
-
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        if (!active) return;
-        try {
-          const characters: Character[] = [];
-          snapshot.forEach((doc) => {
-            const docData = doc.data();
-            if (docData && docData.data) {
-              const char = { ...docData.data } as Character;
-              if (!char.userId && docData.user_id) char.userId = docData.user_id;
-              if (!char.userEmail && docData.user_email) char.userEmail = docData.user_email;
-              
-              if (char.userEmail && allowedEmails.includes(char.userEmail)) {
-                characters.push(char);
+      // 1. Buscar primeiro da API dedicada do servidor backend (/api/campaigns/:id/characters)
+      // Esta rota usa SERVICE_ROLE_KEY no servidor e contorna completamente qualquer RLS do Supabase!
+      try {
+        const sRes = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/characters`);
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (sData && Array.isArray(sData.characters)) {
+            for (const c of sData.characters) {
+              if (c && c.id && !blacklist.has(c.id) && !seenIds.has(c.id)) {
+                seenIds.add(c.id);
+                matchedCharacters.push({ ...c, campaignId });
               }
             }
-          });
-          saveLocalCampaignCharacters(campaignId, characters);
-          notifyCampaignCharListeners(campaignId, characters);
-        } catch (e) {
-          console.error("[subscribeToCampaignCharacters onSnapshot] Error:", e);
+          }
         }
-      }, (error) => {
-        console.error("[subscribeToCampaignCharacters onSnapshot] Listener error:", error);
-      });
+      } catch (sErr) {}
 
-      currentUnsubscribe = unsubscribe;
-    } catch (err) {
-      console.error("Error setting up real-time campaign characters:", err);
+      // 2. Obter os dados da campanha para ter os e-mails e IDs dos jogadores e do mestre atualizados
+      let allowedEmails: string[] = [];
+      let masterId = '';
+      try {
+        const { data: campRow } = await supabase
+          .from(CAMPAIGNS_TABLE)
+          .select('*')
+          .eq('id', campaignId)
+          .single();
+
+        if (campRow) {
+          const campaign = mapRowToCampaign(campRow);
+          const playerEmails = campaign.playerEmails || [];
+          const masterEmail = (campaign.masterEmail || "").toLowerCase();
+          masterId = campaign.masterId || '';
+          allowedEmails = Array.from(new Set([masterEmail, ...playerEmails.map(e => (e || "").toLowerCase())].filter(Boolean)));
+
+          // Processar também fichas embutidas em campRow.data.playerCharacters
+          const embedded = (campRow.data && (campRow.data.playerCharacters || campRow.data.characters)) || [];
+          if (Array.isArray(embedded)) {
+            for (const ec of embedded) {
+              if (ec && ec.id && !blacklist.has(ec.id) && !seenIds.has(ec.id)) {
+                seenIds.add(ec.id);
+                matchedCharacters.push({ ...ec, campaignId });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[subscribeToCampaignCharacters] Camp row fetch warning:", err);
+      }
+
+      // 3. Buscar fichas do banco de dados (seja por campaign_id ou pertencentes a membros da campanha)
+      try {
+        const { data: allCharRows } = await supabase
+          .from(CHARACTERS_TABLE)
+          .select('*');
+
+        if (allCharRows && Array.isArray(allCharRows)) {
+          for (const docData of allCharRows) {
+            if (!docData) continue;
+            let charData: any = docData.data;
+            if (typeof charData === 'string') {
+              try { charData = JSON.parse(charData); } catch (e) { charData = docData; }
+            } else if (!charData || typeof charData !== 'object') {
+              charData = docData;
+            }
+
+            const char = { ...docData, ...charData } as Character;
+            if (!char.userId && docData.user_id) char.userId = docData.user_id;
+            if (!char.userEmail && docData.user_email) char.userEmail = docData.user_email;
+
+            if (!char.id || blacklist.has(char.id) || seenIds.has(char.id)) continue;
+
+            const charEmailLower = (char.userEmail || "").trim().toLowerCase();
+            const matchesCampaignId = char.campaignId === campaignId || docData.campaign_id === campaignId;
+            const matchesEmail = allowedEmails.length > 0 && charEmailLower && allowedEmails.includes(charEmailLower);
+            const matchesMaster = masterId && char.userId === masterId;
+
+            // Se a ficha pertence à campanha ou a um dos jogadores/mestre
+            if (matchesCampaignId || matchesEmail || matchesMaster) {
+              seenIds.add(char.id);
+              matchedCharacters.push({ ...char, campaignId });
+            }
+          }
+        }
+      } catch (charFetchErr) {}
+
+      // 4. Incluir fichas salvas localmente no navegador que pertencem a esta campanha
+      const localCached = getLocalCampaignCharacters(campaignId);
+      for (const lc of localCached) {
+        if (lc && lc.id && !blacklist.has(lc.id) && !seenIds.has(lc.id)) {
+          seenIds.add(lc.id);
+          matchedCharacters.push({ ...lc, campaignId });
+        }
+      }
+
+      // 5. Salvar em cache local e notificar ouvintes
+      saveLocalCampaignCharacters(campaignId, matchedCharacters);
+      const serialized = JSON.stringify(matchedCharacters);
+      if (serialized !== lastSerialized) {
+        lastSerialized = serialized;
+        notifyCampaignCharListeners(campaignId, matchedCharacters);
+      }
+    } catch (e) {
+      console.error("[subscribeToCampaignCharacters] Error:", e);
     }
   };
 
-  fetchCampaignAndSubscribe();
+  fetchAndNotify();
+
+  // Escutar eventos locais de mudanças em personagens e campanhas
+  const localListener = () => {
+    fetchAndNotify();
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener(`supabase_local_change_${CHARACTERS_TABLE}`, localListener);
+    window.addEventListener(`supabase_local_change_${CAMPAIGNS_TABLE}`, localListener);
+    window.addEventListener('campaign_characters_updated', localListener);
+  }
+
+  // Polling a cada 2.5s para manter dados atualizados
+  const interval = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      return;
+    }
+    fetchAndNotify();
+  }, 2500);
 
   return () => {
+    active = false;
+    clearInterval(interval);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener(`supabase_local_change_${CHARACTERS_TABLE}`, localListener);
+      window.removeEventListener(`supabase_local_change_${CAMPAIGNS_TABLE}`, localListener);
+      window.removeEventListener('campaign_characters_updated', localListener);
+    }
     const listeners = campaignCharListeners.get(campaignId);
     if (listeners) {
       listeners.delete(onUpdate);
       if (listeners.size === 0) {
         campaignCharListeners.delete(campaignId);
       }
-    }
-    active = false;
-    if (currentUnsubscribe) {
-      currentUnsubscribe();
     }
   };
 };

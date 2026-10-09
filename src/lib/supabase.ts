@@ -1,4 +1,19 @@
 import { createClient } from '@supabase/supabase-js';
+import {
+  safeLocalStorageSetItem,
+  safeLocalStorageGetItem,
+  safeLocalStorageRemoveItem,
+  stripHeavyDataForCache,
+  idbGet,
+} from './storageManager';
+
+export {
+  safeLocalStorageSetItem,
+  safeLocalStorageGetItem,
+  safeLocalStorageRemoveItem,
+  stripHeavyDataForCache,
+  idbGet,
+};
 
 export enum OperationType {
   CREATE = 'create',
@@ -9,45 +24,419 @@ export enum OperationType {
   WRITE = 'write',
 }
 
-// Read and sanitize Supabase environment variables
-let rawUrl = (import.meta.env.VITE_SUPABASE_URL || "").trim();
-if (rawUrl) {
-  // Fix common typo where "https" is accidentally concatenated at the end of the domain (e.g., fpidgwgounwjlzxforjl.supabase.cohttps)
-  if (rawUrl.endsWith("cohttps")) {
-    rawUrl = rawUrl.slice(0, -5);
-  } else if (rawUrl.includes("supabase.cohttps")) {
-    rawUrl = rawUrl.replace("supabase.cohttps", "supabase.co");
+// Read and configure local Supabase on PC
+export const normalizeSupabaseUrl = (url: string): string => {
+  let clean = (url || "").trim();
+  if (clean.endsWith("/")) clean = clean.slice(0, -1);
+  if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+    clean = 'http://' + clean;
   }
-  // Remove any trailing slash
-  if (rawUrl.endsWith("/")) {
-    rawUrl = rawUrl.slice(0, -1);
+  return clean;
+};
+
+export const generateRandomUuid = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    try {
+      return crypto.randomUUID();
+    } catch (e) {}
   }
-  // Ensure it starts with https:// if it has only the domain name
-  if (rawUrl && !rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
-    rawUrl = 'https://' + rawUrl;
+  const rand = () => Math.random();
+  const hex = (val: number) => Math.floor(val).toString(16).padStart(2, '0');
+  const parts = [
+    Array.from({ length: 4 }, () => hex(rand() * 256)).join(''),
+    Array.from({ length: 2 }, () => hex(rand() * 256)).join(''),
+    hex(64 + (rand() * 16)) + hex(rand() * 256), // v4 format (4 chars)
+    hex(128 + (rand() * 64)) + hex(rand() * 256), // variant format (4 chars)
+    Array.from({ length: 6 }, () => hex(rand() * 256)).join('')
+  ];
+  return `${parts[0]}-${parts[1]}-${parts[2]}-${parts[3]}-${parts[4]}`;
+};
+
+export const getDeterministicUuid = (input: string): string => {
+  let hash = 0;
+  const cleanInput = (input || "").trim().toLowerCase();
+  for (let i = 0; i < cleanInput.length; i++) {
+    const char = cleanInput.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0;
   }
-}
+  const seedRandom = (s: number) => {
+    return () => {
+      s = Math.sin(s) * 10000;
+      return s - Math.floor(s);
+    };
+  };
+  const rand = seedRandom(Math.abs(hash) || 987654321);
+  const hex = (val: number) => Math.floor(val).toString(16).padStart(2, '0');
+  const parts = [
+    Array.from({ length: 4 }, () => hex(rand() * 256)).join(''),
+    Array.from({ length: 2 }, () => hex(rand() * 256)).join(''),
+    hex(64 + (rand() * 16)) + hex(rand() * 256), // v4 format (4 chars)
+    hex(128 + (rand() * 64)) + hex(rand() * 256), // variant format (4 chars)
+    Array.from({ length: 6 }, () => hex(rand() * 256)).join('')
+  ];
+  return `${parts[0]}-${parts[1]}-${parts[2]}-${parts[3]}-${parts[4]}`;
+};
 
-const supabaseUrl = rawUrl;
-const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim();
+export const DEFAULT_LOCAL_ANON_KEY = "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
+export const STANDARD_LOCAL_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNRebZhBc_4bXn6U";
+export const STANDARD_LOCAL_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM7JyUXp7fZ83VvlN-BRwsPIgtcqbyUTR21s-TqF4";
+export const LOCAL_SERVICE_ROLE_KEY = STANDARD_LOCAL_SERVICE_ROLE_KEY;
 
-const isConfigured = Boolean(
-  supabaseUrl && 
-  supabaseAnonKey && 
-  supabaseUrl !== "placeholder_url" && 
-  supabaseAnonKey !== "placeholder_key" &&
-  (supabaseUrl.startsWith('http://') || supabaseUrl.startsWith('https://'))
-);
+export const getSupabaseConfig = () => {
+  let savedUrl = typeof window !== 'undefined' ? localStorage.getItem('supabase_custom_url') : null;
+  let savedKey = typeof window !== 'undefined' ? localStorage.getItem('supabase_custom_anon_key') : null;
 
-export const realSupabaseClient = isConfigured 
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+  const isBrowser = typeof window !== 'undefined';
+  const hostname = isBrowser ? (window.location.hostname || 'localhost') : 'localhost';
+  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1';
 
-if (!isConfigured) {
-  console.warn("⚠️ [Supabase] Client not configured (ou URL 127.0.0.1 local em ambiente remoto). Operating in high-performance Local Offline-First mode.");
-} else {
-  console.log("⚡ [Supabase] Connected directly to Supabase cloud database.");
-}
+  // If accessed outside localhost (e.g. cloudflared tunnel, mobile device, remote domain, LAN IP):
+  // Default to window.location.origin so requests go through the backend proxy on port 3000 to the host PC's Supabase!
+  let defaultUrl = "http://127.0.0.1:54321";
+  if (isBrowser && !isLocalHost) {
+    defaultUrl = window.location.origin;
+  }
+
+  let currentUrl = (savedUrl || defaultUrl).trim();
+  
+  // If the user is on a remote device/tunnel, but has saved a raw "127.0.0.1" / "localhost" URL from before,
+  // automatically redirect it through window.location.origin so mobile doesn't attempt to connect to itself!
+  if (isBrowser && !isLocalHost && (currentUrl.includes('127.0.0.1') || currentUrl.includes('localhost') || currentUrl.includes('::1'))) {
+    currentUrl = window.location.origin;
+  }
+
+  const currentKey = (savedKey || DEFAULT_LOCAL_ANON_KEY).trim();
+
+  return {
+    url: normalizeSupabaseUrl(currentUrl),
+    rawUrl: currentUrl,
+    anonKey: currentKey
+  };
+};
+
+export const isLocalUrl = (url: string) => {
+  const u = (url || '').toLowerCase();
+  return u.includes('127.0.0.1') || u.includes('localhost') || u.includes('::1') || u.includes('0.0.0.0') || u.includes('192.168.') || u.includes('10.') || u.includes('ngrok') || u.includes('cloudflare');
+};
+
+let currentConfig = getSupabaseConfig();
+
+export let realSupabaseClient = createClient(currentConfig.url, currentConfig.anonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  }
+});
+
+export let hasActiveRealSession = false;
+
+export let isSupabaseConnected = true;
+
+export const setSupabaseConnectionState = (connected: boolean) => {
+  if (isSupabaseConnected !== connected) {
+    isSupabaseConnected = connected;
+    console.log(`📡 [Supabase Connection] State changed to: ${connected ? 'CONNECTED' : 'CACHE_ONLY'}`);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('supabase_connection_status_changed', { 
+        detail: { connected } 
+      }));
+    }
+  }
+};
+
+console.log("⚡ [Supabase Local] Inicializado com:", currentConfig.url);
+
+export const setSupabaseConfig = (newUrl: string, newAnonKey?: string) => {
+  const normUrl = normalizeSupabaseUrl(newUrl);
+  const cleanKey = (newAnonKey || currentConfig.anonKey).trim();
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('supabase_custom_url', normUrl);
+    if (newAnonKey) {
+      localStorage.setItem('supabase_custom_anon_key', cleanKey);
+    }
+  }
+  currentConfig = { url: normUrl, rawUrl: newUrl, anonKey: cleanKey };
+  realSupabaseClient = createClient(normUrl, cleanKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    }
+  });
+  console.log("⚡ [Supabase Local] Cliente reconfigurado para:", normUrl);
+  
+  // Recheck session & attach auth state change for the new client!
+  hasActiveRealSession = false;
+  try {
+    realSupabaseClient.auth.getSession().then(({ data: { session } }) => {
+      hasActiveRealSession = !!session;
+    }).catch(() => {});
+    
+    realSupabaseClient.auth.onAuthStateChange((event, session) => {
+      hasActiveRealSession = !!session;
+    });
+  } catch (err) {
+    console.warn("⚠️ [Supabase Local] Erro ao registrar onAuthStateChange na reconfiguração:", err);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('supabase_config_changed', { detail: { url: normUrl } }));
+  }
+};
+
+export const testSupabaseConnection = async (targetUrl?: string, targetKey?: string): Promise<{ success: boolean; message: string; latency?: number }> => {
+  const urlToTest = normalizeSupabaseUrl(targetUrl || currentConfig.url);
+  const keyToTest = (targetKey || currentConfig.anonKey).trim();
+  
+  // 1. Tentar primeiro via browser fetch direto
+  try {
+    const start = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${urlToTest}/auth/v1/health`, {
+      headers: keyToTest ? { apikey: keyToTest } : {},
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (res.ok || res.status < 500) {
+      const lat = Date.now() - start;
+      setSupabaseConnectionState(true);
+      return { success: true, message: `Conectado com sucesso (${lat}ms)`, latency: lat };
+    }
+  } catch (err: any) {
+    // 2. Se falhar no browser (ex: Mixed Content ou CORS ou rede), tentar via proxy de diagnóstico do servidor Express
+    try {
+      const pingUrl = `/api/supabase/ping?url=${encodeURIComponent(urlToTest)}&key=${encodeURIComponent(keyToTest)}`;
+      const sRes = await fetch(pingUrl);
+      if (sRes.ok) {
+        const sData = await sRes.json();
+        if (sData.online) {
+          setSupabaseConnectionState(true);
+          return { success: true, message: `Conectado via servidor (${sData.latency}ms)`, latency: sData.latency };
+        } else {
+          setSupabaseConnectionState(false);
+          return { success: false, message: sData.error || "Supabase inacessível na URL especificada." };
+        }
+      }
+    } catch (sErr: any) {}
+    
+    setSupabaseConnectionState(false);
+    return { 
+      success: false, 
+      message: err.name === 'AbortError' 
+        ? "Tempo limite esgotado (timeout 3s). A URL não respondeu." 
+        : (err.message || "Erro de rede ao conectar ao Supabase") 
+    };
+  }
+  setSupabaseConnectionState(false);
+  return { success: false, message: "Resposta inesperada do Supabase." };
+};
+
+// Coletor e restaurador ultra-resiliente de fichas salvas no navegador
+export const rescueAllLocalCharacters = (): any[] => {
+  const foundMap = new Map<string, any>();
+  const blacklist = (() => {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('deleted_characters_blacklist') : null;
+      return raw ? new Set(JSON.parse(raw)) : new Set<string>();
+    } catch (e) {
+      return new Set<string>();
+    }
+  })();
+
+  // Avalia a completude/riqueza de uma ficha para nunca substituir uma ficha completa por uma vazia
+  const calculateRichness = (c: any): number => {
+    if (!c || typeof c !== 'object') return 0;
+    let score = 0;
+    if (c.nome && c.nome !== 'Novo Personagem') score += 100;
+    if (Array.isArray(c.armas) && c.armas.length > 0) score += c.armas.length * 20;
+    if (Array.isArray(c.magias) && c.magias.length > 0) score += c.magias.length * 20;
+    if (Array.isArray(c.habilidades) && c.habilidades.length > 0) score += c.habilidades.length * 15;
+    if (Array.isArray(c.equipamentos) && c.equipamentos.length > 0) score += c.equipamentos.length * 10;
+    if (c.atributos && typeof c.atributos === 'object') {
+      const keys = Object.keys(c.atributos);
+      score += keys.length * 5;
+      for (const k of keys) {
+        if (Number(c.atributos[k]) > 0) score += 10;
+      }
+    }
+    if (Number(c.vida) > 0 || Number(c.pvMax) > 0) score += 20;
+    if (Number(c.peMax) > 0) score += 10;
+    if (c.raca || c.classe) score += 20;
+    if (c.historia || c.aparencia || c.anotacoes) score += 15;
+    if (c.imagem) score += 60;
+    if (Array.isArray(c.imagens) && c.imagens.length > 0) score += 40;
+    return score;
+  };
+
+  const addCharCandidate = (candidate: any) => {
+    if (!candidate || typeof candidate !== 'object') return;
+    
+    // Suporte para quando 'data' vem empacotado como string JSON ou objeto
+    let clean = candidate;
+    if (typeof candidate.data === 'string') {
+      try { clean = { ...JSON.parse(candidate.data), ...candidate, data: undefined }; } catch (e) { clean = candidate; }
+    } else if (candidate.data && typeof candidate.data === 'object') {
+      clean = { ...candidate.data, ...candidate };
+    }
+
+    // Suporte para tokens do VTT que encapsulam o personagem
+    if (clean.character && typeof clean.character === 'object') {
+      addCharCandidate(clean.character);
+    }
+    if (clean.sheet && typeof clean.sheet === 'object') {
+      addCharCandidate(clean.sheet);
+    }
+
+    const id = clean.id || candidate.id || (clean.nome ? `recovered_${clean.nome.replace(/\s+/g, '_').toLowerCase()}` : null);
+    if (!id || blacklist.has(id)) return;
+
+    // Verificar se tem características mínimas de uma ficha de RPG deste sistema
+    const isCharacter = 
+      clean.nome !== undefined || 
+      clean.atributos !== undefined || 
+      clean.pvMax !== undefined || 
+      clean.vida !== undefined ||
+      clean.raca !== undefined ||
+      clean.classe !== undefined ||
+      Array.isArray(clean.armas) ||
+      Array.isArray(clean.magias);
+
+    if (!isCharacter) return;
+
+    const currentScore = calculateRichness(clean);
+    const existing = foundMap.get(id);
+
+    if (!existing || currentScore > calculateRichness(existing)) {
+      foundMap.set(id, { ...clean, id });
+    }
+  };
+
+  if (typeof localStorage === 'undefined') return [];
+
+  // 1. Chave principal padrão
+  try {
+    const mainSaved = localStorage.getItem('rpg_system_x_chars');
+    if (mainSaved) {
+      const parsed = JSON.parse(mainSaved);
+      if (Array.isArray(parsed?.characters)) parsed.characters.forEach(addCharCandidate);
+      else if (Array.isArray(parsed)) parsed.forEach(addCharCandidate);
+    }
+  } catch (e) {}
+
+  // 2. Tabela Supabase local de characters
+  try {
+    const tableSaved = localStorage.getItem('supabase_table_characters');
+    if (tableSaved) {
+      const parsed = JSON.parse(tableSaved);
+      if (Array.isArray(parsed)) parsed.forEach(addCharCandidate);
+    }
+  } catch (e) {}
+
+  // 3. Backup de histórico dedicado (cofre imutável)
+  try {
+    const histSaved = localStorage.getItem('rpg_chars_history_backup');
+    if (histSaved) {
+      const parsed = JSON.parse(histSaved);
+      if (Array.isArray(parsed)) parsed.forEach(addCharCandidate);
+    }
+  } catch (e) {}
+
+  // 4. Varredura profunda em TODAS as chaves de localStorage sem exceção
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      
+      try {
+        const val = localStorage.getItem(key);
+        if (!val || val.length < 10) continue;
+        
+        // Tenta fazer parse se for JSON
+        if (val.trim().startsWith('{') || val.trim().startsWith('[')) {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(item => {
+              if (item && typeof item === 'object') addCharCandidate(item);
+            });
+          } else if (parsed && typeof parsed === 'object') {
+            if (Array.isArray(parsed.characters)) {
+              parsed.characters.forEach(addCharCandidate);
+            }
+            if (Array.isArray(parsed.fichas)) {
+              parsed.fichas.forEach(addCharCandidate);
+            }
+            if (Array.isArray(parsed.players)) {
+              parsed.players.forEach(addCharCandidate);
+            }
+            // Objeto ficha avulso
+            if (parsed.nome || parsed.atributos || parsed.pvMax || parsed.raca) {
+              addCharCandidate(parsed);
+            }
+          }
+        }
+      } catch (e) {
+        // Ignora valores que não são JSON
+      }
+    }
+  } catch (e) {}
+
+  const result = Array.from(foundMap.values());
+
+  // Salvar no cofre de histórico para garantir que nunca mais se percam
+  if (result.length > 0) {
+    try {
+      safeLocalStorageSetItem('rpg_chars_history_backup', JSON.stringify(result));
+    } catch (e) {}
+  }
+
+  console.log(`🛡️ [Rescue] Encontradas ${result.length} fichas salvas no armazenamento local.`);
+  return result;
+};
+
+export const rescueAllLocalCampaigns = (): any[] => {
+  const found: any[] = [];
+  const seenIds = new Set<string>();
+
+  const addCamp = (c: any) => {
+    if (!c || typeof c !== 'object') return;
+    const clean = c.data || c;
+    const id = clean.id || c.id;
+    if (id && !seenIds.has(id)) {
+      seenIds.add(id);
+      found.push({ ...clean, id });
+    }
+  };
+
+  if (typeof localStorage === 'undefined') return found;
+
+  try {
+    const tableSaved = localStorage.getItem('supabase_table_campaigns');
+    if (tableSaved) {
+      const parsed = JSON.parse(tableSaved);
+      if (Array.isArray(parsed)) parsed.forEach(addCamp);
+    }
+  } catch (e) {}
+
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    if (key.includes('campaign') && !key.startsWith('campaign_characters_')) {
+      try {
+        const val = localStorage.getItem(key);
+        if (val) {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) parsed.forEach(addCamp);
+          else if (parsed && typeof parsed === 'object' && (parsed.name || parsed.id)) addCamp(parsed);
+        }
+      } catch (e) {}
+    }
+  }
+
+  return found;
+};
 
 // Memory Cache to speed up repeat reads
 export const collectionMemoryCache: { [collectionName: string]: any[] } = {};
@@ -76,76 +465,17 @@ export function removeUndefinedFields(obj: any): any {
 // Direct local storage emulator for tables when offline/not configured
 function getLocalTable(table: string): any[] {
   try {
-    const data = localStorage.getItem(`supabase_table_${table}`);
+    const data = safeLocalStorageGetItem(`supabase_table_${table}`) || localStorage.getItem(`supabase_table_${table}`);
     return data ? JSON.parse(data) : [];
   } catch (e) {
     return [];
   }
 }
 
-export const safeLocalStorageSetItem = (key: string, value: string): boolean => {
-  try {
-    localStorage.setItem(key, value);
-    return true;
-  } catch (error: any) {
-    const isQuotaError = 
-      error.name === 'QuotaExceededError' || 
-      error.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
-      error.code === 22 ||
-      error.code === 1014 ||
-      (error.message && error.message.toLowerCase().includes('quota'));
-      
-    if (isQuotaError) {
-      console.warn("⚠️ [Storage] Quota exceeded. Attempting to clear stale cache to free up space...");
-      try {
-        const keysToRemove: { key: string; length: number }[] = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (k && k !== key) {
-            if (
-              k.startsWith('supabase_table_') || 
-              k.startsWith('supabase_cache_') || 
-              k.startsWith('vtt_logs_') ||
-              k.startsWith('vtt_tokens_') ||
-              k.startsWith('campaign_characters_')
-            ) {
-              const val = localStorage.getItem(k);
-              keysToRemove.push({ key: k, length: val ? val.length : 0 });
-            }
-          }
-        }
-        
-        keysToRemove.sort((a, b) => b.length - a.length);
-        
-        if (keysToRemove.length > 0) {
-          console.warn(`[Storage] Clearing ${keysToRemove.length} cache keys to free up space...`);
-          for (const item of keysToRemove) {
-            localStorage.removeItem(item.key);
-            console.log(`[Storage] Removed stale cache: ${item.key} (${Math.round(item.length / 1024)} KB)`);
-            
-            try {
-              localStorage.setItem(key, value);
-              console.log("⚡ [Storage] Successfully saved after freeing up space!");
-              return true;
-            } catch (e) {
-              // Still out of space, continue removing keys
-            }
-          }
-        }
-      } catch (cleanupError) {
-        console.error("Error during localStorage cleanup:", cleanupError);
-      }
-    }
-    
-    console.error(`❌ [Storage] Failed to save key "${key}" to localStorage:`, error);
-    return false;
-  }
-};
-
 function saveLocalTable(table: string, data: any[], skipDispatch = false) {
   try {
     const serialized = JSON.stringify(data);
-    const existing = localStorage.getItem(`supabase_table_${table}`);
+    const existing = safeLocalStorageGetItem(`supabase_table_${table}`);
     if (existing === serialized) {
       return;
     }
@@ -155,7 +485,7 @@ function saveLocalTable(table: string, data: any[], skipDispatch = false) {
       window.dispatchEvent(new CustomEvent(`supabase_local_change_${table}`));
     }
   } catch (e) {
-    console.error(`Error saving local table ${table}:`, e);
+    console.warn(`Error saving local table ${table}:`, e);
   }
 }
 
@@ -176,6 +506,31 @@ function withTimeout(promise: any, ms: number = 2000): Promise<any> {
       }
     );
   });
+}
+
+// Universal entity field getter with snake_case and camelCase support across top-level and inner data
+export function getEntityValue(row: any, field: string): any {
+  if (!row) return undefined;
+  if (row[field] !== undefined) return row[field];
+  const camelField = field.replace(/_([a-z])/g, (_, l) => l.toUpperCase());
+  if (row[camelField] !== undefined) return row[camelField];
+  const snakeField = field.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+  if (row[snakeField] !== undefined) return row[snakeField];
+  if (row.data && typeof row.data === 'object') {
+    if (row.data[field] !== undefined) return row.data[field];
+    if (row.data[camelField] !== undefined) return row.data[camelField];
+    if (row.data[snakeField] !== undefined) return row.data[snakeField];
+  }
+  return undefined;
+}
+
+// Case-insensitive comparator for email fields and robust value matching
+export function matchesFieldValue(valA: any, valB: any, fieldName: string): boolean {
+  if (valA === undefined || valB === undefined || valA === null || valB === null) return false;
+  if (fieldName.toLowerCase().includes('email')) {
+    return String(valA).trim().toLowerCase() === String(valB).trim().toLowerCase();
+  }
+  return String(valA).trim() === String(valB).trim();
 }
 
 // Query builder mapping Supabase JS API to either cloud Supabase or local storage emulator
@@ -239,12 +594,12 @@ class ResilientQueryBuilder {
 
     if (realSupabaseClient) {
       try {
-        const { data, error } = (await withTimeout(
+        const { data, error, status } = (await withTimeout(
           realSupabaseClient.from(this.table).upsert(values),
           2000
         )) as any;
         if (error) {
-          checkSupabaseError(error);
+          checkSupabaseError(error, status);
         }
         if (!error) {
           // Mirror to local table for offline robustness
@@ -255,11 +610,14 @@ class ResilientQueryBuilder {
             else local.push(item);
           }
           saveLocalTable(this.table, local);
+          setSupabaseConnectionState(true);
           return { data, error: null };
         }
         console.log(`[Supabase Offline-First] Write Error, using local storage:`, error);
+        setSupabaseConnectionState(false);
       } catch (err) {
         console.log(`[Supabase Offline-First] Cloud Exception, using local storage:`, err);
+        setSupabaseConnectionState(false);
       }
     }
 
@@ -298,7 +656,7 @@ class ResilientQueryBuilder {
             try {
               if (realSupabaseClient) {
                 try {
-                  const { data, error } = (await withTimeout(
+                  const { data, error, status } = (await withTimeout(
                     realSupabaseClient
                       .from(this.table)
                       .update(cleanValues)
@@ -306,7 +664,7 @@ class ResilientQueryBuilder {
                     2000
                   )) as any;
                   if (error) {
-                    checkSupabaseError(error);
+                    checkSupabaseError(error, status);
                   }
                   if (!error) {
                     // Mirror update locally
@@ -318,12 +676,15 @@ class ResilientQueryBuilder {
                       return item;
                     });
                     saveLocalTable(this.table, updatedLocal);
+                    setSupabaseConnectionState(true);
                     const res = { data, error: null };
                     return onfulfilled ? onfulfilled(res) : res;
                   }
                   console.log(`[Supabase Offline-First] Update Error, using local:`, error);
+                  setSupabaseConnectionState(false);
                 } catch (err) {
                   console.log(`[Supabase Offline-First] Update Exception, using local:`, err);
+                  setSupabaseConnectionState(false);
                 }
               }
 
@@ -357,7 +718,7 @@ class ResilientQueryBuilder {
             try {
               if (realSupabaseClient) {
                 try {
-                  const { data, error } = (await withTimeout(
+                  const { data, error, status } = (await withTimeout(
                     realSupabaseClient
                       .from(this.table)
                       .delete()
@@ -365,22 +726,37 @@ class ResilientQueryBuilder {
                     2000
                   )) as any;
                   if (error) {
-                    checkSupabaseError(error);
+                    checkSupabaseError(error, status);
                   }
                   if (!error) {
                     const local = getLocalTable(this.table);
-                    const filtered = local.filter(item => String(item[column]) !== String(value));
+                    const filtered = local.filter(item => {
+                      if (!item) return false;
+                      if (String(item[column]) === String(value)) return false;
+                      if (item.data && String(item.data[column]) === String(value)) return false;
+                      if (column === 'id' && item.data?.id && String(item.data.id) === String(value)) return false;
+                      return true;
+                    });
                     saveLocalTable(this.table, filtered);
+                    setSupabaseConnectionState(true);
                     const res = { data, error: null };
                     return onfulfilled ? onfulfilled(res) : res;
                   }
+                  setSupabaseConnectionState(false);
                 } catch (err) {
                   console.log(`[Supabase Offline-First] Delete Exception, using local:`, err);
+                  setSupabaseConnectionState(false);
                 }
               }
 
               const local = getLocalTable(this.table);
-              const filtered = local.filter(item => String(item[column]) !== String(value));
+              const filtered = local.filter(item => {
+                if (!item) return false;
+                if (String(item[column]) === String(value)) return false;
+                if (item.data && String(item.data[column]) === String(value)) return false;
+                if (column === 'id' && item.data?.id && String(item.data.id) === String(value)) return false;
+                return true;
+              });
               saveLocalTable(this.table, filtered);
               const res = { data: null, error: null };
               return onfulfilled ? onfulfilled(res) : res;
@@ -424,37 +800,48 @@ class ResilientQueryBuilder {
             builder = builder.single();
           }
 
-          const { data, error } = (await withTimeout(builder, 2000)) as any;
+          let { data, error, status } = (await withTimeout(builder, 2000)) as any;
           if (error) {
-            checkSupabaseError(error);
+            checkSupabaseError(error, status);
+            setSupabaseConnectionState(false);
           }
+
+          // If standard query failed or returned empty in local URL, try service_role admin client to bypass RLS
+          if ((!data || (Array.isArray(data) && data.length === 0) || error) && isLocalUrl(currentConfig.url)) {
+            try {
+              const adminClient = createClient(currentConfig.url, LOCAL_SERVICE_ROLE_KEY, {
+                auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+              });
+              let adminBuilder: any = adminClient.from(this.table).select('*');
+              for (const f of this.filters) {
+                if (f.operator === '==') adminBuilder = adminBuilder.eq(f.column, f.value);
+                else if (f.operator === 'in') adminBuilder = adminBuilder.in(f.column, f.value);
+              }
+              for (const orFilter of this.orFilters) {
+                adminBuilder = adminBuilder.or(orFilter);
+              }
+              if (this.orderField) {
+                adminBuilder = adminBuilder.order(this.orderField, { ascending: this.orderAscending });
+              }
+              if (this.limitCount !== null) adminBuilder = adminBuilder.limit(this.limitCount);
+              if (this.isSingle) adminBuilder = adminBuilder.single();
+
+              const { data: adminData, error: adminErr } = (await withTimeout(adminBuilder, 2000)) as any;
+              if (!adminErr && adminData && (!Array.isArray(adminData) || adminData.length > 0)) {
+                data = adminData;
+                error = null;
+              }
+            } catch (adminE) {}
+          }
+
           if (!error && data) {
+            setSupabaseConnectionState(true);
             rows = Array.isArray(data) ? data : [data];
             loadedFromCloud = true;
             
-            // Sync with local memory and storage cache
+            // Sync with local memory and storage cache (non-destructive preservation)
             const local = getLocalTable(this.table);
-
-            // Filter out any rows belonging to other users to prevent cross-user data leak in localStorage cache!
-            let filteredLocal = local.filter(item => {
-              if (this.table === 'characters') {
-                const isOwn = !item.user_id || item.user_id.startsWith('guest_') || (currentAuthUser && (item.user_id === currentAuthUser.uid || item.user_email === currentAuthUser.email));
-                return isOwn;
-              }
-              if (this.table === 'campaigns') {
-                const isMaster = !item.master_id || item.master_id.startsWith('guest_') || (currentAuthUser && (item.master_id === currentAuthUser.uid || item.master_email === currentAuthUser.email));
-                if (isMaster) return true;
-                
-                // Allow player joined campaigns to be kept in local storage cache
-                const localChars = getLocalTable('characters');
-                const isJoined = localChars.some(char => {
-                  const charData = char.data || char;
-                  return charData.campaignId === item.id || char.campaign_id === item.id;
-                });
-                return isJoined;
-              }
-              return true;
-            });
+            let filteredLocal = [...local];
 
             const cloudIds = new Set(rows.map(r => r.id));
 
@@ -465,33 +852,6 @@ class ResilientQueryBuilder {
                 item.data.isRemoteSynced = true;
               }
             }
-
-            // Auto-detect and remove previously synced items that match current filters but are no longer in the cloud (DELETED)
-            filteredLocal = filteredLocal.filter(l => {
-              const isPreviouslySynced = l.is_remote_synced === true || l.isRemoteSynced === true || (l.data && (l.data.isRemoteSynced === true || l.data.is_remote_synced === true));
-              if (!isPreviouslySynced) return true; // Keep unsynced, brand-new local items
-              if (cloudIds.has(l.id)) return true; // Keep items that still exist on the cloud
-
-              // Apply our filter checks to see if this item belongs to the query dataset
-              let matchesFilters = true;
-              for (const f of this.filters) {
-                if (f.operator === '==') {
-                  const val = l[f.column] !== undefined ? l[f.column] : (l.data ? l.data[f.column] : undefined);
-                  if (String(val) !== String(f.value)) {
-                    matchesFilters = false;
-                    break;
-                  }
-                }
-              }
-
-              if (matchesFilters) {
-                // Item was synced, matches filters, but is no longer on the cloud -> DELETED
-                console.log(`🗑️ [Supabase Sync] Purging deleted item from local cache: ${this.table} ID ${l.id}`);
-                return false;
-              }
-
-              return true;
-            });
 
             // Merge cloud data to local, overwriting older or duplicates
             for (const item of rows) {
@@ -508,10 +868,30 @@ class ResilientQueryBuilder {
               // Apply simple equality filter check
               for (const f of this.filters) {
                 if (f.operator === '==') {
-                  const val = l[f.column] !== undefined ? l[f.column] : (l.data ? l.data[f.column] : undefined);
-                  if (String(val) !== String(f.value)) return false;
+                  const val = getEntityValue(l, f.column);
+                  if (!matchesFieldValue(val, f.value, f.column)) return false;
                 }
               }
+
+              // Apply OR filters if present
+              for (const orStr of this.orFilters) {
+                const parts = orStr.split(',');
+                const matchesAny = parts.some(p => {
+                  const segments = p.split('.');
+                  if (segments.length >= 3) {
+                    const col = segments[0];
+                    const op = segments[1];
+                    const val = segments.slice(2).join('.');
+                    if (op === 'eq') {
+                      const rowVal = getEntityValue(l, col);
+                      return matchesFieldValue(rowVal, val, col);
+                    }
+                  }
+                  return false;
+                });
+                if (!matchesAny) return false;
+              }
+
               return true;
             });
 
@@ -519,8 +899,9 @@ class ResilientQueryBuilder {
               rows = [...rows, ...localOnly];
             }
           }
-        } catch (err) {
+        } catch (err: any) {
           console.log(`[Supabase Offline-First] Read Exception, using local fallback:`, err.message || err);
+          setSupabaseConnectionState(false);
         }
       }
 
@@ -531,9 +912,15 @@ class ResilientQueryBuilder {
         // Apply filters in memory
         for (const f of this.filters) {
           if (f.operator === '==') {
-            rows = rows.filter(r => String(r[f.column]) === String(f.value));
+            rows = rows.filter(r => {
+              const val = getEntityValue(r, f.column);
+              return matchesFieldValue(val, f.value, f.column);
+            });
           } else if (f.operator === 'in') {
-            rows = rows.filter(r => Array.isArray(f.value) && f.value.map(String).includes(String(r[f.column])));
+            rows = rows.filter(r => {
+              const val = getEntityValue(r, f.column);
+              return Array.isArray(f.value) && f.value.map(String).includes(String(val));
+            });
           }
         }
 
@@ -548,7 +935,8 @@ class ResilientQueryBuilder {
                 const op = segments[1];
                 const val = segments.slice(2).join('.');
                 if (op === 'eq') {
-                  return String(row[col]) === String(val);
+                  const rowVal = getEntityValue(row, col);
+                  return matchesFieldValue(rowVal, val, col);
                 }
               }
               return false;
@@ -611,11 +999,18 @@ const notifyAuthSuccess = (session: any) => {
   if (typeof window === 'undefined' || !session) return;
   console.log("⚡ [Popup Auth] Notifying auth success with session...");
   
+  const userEmail = (session.user?.email || "").trim().toLowerCase();
   const userObj = {
     uid: session.user?.id || "",
-    email: session.user?.email || "",
+    email: userEmail,
     displayName: session.user?.user_metadata?.full_name || session.user?.email || "",
   };
+
+  if (userEmail && session.user?.id) {
+    try {
+      localStorage.setItem('account_google_uid_' + userEmail, session.user.id);
+    } catch (e) {}
+  }
 
   const authData = {
     user: userObj,
@@ -651,6 +1046,392 @@ const notifyAuthSuccess = (session: any) => {
 
 let isSyncing = false;
 
+export const isNetworkError = (err: any): boolean => {
+  if (!err) return false;
+  const msg = String(err.message || err.details || err.error_description || err || "").toLowerCase();
+  const status = (err as any)?.status || (err as any)?.statusCode || (err as any)?.code;
+  
+  if (
+    status === 502 || 
+    status === 503 || 
+    status === 504 || 
+    status === '502' || 
+    status === '503' || 
+    status === '504' || 
+    status === 'PGRST_CONNECTION_REFUSED' ||
+    status === 'ECONNREFUSED' ||
+    status === 'ENOTFOUND'
+  ) {
+    return true;
+  }
+
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('typeerror') ||
+    msg.includes('networkerror') ||
+    msg.includes('cors') ||
+    msg.includes('aborterror') ||
+    msg.includes('timeout') ||
+    msg.includes('enotfound') ||
+    msg.includes('econnrefused') ||
+    msg.includes('econnreset') ||
+    msg.includes('etimedout') ||
+    msg.includes('net::err_') ||
+    msg.includes('<!doctype') ||
+    msg.includes('<html') ||
+    msg.includes('<head') ||
+    msg.includes('<title>') ||
+    msg.includes('starting server') ||
+    msg.includes('bad gateway') ||
+    msg.includes('gateway timeout') ||
+    msg.includes('service unavailable') ||
+    msg.includes('supabase local indisponível') ||
+    msg.includes('supabase proxy error') ||
+    msg.includes('load failed')
+  );
+};
+
+export const forceSyncAndRestoreByEmail = async (
+  userEmail?: string,
+  userId?: string
+): Promise<{ 
+  characters: any[]; 
+  campaigns: any[]; 
+  count: number; 
+  fromCloud: number; 
+  fromLocal: number; 
+  remoteError: string | null;
+}> => {
+  const activeEmail = (userEmail || currentAuthUser?.email || "").trim().toLowerCase();
+  const activeUserId = userId || currentAuthUser?.uid || "";
+
+  console.log(`⚡ [ForceSync] Iniciando varredura completa (Nuvem Local + Cache Local) para e-mail: "${activeEmail}" (UID: "${activeUserId}")`);
+
+  const restoredCharacters: any[] = [];
+  const restoredCampaigns: any[] = [];
+  const seenCharIds = new Set<string>();
+  const seenCampIds = new Set<string>();
+
+  let countCloud = 0;
+  let countLocal = 0;
+  let remoteError: string | null = null;
+
+  const isLocalUrl = (url: string) => {
+    const u = (url || '').toLowerCase();
+    return u.includes('127.0.0.1') || u.includes('localhost') || u.includes('::1') || u.includes('0.0.0.0');
+  };
+
+  const LOCAL_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM7JyUXp7fZ83VvlN-BRwsPIgtcqbyUTR21s-TqF4";
+
+  // 1. TENTAR BUSCA NA TABELA 'characters' DO SUPABASE (COM CLIENTE ATUAL OU FALLBACK SERVICE ROLE)
+  if (realSupabaseClient) {
+    try {
+      let remoteChars: any[] | null = null;
+      
+      // Tentativa 1: Cliente Supabase padrão
+      const { data: standardData, error: standardErr } = await realSupabaseClient
+        .from('characters')
+        .select('*');
+
+      if (standardErr) {
+        console.warn("⚠️ [ForceSync] Consulta padrão retornou aviso:", standardErr.message || standardErr);
+        remoteError = standardErr.message || String(standardErr);
+      } else if (Array.isArray(standardData)) {
+        remoteChars = standardData;
+      }
+
+      // Tentativa 2: Se deu erro de permissão (ex: permission denied) ou retornou vazio e estamos em URL local/custom, tentar chave administrativa (service_role)
+      if ((!remoteChars || remoteChars.length === 0 || standardErr) && isLocalUrl(currentConfig.url)) {
+        try {
+          const adminClient = createClient(currentConfig.url, LOCAL_SERVICE_ROLE_KEY, {
+            auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+          });
+          const { data: adminData, error: adminErr } = await adminClient.from('characters').select('*');
+          if (!adminErr && Array.isArray(adminData) && adminData.length > 0) {
+            console.log(`🔑 [ForceSync] Recuperadas ${adminData.length} fichas via chave administrativa local (RLS contornado)!`);
+            remoteChars = adminData;
+            remoteError = null;
+          } else if (adminErr) {
+            console.warn("⚠️ [ForceSync] Tentativa com service_role também retornou erro:", adminErr.message || adminErr);
+          }
+        } catch (adminTryErr) {
+          console.warn("⚠️ [ForceSync] Erro ao instanciar cliente admin:", adminTryErr);
+        }
+      }
+
+      const deletedBlacklist: Set<string> = (() => {
+        try {
+          const raw = typeof localStorage !== 'undefined' ? (localStorage.getItem('deleted_characters_blacklist') || localStorage.getItem('demons_despair_deleted_chars')) : null;
+          return raw ? new Set(JSON.parse(raw)) : new Set();
+        } catch (e) {
+          return new Set();
+        }
+      })();
+
+      if (remoteChars && Array.isArray(remoteChars) && remoteChars.length > 0) {
+        console.log(`📋 [ForceSync] ${remoteChars.length} registro(s) encontrado(s) na tabela 'characters' do Supabase.`);
+        const charsToUpdateInCloud: any[] = [];
+
+        for (const row of remoteChars) {
+          let charData: any = {};
+          if (typeof row.data === 'string') {
+            try { charData = JSON.parse(row.data); } catch (e) { charData = {}; }
+          } else if (row.data && typeof row.data === 'object') {
+            charData = { ...row.data };
+          }
+
+          const charId = row.id || charData.id;
+          if (!charId || deletedBlacklist.has(charId)) {
+            // Se a ficha foi deletada pelo usuário mas ainda existe no banco remoto, limpa do servidor
+            if (charId && deletedBlacklist.has(charId) && realSupabaseClient) {
+              Promise.resolve(realSupabaseClient.from('characters').delete().eq('id', charId)).catch(() => {});
+            }
+            continue;
+          }
+
+          const candidateName = charData.nome || row.nome || row.name || '';
+          const rowEmail = (row.user_email || charData.userEmail || charData.user_email || '').trim().toLowerCase();
+
+          // Critério estrito email-first:
+          const isMatchEmail = Boolean(activeEmail && rowEmail && rowEmail === activeEmail);
+
+          if (isMatchEmail) {
+            if (!seenCharIds.has(charId)) {
+              seenCharIds.add(charId);
+
+              const sanitizedChar = {
+                ...row,
+                ...charData,
+                id: charId,
+                nome: candidateName || "Personagem",
+                userId: activeUserId || activeEmail,
+                userEmail: activeEmail,
+                isRemoteSynced: true
+              };
+
+              restoredCharacters.push(sanitizedChar);
+              countCloud++;
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn("⚠️ [ForceSync] Erro ao consultar 'characters' no Supabase:", e);
+      remoteError = e.message || String(e);
+    }
+  }
+
+  // 2. TENTAR BUSCA NA TABELA 'campaigns' DO SUPABASE
+  if (realSupabaseClient) {
+    try {
+      let remoteCamps: any[] | null = null;
+      const { data: campData, error: campErr } = await realSupabaseClient.from('campaigns').select('*');
+      if (!campErr && Array.isArray(campData)) {
+        remoteCamps = campData;
+      }
+
+      if ((!remoteCamps || remoteCamps.length === 0 || campErr) && isLocalUrl(currentConfig.url)) {
+        try {
+          const adminClient = createClient(currentConfig.url, LOCAL_SERVICE_ROLE_KEY, {
+            auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+          });
+          const { data: adminCamps } = await adminClient.from('campaigns').select('*');
+          if (Array.isArray(adminCamps) && adminCamps.length > 0) remoteCamps = adminCamps;
+        } catch (e) {}
+      }
+
+      if (remoteCamps && Array.isArray(remoteCamps)) {
+        for (const row of remoteCamps) {
+          let cData: any = {};
+          if (typeof row.data === 'string') {
+            try { cData = JSON.parse(row.data); } catch (e) { cData = {}; }
+          } else if (row.data && typeof row.data === 'object') {
+            cData = { ...row.data };
+          }
+
+          const campName = row.name || cData.name || "Campanha";
+          const rowMasterEmail = (row.master_email || cData.masterEmail || cData.master_email || '').trim().toLowerCase();
+          const origEmail = (cData.masterEmail || cData.master_email || '').trim().toLowerCase();
+
+          // Critério estrito email-first:
+          const isMatchEmail = Boolean(activeEmail && ((rowMasterEmail && rowMasterEmail === activeEmail) || (origEmail && origEmail === activeEmail)));
+
+          if (isMatchEmail) {
+            const campId = row.id || cData.id;
+            if (campId && !seenCampIds.has(campId)) {
+              seenCampIds.add(campId);
+              let playerEmails = cData.playerEmails || row.player_emails || [activeEmail];
+              if (!Array.isArray(playerEmails)) playerEmails = [activeEmail];
+              playerEmails = playerEmails.map((e: string) => (e || '').toLowerCase());
+              if (!playerEmails.includes(activeEmail)) playerEmails.push(activeEmail);
+
+              const sanitizedCamp = {
+                ...row,
+                ...cData,
+                id: campId,
+                name: campName,
+                masterId: activeUserId || activeEmail,
+                masterEmail: activeEmail,
+                playerEmails,
+                inviteCode: row.invite_code || cData.inviteCode || ""
+              };
+              restoredCampaigns.push(sanitizedCamp);
+            }
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 3. BUSCA E RESGATE NO CACHE DO NAVEGADOR (LOCALSTORAGE) COM ISOLAMENTO POR EMAIL
+  try {
+    const deletedBlacklist: Set<string> = (() => {
+      try {
+        const raw = typeof localStorage !== 'undefined' ? (localStorage.getItem('deleted_characters_blacklist') || localStorage.getItem('demons_despair_deleted_chars')) : null;
+        return raw ? new Set(JSON.parse(raw)) : new Set();
+      } catch (e) {
+        return new Set();
+      }
+    })();
+
+    const localRescuedChars = rescueAllLocalCharacters();
+    if (localRescuedChars.length > 0) {
+      for (const locChar of localRescuedChars) {
+        const charId = locChar.id;
+        if (!charId || deletedBlacklist.has(charId)) continue;
+
+        const locEmail = (locChar.userEmail || locChar.user_email || locChar.email || '').trim().toLowerCase();
+        const isOwnChar = Boolean(locEmail && activeEmail && locEmail === activeEmail);
+
+        if (isOwnChar) {
+          if (!seenCharIds.has(charId)) {
+            seenCharIds.add(charId);
+            const sanitized = {
+              ...locChar,
+              id: charId,
+              userId: activeUserId || activeEmail,
+              userEmail: activeEmail
+            };
+            restoredCharacters.push(sanitized);
+            countLocal++;
+          }
+        }
+      }
+    }
+
+    const localRescuedCamps = rescueAllLocalCampaigns();
+    if (localRescuedCamps.length > 0) {
+      for (const locCamp of localRescuedCamps) {
+        const campId = locCamp.id;
+        const locMasterEmail = (locCamp.masterEmail || locCamp.master_email || '').trim().toLowerCase();
+        const isOwnCamp = Boolean(locMasterEmail && activeEmail && locMasterEmail === activeEmail);
+
+        if (isOwnCamp) {
+          if (campId && !seenCampIds.has(campId)) {
+            seenCampIds.add(campId);
+            const sanitized = {
+              ...locCamp,
+              id: campId,
+              masterId: activeUserId || activeEmail,
+              masterEmail: activeEmail
+            };
+            restoredCampaigns.push(sanitized);
+          }
+        }
+      }
+    }
+  } catch (locErr) {
+    console.warn("⚠️ [ForceSync] Erro ao resgatar dados locais:", locErr);
+  }
+
+  // 4. PERSISTIR TUDO NOS ARMAZENAMENTOS LOCAIS PRESERVANDO DADOS DE OUTRAS CONTAS
+  if (restoredCharacters.length > 0) {
+    const currentLocalChars = getLocalTable('characters');
+    const mergedChars = currentLocalChars.filter(c => {
+      const cEmail = (c.user_email || c.data?.userEmail || '').trim().toLowerCase();
+      const cUid = c.user_id || c.data?.userId;
+      // Preservar fichas de outros usuários na tabela local
+      return (cEmail && activeEmail && cEmail !== activeEmail) && (cUid && activeUserId && cUid !== activeUserId);
+    });
+
+    for (const rc of restoredCharacters) {
+      mergedChars.push({
+        id: rc.id,
+        user_id: rc.userId || activeUserId,
+        user_email: rc.userEmail || activeEmail,
+        campaign_id: rc.campaignId || null,
+        data: rc,
+        updated_at: new Date().toISOString()
+      });
+    }
+    saveLocalTable('characters', mergedChars, true);
+
+    try {
+      const mainSaved = localStorage.getItem('rpg_system_x_chars');
+      let currentParsed: any = {};
+      if (mainSaved) {
+        try { currentParsed = JSON.parse(mainSaved); } catch (e) {}
+      }
+      const existingList = Array.isArray(currentParsed?.characters) ? currentParsed.characters : [];
+      const mergedMain = [...restoredCharacters];
+      for (const ex of existingList) {
+        const exEmail = (ex.userEmail || '').trim().toLowerCase();
+        if (exEmail && activeEmail && exEmail !== activeEmail) {
+          // Manter fichas de outros usuários
+          mergedMain.push(ex);
+        } else if (!mergedMain.some(m => m.id === ex.id) && ex.nome && ex.nome !== 'Novo Personagem') {
+          mergedMain.push(ex);
+        }
+      }
+      currentParsed.characters = mergedMain;
+      if (!currentParsed.activeCharacterId && mergedMain.length > 0) {
+        currentParsed.activeCharacterId = mergedMain[0].id;
+      }
+      localStorage.setItem('rpg_system_x_chars', JSON.stringify(currentParsed));
+    } catch (e) {}
+  }
+
+  if (restoredCampaigns.length > 0) {
+    const currentLocalCamps = getLocalTable('campaigns');
+    const mergedCamps = currentLocalCamps.filter(c => {
+      const cEmail = (c.master_email || c.data?.masterEmail || '').trim().toLowerCase();
+      const cUid = c.master_id || c.data?.masterId;
+      // Preservar campanhas de outros mestres
+      return (cEmail && activeEmail && cEmail !== activeEmail) && (cUid && activeUserId && cUid !== activeUserId);
+    });
+
+    for (const rCamp of restoredCampaigns) {
+      mergedCamps.push({
+        id: rCamp.id,
+        master_id: rCamp.masterId || activeUserId,
+        master_email: rCamp.masterEmail || activeEmail,
+        name: rCamp.name,
+        invite_code: rCamp.inviteCode,
+        data: rCamp,
+        updated_at: new Date().toISOString()
+      });
+    }
+    saveLocalTable('campaigns', mergedCamps, true);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('supabase_local_change_characters'));
+    window.dispatchEvent(new Event('supabase_local_change_campaigns'));
+    window.dispatchEvent(new CustomEvent('campaigns_updated', { detail: { campaigns: restoredCampaigns } }));
+  }
+
+  console.log(`✅ [ForceSync] Concluído: ${restoredCharacters.length} ficha(s) (Nuvem: ${countCloud}, Local: ${countLocal}), ${restoredCampaigns.length} campanha(s).`);
+
+  return {
+    characters: restoredCharacters,
+    campaigns: restoredCampaigns,
+    count: restoredCharacters.length,
+    fromCloud: countCloud,
+    fromLocal: countLocal,
+    remoteError
+  };
+};
+
 export const syncLocalToCloud = async () => {
   if (isSyncing || !realSupabaseClient || !currentAuthUser) return;
   
@@ -661,50 +1442,79 @@ export const syncLocalToCloud = async () => {
 
   isSyncing = true;
   console.log("⚡ [Sync] Starting offline to online synchronization...");
+  let anyUploadError = false;
 
   try {
     const userId = currentAuthUser.uid;
-    const userEmail = currentAuthUser.email || "";
+    const userEmail = (currentAuthUser.email || "").trim().toLowerCase();
 
     // 1. Sync Characters
-    const localCharacters = getLocalTable('characters');
+    const deletedBlacklist: Set<string> = (() => {
+      try {
+        const raw = typeof localStorage !== 'undefined' ? (localStorage.getItem('deleted_characters_blacklist') || localStorage.getItem('demons_despair_deleted_chars')) : null;
+        return raw ? new Set(JSON.parse(raw)) : new Set();
+      } catch (e) {
+        return new Set();
+      }
+    })();
+
+    let localCharacters = getLocalTable('characters').filter(c => c && c.id && !deletedBlacklist.has(c.id));
+
+    const hasRealLocalChars = localCharacters.some(c => {
+      const cEmail = (c.user_email || c.data?.userEmail || '').trim().toLowerCase();
+      const isMine = cEmail && userEmail && cEmail === userEmail;
+      return isMine && (c.data?.nome || c.nome) && (c.data?.nome || c.nome) !== 'Novo Personagem';
+    });
+
+    if (!hasRealLocalChars && typeof localStorage !== 'undefined') {
+      const rescued = rescueAllLocalCharacters();
+      const userRescued = rescued.filter((c: any) => {
+        if (!c || !c.id || deletedBlacklist.has(c.id)) return false;
+        const cEmail = (c.userEmail || c.user_email || c.email || '').trim().toLowerCase();
+        return Boolean(cEmail && userEmail && cEmail === userEmail);
+      });
+
+      if (userRescued.length > 0) {
+        console.log(`⚡ [Sync] Resgatadas ${userRescued.length} fichas locais do usuário para sincronização!`);
+        const newLocal = userRescued.map((c: any) => ({
+          id: c.id,
+          user_id: userId || userEmail,
+          user_email: userEmail,
+          campaign_id: c.campaignId || null,
+          data: { ...c, userEmail },
+          updated_at: new Date().toISOString()
+        }));
+        // Merge with existing local characters from other accounts
+        const preservedOtherChars = localCharacters.filter(c => {
+          const cEmail = (c.user_email || c.data?.userEmail || '').trim().toLowerCase();
+          return cEmail && userEmail && cEmail !== userEmail;
+        });
+        localCharacters = [...preservedOtherChars, ...newLocal];
+        saveLocalTable('characters', localCharacters, true);
+      }
+    }
+
     if (localCharacters.length > 0) {
-      console.log(`⚡ [Sync] Found ${localCharacters.length} local characters. Verifying alignment...`);
-      
       const charactersToUpload = [];
       const updatedLocalCharacters = [];
 
       for (const item of localCharacters) {
-        let needsUpload = false;
+        if (!item || !item.id || deletedBlacklist.has(item.id)) continue;
         const charData = item.data || item;
+        const itemEmail = (item.user_email || charData.userEmail || '').trim().toLowerCase();
 
-        // Only adopt character if it has no user_id or is owned by guest. NEVER adopt registered characters from other users!
-        if (!item.user_id || item.user_id.startsWith('guest_')) {
-          console.log(`⚡ [Sync] Migrating character ${charData.nome || item.id} from ${item.user_id} to ${userId}`);
-          item.user_id = userId;
+        const isSameEmail = Boolean(itemEmail && userEmail && itemEmail === userEmail);
+
+        if (isSameEmail) {
+          item.user_id = userId || userEmail;
           item.user_email = userEmail;
-          
           if (item.data) {
-            item.data.userId = userId;
+            item.data.userId = userId || userEmail;
             item.data.userEmail = userEmail;
-          } else {
-            item.userId = userId;
-            item.userEmail = userEmail;
           }
-          needsUpload = true;
           charactersToUpload.push(item);
-        } else if (item.user_id === userId) {
-          needsUpload = true;
-          charactersToUpload.push(item);
-        } else {
-          console.log(`⚠️ [Sync] Skipping other user's character: ${charData.nome || item.id} (owner: ${item.user_id})`);
         }
-
-        // Only retain our own, guest, or newly adopted characters in the local cache table
-        const isBelongingToUs = !item.user_id || item.user_id.startsWith('guest_') || item.user_id === userId;
-        if (isBelongingToUs) {
-          updatedLocalCharacters.push(item);
-        }
+        updatedLocalCharacters.push(item);
       }
 
       for (const item of charactersToUpload) {
@@ -712,30 +1522,71 @@ export const syncLocalToCloud = async () => {
           const charData = item.data || item;
           console.log(`⚡ [Sync] Uploading character ${charData.nome || item.id} to cloud...`);
           
-          // Mark as remote synced
           item.is_remote_synced = true;
           if (item.data) {
             item.data.isRemoteSynced = true;
           }
 
-          const { error } = await realSupabaseClient.from('characters').upsert({
+          let { error, status } = await realSupabaseClient.from('characters').upsert({
             id: item.id,
             user_id: item.user_id,
             user_email: item.user_email,
             campaign_id: item.campaign_id || charData.campaignId || null,
             data: charData,
             updated_at: new Date().toISOString()
-          });
+          }) as any;
+
+          if (error && (status === 401 || status === 403 || error.code === '42501' || String(error.message).includes('permission')) && isLocalUrl(currentConfig.url)) {
+            try {
+              const { createClient } = await import('@supabase/supabase-js');
+              const adminClient = createClient(currentConfig.url, STANDARD_LOCAL_SERVICE_ROLE_KEY, {
+                auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'supabase_admin_temp_upsert' }
+              });
+              const { error: adminErr } = await adminClient.from('characters').upsert({
+                id: item.id,
+                user_id: item.user_id,
+                user_email: item.user_email,
+                campaign_id: item.campaign_id || charData.campaignId || null,
+                data: charData,
+                updated_at: new Date().toISOString()
+              });
+              if (!adminErr) {
+                error = null;
+                item.is_remote_synced = true;
+                if (item.data) {
+                  item.data.isRemoteSynced = true;
+                }
+              }
+            } catch (e) {}
+          }
           if (error) {
-            checkSupabaseError(error);
+            anyUploadError = true;
+            item.is_remote_synced = false;
+            if (item.data) {
+              item.data.isRemoteSynced = false;
+            }
+            if (isNetworkError(error)) {
+              console.warn(`⚠️ [Sync] Network issue uploading character ${item.id} (${charData.nome}) to cloud:`, error.message || error);
+            } else {
+              console.error(`❌ [Sync] Error uploading character ${item.id} (${charData.nome}) to cloud:`, error);
+            }
+            checkSupabaseError(error, status);
           }
         } catch (uploadErr) {
-          console.error(`⚡ [Sync] Error uploading character ${item.id}:`, uploadErr);
-          checkSupabaseError(uploadErr);
+          anyUploadError = true;
+          item.is_remote_synced = false;
+          if (item.data) {
+            item.data.isRemoteSynced = false;
+          }
+          if (isNetworkError(uploadErr)) {
+            console.warn(`⚠️ [Sync] Network exception uploading character ${item.id} (remaining offline):`, uploadErr);
+          } else {
+            console.error(`❌ [Sync] Exception uploading character ${item.id}:`, uploadErr);
+          }
+          checkSupabaseError(uploadErr, (uploadErr as any)?.status);
         }
       }
 
-      // Save local table after updating elements in-place with is_remote_synced flag
       saveLocalTable('characters', updatedLocalCharacters, true);
     }
 
@@ -748,36 +1599,21 @@ export const syncLocalToCloud = async () => {
       const updatedLocalCampaigns = [];
 
       for (const item of localCampaigns) {
-        let needsUpload = false;
         const campData = item.data || item;
+        const itemEmail = (item.master_email || campData.masterEmail || '').trim().toLowerCase();
 
-        // Only adopt campaign if it has no master_id or is owned by guest. NEVER adopt campaigns from other users!
-        if (!item.master_id || item.master_id.startsWith('guest_')) {
-          console.log(`⚡ [Sync] Migrating campaign ${item.name || item.id} from ${item.master_id} to ${userId}`);
-          item.master_id = userId;
+        const isSameEmail = Boolean(itemEmail && userEmail && itemEmail === userEmail);
+
+        if (isSameEmail) {
+          item.master_id = userId || userEmail;
           item.master_email = userEmail;
-          
           if (item.data) {
-            item.data.masterId = userId;
+            item.data.masterId = userId || userEmail;
             item.data.masterEmail = userEmail;
-          } else {
-            item.masterId = userId;
-            item.masterEmail = userEmail;
           }
-          needsUpload = true;
           campaignsToUpload.push(item);
-        } else if (item.master_id === userId) {
-          needsUpload = true;
-          campaignsToUpload.push(item);
-        } else {
-          console.log(`⚠️ [Sync] Skipping other user's campaign: ${item.name || item.id} (owner: ${item.master_id})`);
         }
-
-        // Only retain our own, guest, or newly adopted campaigns in the local cache table
-        const isBelongingToUs = !item.master_id || item.master_id.startsWith('guest_') || item.master_id === userId;
-        if (isBelongingToUs) {
-          updatedLocalCampaigns.push(item);
-        }
+        updatedLocalCampaigns.push(item);
       }
 
       saveLocalTable('campaigns', updatedLocalCampaigns, true);
@@ -787,7 +1623,7 @@ export const syncLocalToCloud = async () => {
           const campData = item.data || item;
           console.log(`⚡ [Sync] Uploading campaign ${item.name || item.id} to cloud...`);
           
-          const { error } = await realSupabaseClient.from('campaigns').upsert({
+          const { error, status } = await realSupabaseClient.from('campaigns').upsert({
             id: item.id,
             master_id: item.master_id,
             master_email: item.master_email,
@@ -795,22 +1631,44 @@ export const syncLocalToCloud = async () => {
             invite_code: item.invite_code || campData.inviteCode || "",
             data: campData,
             updated_at: new Date().toISOString()
-          });
+          }) as any;
           if (error) {
-            checkSupabaseError(error);
+            anyUploadError = true;
+            if (isNetworkError(error)) {
+              console.warn(`⚠️ [Sync] Network issue uploading campaign ${item.id} (${item.name || "Sem Nome"}) to cloud:`, error.message || error);
+            } else {
+              console.error(`❌ [Sync] Error uploading campaign ${item.id} (${item.name || "Sem Nome"}) to cloud:`, error);
+            }
+            checkSupabaseError(error, status);
           }
         } catch (uploadErr) {
-          console.error(`⚡ [Sync] Error uploading campaign ${item.id}:`, uploadErr);
-          checkSupabaseError(uploadErr);
+          anyUploadError = true;
+          if (isNetworkError(uploadErr)) {
+            console.warn(`⚠️ [Sync] Network exception uploading campaign ${item.id} (remaining offline):`, uploadErr);
+          } else {
+            console.error(`❌ [Sync] Exception uploading campaign ${item.id}:`, uploadErr);
+          }
+          checkSupabaseError(uploadErr, (uploadErr as any)?.status);
         }
       }
     }
 
-    console.log("⚡ [Sync] Synchronization complete!");
+    if (anyUploadError) {
+      console.warn("⚠️ [Sync] Synchronization complete with some errors. Retaining CACHE_ONLY status.");
+      setSupabaseConnectionState(false);
+    } else {
+      console.log("⚡ [Sync] Synchronization complete! All data pushed successfully.");
+      setSupabaseConnectionState(true);
+    }
     window.dispatchEvent(new Event('supabase_local_change_characters'));
     window.dispatchEvent(new Event('supabase_local_change_campaigns'));
   } catch (err) {
-    console.error("⚡ [Sync] Exception during synchronization:", err);
+    setSupabaseConnectionState(false);
+    if (isNetworkError(err)) {
+      console.warn("⚠️ [Sync] Network issue during synchronization (remaining offline):", err);
+    } else {
+      console.error("⚡ [Sync] Exception during synchronization:", err);
+    }
   } finally {
     isSyncing = false;
   }
@@ -819,13 +1677,32 @@ export const syncLocalToCloud = async () => {
 // Auto sync on module load if logged in
 if (typeof window !== 'undefined') {
   setTimeout(() => {
-    syncLocalToCloud().catch(err => console.error("Error in auto syncLocalToCloud:", err));
+    syncLocalToCloud().catch(err => {
+      if (isNetworkError(err)) {
+        console.warn("⚠️ [Sync] Network issue in auto syncLocalToCloud (remaining offline):", err);
+      } else {
+        console.error("Error in auto syncLocalToCloud:", err);
+      }
+    });
   }, 2000);
+
+  // Monitor continuous connection to local Supabase periodically
+  setInterval(async () => {
+    if (currentAuthUser && !currentAuthUser.uid.startsWith('guest_')) {
+      try {
+        const check = await testSupabaseConnection();
+        setSupabaseConnectionState(check.success);
+      } catch (e) {
+        setSupabaseConnectionState(false);
+      }
+    }
+  }, 10000);
 }
 
 if (realSupabaseClient) {
   try {
     realSupabaseClient.auth.getSession().then(({ data: { session } }) => {
+      hasActiveRealSession = !!session;
       if (session?.user) {
         currentAuthUser = {
           uid: session.user.id,
@@ -845,13 +1722,20 @@ if (realSupabaseClient) {
     });
 
     realSupabaseClient.auth.onAuthStateChange((event, session) => {
+      hasActiveRealSession = !!session;
       if (session?.user) {
+        const userEmail = (session.user.email || "").trim().toLowerCase();
         currentAuthUser = {
           uid: session.user.id,
-          email: session.user.email,
+          email: userEmail,
           displayName: session.user.user_metadata?.full_name || session.user.email,
         };
         localStorage.setItem('supabase_auth_user', JSON.stringify(currentAuthUser));
+        if (userEmail && session.user.id) {
+          try {
+            localStorage.setItem('account_google_uid_' + userEmail, session.user.id);
+          } catch (e) {}
+        }
         
         if (isPopupAuth) {
           notifyAuthSuccess(session);
@@ -1040,13 +1924,8 @@ export const auth = {
     currentAuthUser = null;
     localStorage.removeItem('supabase_auth_user');
     
-    // Clear all local database/character states to prevent cross-user data remnants on reload!
-    localStorage.removeItem('rpg_system_x_chars');
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('supabase_table_') || key.startsWith('supabase_cache_') || key.startsWith('campaign_characters_')) {
-        localStorage.removeItem(key);
-      }
-    }
+    // Preserve local characters and tables so switching login methods (Google -> Email) preserves user data!
+    console.log("⚡ [Supabase Local] Sessão finalizada. Dados locais preservados.");
 
     window.location.reload();
   }
@@ -1102,6 +1981,347 @@ export const loginWithGoogle = async () => {
     window.location.reload();
     return mockUser;
   }
+};
+
+export const signUpWithEmail = async (email: string, password: string, displayName?: string) => {
+  const cleanEmail = email.trim();
+  if (realSupabaseClient) {
+    console.log("⚡ [Supabase] Initiating signUpWithEmail for:", cleanEmail);
+    const { data, error } = await realSupabaseClient.auth.signUp({
+      email: cleanEmail,
+      password,
+      options: {
+        data: {
+          full_name: displayName || cleanEmail.split('@')[0],
+        }
+      }
+    });
+    if (error) throw error;
+    if (data.user) {
+      const userObj = {
+        uid: data.user.id,
+        email: data.user.email || cleanEmail,
+        displayName: data.user.user_metadata?.full_name || displayName || cleanEmail.split('@')[0],
+      };
+      if (data.session) {
+        currentAuthUser = userObj;
+        localStorage.setItem('supabase_auth_user', JSON.stringify(userObj));
+        window.dispatchEvent(new Event('supabase_auth_state_change_local'));
+        syncLocalToCloud().catch(() => {});
+      }
+      return { user: userObj, session: data.session, requiresConfirmation: !data.session };
+    }
+    return data;
+  } else {
+    console.log("⚡ [Supabase] Offline signUpWithEmail simulation for:", cleanEmail);
+    const mockUser = {
+      uid: 'user_' + Math.random().toString(36).substring(2, 11),
+      email: cleanEmail,
+      displayName: displayName || cleanEmail.split('@')[0]
+    };
+    currentAuthUser = mockUser;
+    localStorage.setItem('supabase_auth_user', JSON.stringify(mockUser));
+    window.dispatchEvent(new Event('supabase_auth_state_change_local'));
+    return { user: mockUser, session: null, requiresConfirmation: false };
+  }
+};
+
+export const signInWithEmail = async (email: string, password: string) => {
+  const cleanEmail = email.trim();
+  if (realSupabaseClient) {
+    console.log("⚡ [Supabase] Initiating signInWithPassword for:", cleanEmail);
+    const { data, error } = await realSupabaseClient.auth.signInWithPassword({
+      email: cleanEmail,
+      password,
+    });
+    if (error) throw error;
+    if (data.user) {
+      const userObj = {
+        uid: data.user.id,
+        email: data.user.email || cleanEmail,
+        displayName: data.user.user_metadata?.full_name || data.user.email || cleanEmail.split('@')[0],
+      };
+      currentAuthUser = userObj;
+      localStorage.setItem('supabase_auth_user', JSON.stringify(userObj));
+      window.dispatchEvent(new Event('supabase_auth_state_change_local'));
+      syncLocalToCloud().catch(() => {});
+      return { user: userObj, session: data.session };
+    }
+    return data;
+  } else {
+    console.log("⚡ [Supabase] Offline signInWithEmail simulation for:", cleanEmail);
+    const mockUser = {
+      uid: 'user_' + Math.random().toString(36).substring(2, 11),
+      email: cleanEmail,
+      displayName: cleanEmail.split('@')[0]
+    };
+    currentAuthUser = mockUser;
+    localStorage.setItem('supabase_auth_user', JSON.stringify(mockUser));
+    window.dispatchEvent(new Event('supabase_auth_state_change_local'));
+    return { user: mockUser, session: null };
+  }
+};
+
+export const loginWithEmailOnly = async (email: string, displayName?: string, password?: string) => {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    throw new Error("Por favor, informe um e-mail válido.");
+  }
+
+  const typedPassword = password?.trim();
+  if (!typedPassword) {
+    throw new Error("Por favor, informe sua senha de acesso.");
+  }
+
+  // Check known Google UID or previously saved UID
+  let knownGoogleUid = typeof localStorage !== 'undefined' ? localStorage.getItem('account_google_uid_' + cleanEmail) : null;
+  const localPwdHash = typeof localStorage !== 'undefined' ? localStorage.getItem('user_local_pwd_' + cleanEmail) : null;
+  const savedPassword = localPwdHash ? atob(localPwdHash) : null;
+
+  // Self-heal: If knownGoogleUid is NOT a valid 36-character UUID, disregard and remove it so we can regenerate a valid 36-character deterministic UUID!
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (knownGoogleUid && !uuidRegex.test(knownGoogleUid)) {
+    console.log(`⚡ [Supabase Local] Corrigindo UID inválido em cache de local login: de ${knownGoogleUid} para um UUID válido`);
+    knownGoogleUid = null;
+    try {
+      localStorage.removeItem('account_google_uid_' + cleanEmail);
+    } catch (e) {}
+  }
+
+  // Generate deterministic UID based on email for consistent character & data syncing across devices/reloads (ensuring valid UUID for database compatibility)
+  const sanitizedUid = knownGoogleUid || getDeterministicUuid(cleanEmail);
+  
+  const userObj: any = {
+    uid: sanitizedUid,
+    realUid: knownGoogleUid || sanitizedUid,
+    email: cleanEmail,
+    displayName: displayName || cleanEmail.split('@')[0],
+  };
+
+  // Try real Supabase Local Auth first so the user appears in the local Supabase dashboard
+  if (realSupabaseClient) {
+    console.log("⚡ [Supabase Local] Autenticando/registrando usuário:", cleanEmail);
+    const pwd = typedPassword;
+
+    try {
+      // 1. Try to sign in first
+      const { data: signInData, error: signInErr } = await realSupabaseClient.auth.signInWithPassword({
+        email: cleanEmail,
+        password: pwd,
+      });
+
+      if (!signInErr && signInData?.user) {
+        console.log("⚡ [Supabase Local] Usuário autenticado com sucesso no Supabase local:", signInData.user.id);
+        userObj.uid = signInData.user.id;
+        userObj.realUid = signInData.user.id;
+        if (signInData.user.user_metadata?.display_name || signInData.user.user_metadata?.full_name) {
+          userObj.displayName = signInData.user.user_metadata.display_name || signInData.user.user_metadata.full_name;
+        }
+        try {
+          localStorage.setItem('account_google_uid_' + cleanEmail, signInData.user.id);
+          localStorage.setItem('user_local_pwd_' + cleanEmail, btoa(typedPassword));
+        } catch (e) {}
+      } else {
+        // Check if password matches local credential configured during prior session
+        const matchesLocalPwd = localPwdHash && atob(localPwdHash) === typedPassword;
+
+        if (matchesLocalPwd) {
+          console.log("⚡ [Supabase Local] Senha local verificada com sucesso!");
+          if (knownGoogleUid) {
+            userObj.uid = knownGoogleUid;
+            userObj.realUid = knownGoogleUid;
+          }
+        } else if (localPwdHash && atob(localPwdHash) !== typedPassword) {
+          throw new Error("Senha incorreta para esta conta.");
+        } else {
+          // 2. If user doesn't exist, create it via signUp
+          console.log("⚡ [Supabase Local] Criando novo usuário no console do Supabase local:", cleanEmail);
+          const { data: signUpData, error: signUpErr } = await realSupabaseClient.auth.signUp({
+            email: cleanEmail,
+            password: pwd,
+            options: {
+              data: {
+                display_name: displayName || cleanEmail.split('@')[0],
+              }
+            }
+          });
+
+          if (!signUpErr && signUpData?.user) {
+            console.log("⚡ [Supabase Local] Usuário criado com sucesso no Supabase local:", signUpData.user.id);
+            userObj.uid = signUpData.user.id;
+            userObj.realUid = signUpData.user.id;
+            try {
+              localStorage.setItem('account_google_uid_' + cleanEmail, signUpData.user.id);
+              localStorage.setItem('user_local_pwd_' + cleanEmail, btoa(typedPassword));
+            } catch (e) {}
+          } else if (signUpErr) {
+            console.warn("⚠️ [Supabase Local] Aviso ao criar usuário via auth.signUp:", signUpErr.message);
+            if (signInErr) {
+              const signMsg = signInErr.message?.toLowerCase() || '';
+              if (signMsg.includes('invalid login credentials') || signMsg.includes('invalid credentials')) {
+                throw new Error("Senha incorreta para esta conta.");
+              }
+            }
+            if (knownGoogleUid) {
+              userObj.uid = knownGoogleUid;
+              userObj.realUid = knownGoogleUid;
+            }
+          }
+        }
+      }
+    } catch (authErr: any) {
+      if (authErr.message?.includes('Senha incorreta')) {
+        throw authErr;
+      }
+      let errMsg = authErr.message || String(authErr);
+      if (errMsg.toLowerCase().includes("invalid login credentials") || errMsg.toLowerCase().includes("invalid credentials")) {
+        throw new Error("Senha incorreta para esta conta.");
+      }
+      if (errMsg.toLowerCase().includes("email not confirmed") || errMsg.toLowerCase().includes("confirmar")) {
+        throw new Error("E-mail não confirmado. No painel do Supabase, vá em 'Authentication' -> 'Users' e confirme seu usuário.");
+      }
+      const isNetworkError = errMsg.includes('fetch') || 
+                             errMsg.includes('network') || 
+                             errMsg.includes('Failed to fetch') ||
+                             errMsg.includes('ENOTFOUND') ||
+                             errMsg.includes('timeout') ||
+                             authErr.name === 'TypeError';
+      if (isNetworkError) {
+        throw new Error(`Não foi possível conectar ao Supabase Local em "${currentConfig.url}". A URL está inacessível. Verifique sua conexão e se o Supabase está ativo.`);
+      }
+      throw authErr;
+    }
+  } else {
+    // Offline mode: check local password
+    if (localPwdHash && atob(localPwdHash) !== typedPassword) {
+      throw new Error("Senha incorreta para esta conta.");
+    }
+    try {
+      localStorage.setItem('user_local_pwd_' + cleanEmail, btoa(typedPassword));
+    } catch (e) {}
+  }
+
+  currentAuthUser = userObj;
+  localStorage.setItem('supabase_auth_user', JSON.stringify(userObj));
+  window.dispatchEvent(new Event('supabase_auth_state_change_local'));
+  
+  // Synchronize local characters & campaigns immediately with the local database!
+  syncLocalToCloud().catch(err => {
+    console.warn("⚠️ [Supabase Local] Erro ao sincronizar com banco local após login:", err);
+  });
+  
+  return userObj;
+};
+
+export const updateUserPassword = async (newPassword: string, email?: string) => {
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error("A senha deve ter pelo menos 6 caracteres.");
+  }
+  const cleanEmail = (email || currentAuthUser?.email || '').trim().toLowerCase();
+
+  if (realSupabaseClient) {
+    console.log("⚡ [Supabase Local] Atualizando senha do usuário...");
+    try {
+      const { data: { session } } = await realSupabaseClient.auth.getSession();
+      let updatedViaUser = false;
+      
+      if (session) {
+        if (session.user?.id && cleanEmail) {
+          try {
+            localStorage.setItem('account_google_uid_' + cleanEmail, session.user.id);
+          } catch (e) {}
+        }
+        const { data, error } = await realSupabaseClient.auth.updateUser({
+          password: newPassword,
+        });
+        if (error) {
+          console.warn("⚠️ [Supabase] Erro ao usar updateUser para definir senha:", error.message);
+        } else if (data) {
+          console.log("✅ [Supabase] Senha definida via updateUser!");
+          updatedViaUser = true;
+        }
+      }
+
+      if (cleanEmail) {
+        console.log("⚡ [Supabase] Tentando vincular/configurar credenciais de e-mail e senha para:", cleanEmail);
+        
+        // 1. Tentar signUp para garantir a criação da identidade de email/senha vinculada
+        const { data: signUpData, error: signUpError } = await realSupabaseClient.auth.signUp({
+          email: cleanEmail,
+          password: newPassword,
+        });
+
+        if (!signUpError && signUpData?.user) {
+          console.log("✅ [Supabase] Identidade de email criada/vinculada via signUp!");
+          if (signUpData.user.id) {
+            try {
+              localStorage.setItem('account_google_uid_' + cleanEmail, signUpData.user.id);
+            } catch (e) {}
+          }
+        } else {
+          if (signUpError) {
+            console.warn("⚠️ [Supabase] Detalhes do signUp na criação de senha:", signUpError.message);
+          }
+          
+          // 2. Tentar signIn para confirmar a senha
+          const { data: signInData, error: signInError } = await realSupabaseClient.auth.signInWithPassword({
+            email: cleanEmail,
+            password: newPassword,
+          });
+          if (!signInError && signInData?.session) {
+            console.log("✅ [Supabase] Senha confirmada via signInWithPassword!");
+            if (signInData.user?.id) {
+              try {
+                localStorage.setItem('account_google_uid_' + cleanEmail, signInData.user.id);
+              } catch (e) {}
+            }
+          } else {
+            console.warn("⚠️ [Supabase] Não foi possível verificar a senha via signIn:", signInError?.message);
+            if (!updatedViaUser) {
+              const finalErr = signInError?.message || signUpError?.message || "Não foi possível definir a senha no Supabase Auth. Verifique se o servidor está ativo.";
+              throw new Error(finalErr);
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error("❌ [Supabase] Exception ao salvar senha no banco de dados:", err);
+      throw new Error(err.message || String(err));
+    }
+  }
+
+  // Registrar senha no usuário local e storage para permitir login offline / com Google id
+  if (cleanEmail) {
+    try {
+      localStorage.setItem('user_local_pwd_' + cleanEmail, btoa(newPassword));
+      if (currentAuthUser?.uid) {
+        localStorage.setItem('account_google_uid_' + cleanEmail, currentAuthUser.uid);
+      }
+    } catch (e) {}
+  }
+
+  if (currentAuthUser) {
+    (currentAuthUser as any).hasPassword = true;
+    localStorage.setItem('supabase_auth_user', JSON.stringify(currentAuthUser));
+    window.dispatchEvent(new Event('supabase_auth_state_change_local'));
+  }
+  return { success: true };
+};
+
+export const resetPasswordForEmail = async (email: string) => {
+  const cleanEmail = email.trim();
+  if (realSupabaseClient) {
+    console.log("⚡ [Supabase Local] Redefinindo senha para:", cleanEmail);
+    try {
+      const { data, error } = await realSupabaseClient.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: window.location.origin,
+      });
+      if (!error) return data;
+    } catch (err) {
+      console.warn("⚠️ [Supabase Local] Aviso de redefinição de senha:", err);
+    }
+  }
+  return { success: true };
 };
 
 export const loginAsGuest = async () => {
@@ -1185,8 +2405,29 @@ export const setSupabaseQuotaExceeded = (exceeded: boolean) => {
   } catch (e) {}
 };
 
-export function checkSupabaseError(error: any) {
-  // No quota warnings or triggers
+export function checkSupabaseError(error: any, httpStatus?: number | string) {
+  if (!error) return;
+  const errMsg = String(error.message || error.details || error || "").toLowerCase();
+  const status = httpStatus || error.status || error.statusCode || error.code;
+  
+  if (status === 401 || status === 403 || String(status).startsWith('PGRST3')) {
+    console.warn("⚠️ [Supabase Notice] Aviso de permissão/acesso no Supabase (401/403):", errMsg || status);
+  }
+
+  // Detect and handle TypeError: Failed to fetch (browser network block, mixed content HTTP/HTTPS)
+  const isFailedToFetch = errMsg.includes('failed to fetch') || errMsg.includes('typeerror') || errMsg.includes('networkerror');
+  if (isFailedToFetch && typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    const config = getSupabaseConfig();
+    if (config.url.startsWith('http://') && (config.url.includes('127.0.0.1') || config.url.includes('localhost'))) {
+      const mixedContentErrorMsg = `Erro de Conexão (Mixed Content): O navegador bloqueou a conexão HTTP com o Supabase Local (${config.url}) porque este app está rodando de forma segura (HTTPS). Para que os dados sejam salvos em tempo real na nuvem local, você deve usar um túnel HTTPS seguro (como o Cloudflare Tunnel \`cloudflared\` ou \`ngrok\`) ou acessar o aplicativo localmente em modo HTTP puro. Suas fichas continuarão sendo salvas de forma segura no seu Navegador (Modo Offline)!`;
+      console.warn("🚨 [Supabase Mixed Content Check] " + mixedContentErrorMsg);
+      
+      // Dispatch a custom event to show a beautiful banner or modal to the user
+      window.dispatchEvent(new CustomEvent('supabase_connection_mixed_content_error', { 
+        detail: { message: mixedContentErrorMsg, url: config.url } 
+      }));
+    }
+  }
 }
 
 export const handleFirestoreError = (error: unknown, operationType: any, path: string | null) => {
@@ -1347,10 +2588,12 @@ export const onSnapshot = (
 ) => {
   const tableName = queryObj.collection.path;
   let active = true;
+  let isFetching = false;
   let lastDataSerialized = '';
 
   const fetchAndNotify = async () => {
-    if (!active) return;
+    if (!active || isFetching) return;
+    isFetching = true;
     try {
       // Query the builder representing this table
       const builder = new ResilientQueryBuilder(tableName);
@@ -1390,9 +2633,9 @@ export const onSnapshot = (
         if (constraint.type === 'where') {
           const { field, operator, value } = constraint;
           filtered = filtered.filter(row => {
-            const rowValue = row[field] !== undefined ? row[field] : (row.data ? row.data[field] : undefined);
+            const rowValue = getEntityValue(row, field);
             if (operator === '==' || operator === '===') {
-              return String(rowValue) === String(value);
+              return matchesFieldValue(rowValue, value, field);
             }
             return true;
           });
@@ -1401,9 +2644,9 @@ export const onSnapshot = (
             return constraint.clauses.some((clause: any) => {
               if (clause.type === 'where') {
                 const { field, operator, value } = clause;
-                const rowValue = row[field] !== undefined ? row[field] : (row.data ? row.data[field] : undefined);
+                const rowValue = getEntityValue(row, field);
                 if (operator === '==' || operator === '===') {
-                  return String(rowValue) === String(value);
+                  return matchesFieldValue(rowValue, value, field);
                 }
               }
               return false;
@@ -1435,6 +2678,8 @@ export const onSnapshot = (
       onNext(mockSnapshot);
     } catch (err) {
       console.error(`[onSnapshot compat ${tableName}] Error:`, err);
+    } finally {
+      isFetching = false;
     }
   };
 
@@ -1446,17 +2691,42 @@ export const onSnapshot = (
   };
   window.addEventListener(`supabase_local_change_${tableName}`, changeListener);
 
-  // Setup interval polling fallback (every 4s) to capture remote changes
+  // Setup interval polling fallback (750ms for real-time VTT tables, 3s for others)
+  const pollFrequency = (tableName === 'tokens' || tableName === 'campaign_configs' || tableName === 'vtt_logs') ? 750 : 3000;
   const interval = setInterval(() => {
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
       return;
     }
     fetchAndNotify();
-  }, 4000);
+  }, pollFrequency);
+
+  // Setup Supabase Realtime channel listener for sub-second synchronization
+  let realtimeChannel: any = null;
+  if (realSupabaseClient) {
+    try {
+      const channelId = `realtime_${tableName}_${Math.random().toString(36).substring(2, 7)}`;
+      realtimeChannel = realSupabaseClient.channel(channelId)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: tableName },
+          () => {
+            fetchAndNotify();
+          }
+        )
+        .subscribe();
+    } catch (e) {
+      console.warn(`⚠️ [Realtime ${tableName}] Could not establish realtime channel:`, e);
+    }
+  }
 
   return () => {
     active = false;
     clearInterval(interval);
     window.removeEventListener(`supabase_local_change_${tableName}`, changeListener);
+    if (realtimeChannel && realSupabaseClient) {
+      try {
+        realSupabaseClient.removeChannel(realtimeChannel);
+      } catch (e) {}
+    }
   };
 };

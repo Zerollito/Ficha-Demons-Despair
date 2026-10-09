@@ -4,10 +4,10 @@ import { Stage, Layer, Image as KonvaImage, Rect, Circle, Line, Text, Group, Reg
 import useImage from 'use-image';
 import Konva from 'konva';
 import { TableToken, TableConfig, Character, MonsterAction, NegativeEffect } from '../types';
-import { updateTokenPosition, addCombatLog, subscribeToCombatLogs } from '../services/vttService';
+import { updateTokenPosition, updateMultipleTokens, addCombatLog, subscribeToCombatLogs } from '../services/vttService';
 import { saveCharacterToFirestore } from '../services/characterService';
 import { optimizeCharactersForCache } from '../services/campaignService';
-import { Shield, User, Trash2, Plus, Settings, ZoomIn, ZoomOut, Maximize, Eye, EyeOff, Upload, ChevronLeft, ChevronRight, Skull, Info, Heart, Minus, FileText, Zap, Dices, Swords, AlertTriangle, RefreshCw, Calendar, Clock, Sun, Cloud, Wind, Snowflake, Target, X, Package, PawPrint, ChevronUp, ChevronDown, GripHorizontal } from 'lucide-react';
+import { Shield, User, UserPlus, Trash2, Plus, Settings, ZoomIn, ZoomOut, Maximize, Eye, EyeOff, Upload, ChevronLeft, ChevronRight, Skull, Info, Heart, Minus, FileText, Zap, Dices, Swords, AlertTriangle, RefreshCw, Calendar, Clock, Sun, Cloud, Wind, Snowflake, Target, X, Package, PawPrint, ChevronUp, ChevronDown, GripHorizontal, RotateCw, RotateCcw } from 'lucide-react';
 import { randomInt, randomElement, generateId, secureRandom } from '../lib/random';
 import { cn } from '../lib/utils';
 import { 
@@ -23,7 +23,8 @@ import {
   writeBatch as supabaseWriteBatch, 
   serverTimestamp, 
   arrayUnion,
-  safeLocalStorageSetItem
+  safeLocalStorageSetItem,
+  safeLocalStorageGetItem
 } from '../lib/supabase';
 import { Bestiary } from './Bestiary';
 import { BestiaryMonster } from '../types';
@@ -142,26 +143,36 @@ const GRID_COLORS = [
   { name: 'Vermelho', value: '#ef4444' },
 ];
 
-const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isTarget, isMaster, availableCharacters, fetchedCharacters }: { 
+const Token = React.memo(({ token, gridSize, onDragEnd, onClick, onRotate, isAttacker, isTarget, isSelected, isMaster, availableCharacters, fetchedCharacters }: { 
   token: TableToken; 
   gridSize: number; 
   onDragEnd: (id: string, x: number, y: number) => void;
   onClick?: () => void;
+  onRotate?: (id: string, rotation: number) => void;
   isAttacker?: boolean;
   isTarget?: boolean;
+  isSelected?: boolean;
   isMaster?: boolean;
   availableCharacters: Character[];
   fetchedCharacters?: Record<string, Character>;
 }) => {
-  const imageUrlToUse = (token.imageUrl && !token.imageUrl.startsWith('http') && !token.imageUrl.startsWith('/'))
-    ? '/' + token.imageUrl
-    : (token.imageUrl || '');
+  const char = token.characterId ? (availableCharacters.find(c => c.id === token.characterId) || fetchedCharacters?.[token.characterId]) : null;
+  const rawImageUrl = token.imageUrl || char?.imagem || '';
+  const imageUrlToUse = (rawImageUrl && !rawImageUrl.startsWith('http') && !rawImageUrl.startsWith('/') && !rawImageUrl.startsWith('data:'))
+    ? '/' + rawImageUrl
+    : rawImageUrl;
   const [image] = useImage(imageUrlToUse);
   const radius = (token.size * gridSize) / 2;
   const [dragDist, setDragDist] = useState(0);
   const lastPos = useRef({ x: token.x, y: token.y });
 
   if (token.type === 'aoe') {
+    const isCone = token.aoeShape === 'cone';
+    const isArc = token.aoeShape === 'arc';
+    const isRect = token.aoeShape === 'rectangle';
+    const isSquare = token.aoeShape === 'square';
+    const isCircle = token.aoeShape === 'circle' || (!isCone && !isArc && !isRect && !isSquare);
+
     const aoeW = (token.aoeWidth || token.size || 1) * gridSize;
     const aoeH = (token.aoeHeight || token.aoeWidth || token.size || 1) * gridSize;
     
@@ -181,11 +192,17 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
     const colors = getAoEColors(token.aoeColor);
     const canMoveAoE = isMaster || true; // Everyone can relocate templates for maximum playability
 
+    let handleY = -aoeW / 2 - 28;
+    if (isRect) handleY = -aoeH / 2 - 28;
+    else if (isCone || isArc) handleY = -aoeW - 28;
+
     return (
       <Group
+        name="token-root"
         draggable={canMoveAoE}
         x={token.x}
         y={token.y}
+        rotation={token.rotation || 0}
         offsetX={0}
         offsetY={0}
         onDragStart={(e) => {
@@ -216,8 +233,41 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
           if (onClick) onClick();
         }}
       >
-        {isTarget && (
-          token.aoeShape === 'circle' ? (
+        {(isTarget || isSelected) && (
+          isCone ? (
+            <Shape
+              sceneFunc={(context, shape) => {
+                const r = aoeW + 8;
+                const startAngle = -Math.PI / 2 - Math.PI / 6;
+                const endAngle = -Math.PI / 2 + Math.PI / 6;
+                context.beginPath();
+                context.moveTo(0, 0);
+                context.arc(0, 0, r, startAngle, endAngle, false);
+                context.closePath();
+                context.fillStrokeShape(shape);
+              }}
+              stroke="#ef4444"
+              strokeWidth={3}
+              dash={[10, 5]}
+            />
+          ) : isArc ? (
+            <Shape
+              sceneFunc={(context, shape) => {
+                const outerR = aoeW + 8;
+                const innerR = Math.max(gridSize * 0.5 - 6, aoeW - (aoeH || gridSize) - 6);
+                const startAngle = -Math.PI / 2 - Math.PI / 4;
+                const endAngle = -Math.PI / 2 + Math.PI / 4;
+                context.beginPath();
+                context.arc(0, 0, outerR, startAngle, endAngle, false);
+                context.arc(0, 0, innerR, endAngle, startAngle, true);
+                context.closePath();
+                context.fillStrokeShape(shape);
+              }}
+              stroke="#ef4444"
+              strokeWidth={3}
+              dash={[10, 5]}
+            />
+          ) : isCircle ? (
             <Circle
               x={0}
               y={0}
@@ -240,7 +290,49 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
           )
         )}
 
-        {token.aoeShape === 'circle' ? (
+        {/* Primary AoE Shape */}
+        {isCone ? (
+          <Shape
+            sceneFunc={(context, shape) => {
+              const r = aoeW;
+              const startAngle = -Math.PI / 2 - Math.PI / 6; // -120 deg
+              const endAngle = -Math.PI / 2 + Math.PI / 6;   // -60 deg
+              context.beginPath();
+              context.moveTo(0, 0);
+              context.arc(0, 0, r, startAngle, endAngle, false);
+              context.closePath();
+              context.fillStrokeShape(shape);
+            }}
+            fill={colors.fill}
+            stroke={colors.stroke}
+            strokeWidth={2.5}
+            dash={[6, 3]}
+            shadowColor="black"
+            shadowBlur={8}
+            shadowOpacity={0.3}
+          />
+        ) : isArc ? (
+          <Shape
+            sceneFunc={(context, shape) => {
+              const outerR = aoeW;
+              const innerR = Math.max(gridSize * 0.5, aoeW - (aoeH || gridSize));
+              const startAngle = -Math.PI / 2 - Math.PI / 4; // -135 deg
+              const endAngle = -Math.PI / 2 + Math.PI / 4;   // -45 deg
+              context.beginPath();
+              context.arc(0, 0, outerR, startAngle, endAngle, false);
+              context.arc(0, 0, innerR, endAngle, startAngle, true);
+              context.closePath();
+              context.fillStrokeShape(shape);
+            }}
+            fill={colors.fill}
+            stroke={colors.stroke}
+            strokeWidth={2.5}
+            dash={[6, 3]}
+            shadowColor="black"
+            shadowBlur={8}
+            shadowOpacity={0.3}
+          />
+        ) : isCircle ? (
           <Circle
             x={0}
             y={0}
@@ -272,16 +364,204 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
 
         <Circle x={0} y={0} radius={4} fill={colors.stroke} />
 
+        {/* Small Bottom Rotation Knob - draggable without needing to select the area first */}
+        {onRotate && (() => {
+          const bottomKnobY = isCone || isArc 
+            ? 18 
+            : isRect 
+            ? (aoeH / 2 + 14) 
+            : (aoeW / 2 + 14);
+
+          const stemTopY = isCone || isArc 
+            ? 0 
+            : isRect 
+            ? (aoeH / 2) 
+            : (aoeW / 2);
+
+          const handleBottomKnobRotateStart = (e: any) => {
+            if (e && e.evt) {
+              e.evt.stopPropagation?.();
+              e.evt.preventDefault?.();
+            }
+            if (e) e.cancelBubble = true;
+
+            const stage = e.target.getStage();
+            if (!stage) return;
+            
+            // Find root token group
+            let group = e.target.getParent();
+            while (group && group.getParent() && group.attrs['name'] !== 'token-root') {
+              group = group.getParent();
+            }
+            if (group) group.draggable(false);
+
+            const wasStageDraggable = stage.draggable();
+            stage.draggable(false);
+
+            const updateRotationFromEvent = (evt: any) => {
+              const container = stage.container();
+              const rect = container ? container.getBoundingClientRect() : { left: 0, top: 0 };
+              
+              let clientX: number | undefined;
+              let clientY: number | undefined;
+
+              if (evt.touches && evt.touches.length > 0) {
+                clientX = evt.touches[0].clientX;
+                clientY = evt.touches[0].clientY;
+              } else if (evt.changedTouches && evt.changedTouches.length > 0) {
+                clientX = evt.changedTouches[0].clientX;
+                clientY = evt.changedTouches[0].clientY;
+              } else if (evt.clientX !== undefined && evt.clientY !== undefined) {
+                clientX = evt.clientX;
+                clientY = evt.clientY;
+              } else {
+                const p = stage.getPointerPosition();
+                if (p) {
+                  clientX = p.x + rect.left;
+                  clientY = p.y + rect.top;
+                }
+              }
+
+              if (clientX === undefined || clientY === undefined) return;
+
+              const stageX = clientX - rect.left;
+              const stageY = clientY - rect.top;
+
+              const sx = stage.scaleX() || 1;
+              const sy = stage.scaleY() || 1;
+              const stx = stage.x() || 0;
+              const sty = stage.y() || 0;
+
+              const boardX = (stageX - stx) / sx;
+              const boardY = (stageY - sty) / sy;
+
+              const dx = boardX - token.x;
+              const dy = boardY - token.y;
+
+              // Knob is at bottom (+90° from positive X axis in screen space)
+              const angleRad = Math.atan2(dy, dx);
+              const angleDeg = Math.round(((angleRad * 180 / Math.PI) - 90 + 360) % 360);
+              
+              if (group) {
+                group.rotation(angleDeg);
+                group.getLayer()?.batchDraw();
+              }
+              onRotate(token.id, angleDeg);
+            };
+
+            if (e && e.evt) {
+              updateRotationFromEvent(e.evt);
+            }
+
+            const onPointerMove = (moveEvt: any) => {
+              if (moveEvt) {
+                moveEvt.preventDefault?.();
+                moveEvt.stopPropagation?.();
+              }
+              updateRotationFromEvent(moveEvt);
+            };
+
+            const onPointerUp = (upEvt: any) => {
+              if (upEvt) {
+                upEvt.preventDefault?.();
+                upEvt.stopPropagation?.();
+              }
+              window.removeEventListener('pointermove', onPointerMove, true);
+              window.removeEventListener('pointerup', onPointerUp, true);
+              window.removeEventListener('mousemove', onPointerMove, true);
+              window.removeEventListener('mouseup', onPointerUp, true);
+              window.removeEventListener('touchmove', onPointerMove, true);
+              window.removeEventListener('touchend', onPointerUp, true);
+
+              if (group) group.draggable(canMoveAoE);
+              stage.draggable(wasStageDraggable);
+              if (stage.container()) {
+                stage.container().style.cursor = 'default';
+              }
+            };
+
+            window.addEventListener('pointermove', onPointerMove, { passive: false, capture: true });
+            window.addEventListener('pointerup', onPointerUp, { capture: true });
+            window.addEventListener('mousemove', onPointerMove, { passive: false, capture: true });
+            window.addEventListener('mouseup', onPointerUp, { capture: true });
+            window.addEventListener('touchmove', onPointerMove, { passive: false, capture: true });
+            window.addEventListener('touchend', onPointerUp, { capture: true });
+
+            if (stage.container()) {
+              stage.container().style.cursor = 'crosshair';
+            }
+          };
+
+          const handleMouseEnterKnob = (e: any) => {
+            const stage = e.target.getStage();
+            if (stage && stage.container()) stage.container().style.cursor = 'grab';
+            let g = e.target.getParent();
+            while (g && g.getParent() && g.attrs['name'] !== 'token-root') {
+              g = g.getParent();
+            }
+            if (g) g.draggable(false);
+          };
+
+          const handleMouseLeaveKnob = (e: any) => {
+            const stage = e.target.getStage();
+            if (stage && stage.container()) stage.container().style.cursor = 'default';
+            let g = e.target.getParent();
+            while (g && g.getParent() && g.attrs['name'] !== 'token-root') {
+              g = g.getParent();
+            }
+            if (g) g.draggable(canMoveAoE);
+          };
+
+          return (
+            <Group
+              x={0}
+              y={bottomKnobY}
+              onMouseDown={handleBottomKnobRotateStart}
+              onTouchStart={handleBottomKnobRotateStart}
+              onMouseEnter={handleMouseEnterKnob}
+              onMouseLeave={handleMouseLeaveKnob}
+            >
+              {/* Connector line from shape edge down to knob */}
+              <Line
+                points={[0, stemTopY - bottomKnobY, 0, 0]}
+                stroke="#f59e0b"
+                strokeWidth={1.5}
+                dash={[3, 2]}
+                opacity={0.8}
+              />
+              {/* Grab Knob */}
+              <Circle
+                radius={11}
+                fill="#18181b"
+                stroke="#f59e0b"
+                strokeWidth={2}
+                shadowColor="black"
+                shadowBlur={6}
+                shadowOpacity={0.8}
+                hitStrokeWidth={16}
+              />
+              <Text
+                text="↻"
+                fontSize={12}
+                fill="#f59e0b"
+                fontStyle="bold"
+                x={-5}
+                y={-6.5}
+              />
+            </Group>
+          );
+        })()}
+
         {dragDist > 0 && (
           <Text
-            text={`${(dragDist * 1.5).toFixed(1)}m`}
+            text={`${dragDist.toFixed(1)}m`}
             fontSize={12}
             fontStyle="bold"
             fill="#3b82f6"
             align="center"
             width={120}
             x={-60}
-            y={token.aoeShape === 'circle' ? -(aoeW / 2) - 38 : -(aoeH / 2) - 38}
+            y={handleY - 14}
             shadowColor="black"
             shadowBlur={4}
           />
@@ -295,20 +575,28 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
           align="center"
           width={180}
           x={-90}
-          y={token.aoeShape === 'circle' ? -(aoeW / 2) - 15 : -(aoeH / 2) - 15}
+          y={isCone || isArc ? -aoeW / 2 - 12 : handleY + 12}
           shadowColor="black"
           shadowBlur={6}
         />
 
         <Text
-          text={token.aoeShape === 'circle' ? `R: ${(token.aoeWidth || token.size) * 1.5}m (${token.aoeWidth || token.size}q)` : `${token.aoeWidth || token.size}x${token.aoeHeight || token.aoeWidth || token.size} (q)`}
+          text={
+            isCone
+              ? `Cone: ${(token.aoeWidth || token.size)}m (${token.aoeWidth || token.size}q)${token.rotation ? ` [${token.rotation}°]` : ''}`
+              : isArc
+              ? `Arco: ${(token.aoeWidth || token.size)}m (${token.aoeWidth || token.size}q)${token.rotation ? ` [${token.rotation}°]` : ''}`
+              : isCircle
+              ? `R: ${(token.aoeWidth || token.size)}m (${token.aoeWidth || token.size}q)${token.rotation ? ` [${token.rotation}°]` : ''}`
+              : `${token.aoeWidth || token.size}x${token.aoeHeight || token.aoeWidth || token.size}m (${token.aoeWidth || token.size}x${token.aoeHeight || token.aoeWidth || token.size}q)${token.rotation ? ` [${token.rotation}°]` : ''}`
+          }
           fontSize={8}
           fontStyle="bold"
           fill={colors.stroke}
           align="center"
-          width={120}
-          x={-60}
-          y={token.aoeShape === 'circle' ? -(aoeW / 2) - 25 : -(aoeH / 2) - 25}
+          width={160}
+          x={-80}
+          y={isCone || isArc ? -aoeW / 2 - 24 : handleY}
           shadowColor="black"
           shadowBlur={4}
         />
@@ -316,7 +604,6 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, isAttacker, isT
     );
   }
 
-  const char = token.characterId ? (availableCharacters.find(c => c.id === token.characterId) || fetchedCharacters?.[token.characterId]) : null;
   const currentHp = char ? (char.vidaAtual ?? 0) : (token.hp ?? 0);
   const maxHp = Math.max(1, char && char.etnia !== 'Monstro' ? getVidaMaxima(char.stats.CON) : (token.maxHp ?? 10));
   const isDead = currentHp <= 0;
@@ -573,7 +860,9 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   isVttSheetOpen: propIsVttSheetOpen,
   setIsVttSheetOpen: propSetIsVttSheetOpen
 }) => {
-  const [mapImage, mapImageStatus] = useImage(config.mapUrl || '', 'anonymous');
+  const mapUrl = config.mapUrl || '';
+  const isDataOrBlob = mapUrl.startsWith('data:') || mapUrl.startsWith('blob:');
+  const [mapImage, mapImageStatus] = useImage(mapUrl, isDataOrBlob ? undefined : 'anonymous');
   const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 0.7 });
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
@@ -585,6 +874,20 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const [showCreatureModal, setShowCreatureModal] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [isCharacterModalOpen, setIsCharacterModalOpen] = useState(false);
+  const [charModalSearch, setCharModalSearch] = useState('');
+
+  // Handle ESC key to easily dismiss the character modal
+  useEffect(() => {
+    if (!isCharacterModalOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsCharacterModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isCharacterModalOpen]);
+
   const [isTocaModalOpen, setIsTocaModalOpen] = useState(false);
   const [viewingCreatureId, setViewingCreatureId] = useState<string | null>(null);
   const [lootingCharId, setLootingCharId] = useState<string | null>(null);
@@ -631,7 +934,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     // 2. Also save to the local campaign characters list cache so other subscriptions are aware
     if (campaignId) {
       try {
-        const cached = localStorage.getItem(`campaign_characters_${campaignId}`);
+        const cached = safeLocalStorageGetItem(`campaign_characters_${campaignId}`) || localStorage.getItem(`campaign_characters_${campaignId}`);
         if (cached) {
           const chars = JSON.parse(cached) as Character[];
           const idx = chars.findIndex(c => c.id === characterId);
@@ -642,7 +945,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           }
         }
       } catch (e) {
-        console.error("Error updating local campaign chars cache:", e);
+        console.warn("Warning updating local campaign chars cache:", e);
       }
     }
 
@@ -785,8 +1088,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const [sidebarTab, setSidebarTab] = useState<'creatures' | 'combat' | 'initiative' | 'generator' | 'aoe'>(isMaster ? 'creatures' : 'aoe');
 
   // Form states for AoE Creation
-  const [aoeFormName, setAoeFormName] = useState('Bola de Fogo');
-  const [aoeFormShape, setAoeFormShape] = useState<'circle' | 'square' | 'rectangle'>('circle');
+  const [aoeFormName, setAoeFormName] = useState('');
+  const [aoeFormShape, setAoeFormShape] = useState<'circle' | 'square' | 'rectangle' | 'cone' | 'arc'>('circle');
   const [aoeFormColor, setAoeFormColor] = useState('red');
   const [aoeFormWidth, setAoeFormWidth] = useState(3);
   const [aoeFormHeight, setAoeFormHeight] = useState(3);
@@ -797,11 +1100,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     if (token.type === 'creature') {
       return (token.stats?.esquiva || 0);
     } else if (token.type === 'character') {
-      const char = availableCharacters.find(c => c.id === token.characterId);
-      if (char) {
+      const char = token.characterId ? (availableCharacters.find(c => c.id === token.characterId) || fetchedCharacters?.[token.characterId]) : null;
+      if (char && char.stats) {
         const climateProf = calculateProficiencyBonus(char.stats, "Clima", ["ADP"], char.fome ?? 100, char.sede ?? 100, char.cansaco, undefined, undefined, 0, char.efeitosNegativos, char.sanidadeAtual, getSanidadeMaxima(char.stats.MEN));
         return calculateProficiencyBonus(char.stats, "Esquiva", ["DEX", "ADP"], char.fome ?? 100, char.sede ?? 100, char.cansaco, char.clima, climateProf, char.bonusProficiencias?.["Esquiva"] || 0, char.efeitosNegativos, char.sanidadeAtual, getSanidadeMaxima(char.stats.MEN));
       }
+      return token.stats?.esquiva || 0;
     }
     return 0;
   };
@@ -811,7 +1115,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     if (!token) return;
 
     // 1. Update Token in VTT collection
-    await updateTokenPosition(campaignId, tokenId, { hp: newHp });
+    await updateTokenPosition(campaignId, tokenId, { hp: newHp }, tokens);
 
     // 2. If it's linked to a character, update that character's document too
     if (token.characterId) {
@@ -819,26 +1123,45 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     }
   };
 
+  const handleRollSingleInitiative = async (tokenId: string) => {
+    const token = tokens.find(t => t.id === tokenId);
+    if (!token) return;
+    const bonus = calculateTokenEsquiva(token) || 0;
+    const roll = randomInt(1, 20);
+    const total = roll + bonus;
+    await updateTokenPosition(campaignId, token.id, { initiative: total }, tokens);
+    await addCombatLog(campaignId, { msg: `${token.name} rolou Iniciativa: 1d20(${roll}) + ${bonus} (Esquiva) = ${total}`, type: 'info' });
+  };
+
   const handleRollInitiative = async () => {
     if (!isMaster) return;
-    await addCombatLog(campaignId, { msg: "Iniciando rodada de iniciativa...", type: 'info' });
+    const combatTokens = tokens.filter(t => t.type !== 'aoe');
+    if (combatTokens.length === 0) {
+      await addCombatLog(campaignId, { msg: "Nenhum combatente no mapa para rolar iniciativa.", type: 'warning' });
+      return;
+    }
+
+    await addCombatLog(campaignId, { msg: `Iniciando rodada de iniciativa para ${combatTokens.length} tokens...`, type: 'info' });
     const results: string[] = [];
-    for (const token of tokens) {
-      const bonus = calculateTokenEsquiva(token);
+    const tokenUpdates: { id: string; updates: Partial<TableToken> }[] = [];
+
+    for (const token of combatTokens) {
+      const bonus = calculateTokenEsquiva(token) || 0;
       const roll = randomInt(1, 20);
       const total = roll + bonus;
-      updateTokenPosition(campaignId, token.id, { initiative: total } as any);
-      results.push(`${token.name}: ${total}`);
+      tokenUpdates.push({ id: token.id, updates: { initiative: total } });
+      results.push(`${token.name}: ${total} (1d20[${roll}] + ${bonus} Esq)`);
     }
-    await addCombatLog(campaignId, { msg: `Iniciativa concluída: ${results.join(' | ')}`, type: 'success' });
+
+    await updateMultipleTokens(campaignId, tokenUpdates, tokens);
+    await addCombatLog(campaignId, { msg: `Iniciativa concluída (${combatTokens.length} tokens): ${results.join(' | ')}`, type: 'success' });
   };
 
   const clearInitiative = async () => {
     if (!isMaster) return;
-    for (const token of tokens) {
-      updateTokenPosition(campaignId, token.id, { initiative: null } as any);
-    }
-    setCombatLog(prev => [{ msg: "Iniciativa limpa.", type: 'info' }, ...prev]);
+    const tokenUpdates = tokens.map(token => ({ id: token.id, updates: { initiative: null } }));
+    await updateMultipleTokens(campaignId, tokenUpdates, tokens);
+    setCombatLog(prev => [{ msg: "Iniciativa limpa para todos os tokens.", type: 'info' }, ...prev]);
   };
 
   const handleNextTurn = async () => {
@@ -979,24 +1302,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     });
   }, [tokens]);
 
-  // Initiative and HP monitoring - serialized one-by-one update to prevent write race conditions
+  // Initiative cleanup ref sync
   useEffect(() => {
-    if (!isMaster) return;
-    
-    const deadTokensInInitiative = tokens.filter(t => {
-      const char = t.characterId ? availableCharacters.find(c => c.id === t.characterId) : null;
-      const hp = char ? (char.vidaAtual ?? 0) : (t.hp ?? 0);
-      return hp <= 0 && (t.initiative !== null && t.initiative !== undefined) && !pendingInitiativeClearsRef.current.has(t.id);
+    tokens.forEach(t => {
+      if (t.initiative === null || t.initiative === undefined) {
+        pendingInitiativeClearsRef.current.delete(t.id);
+      }
     });
-    
-    if (deadTokensInInitiative.length > 0) {
-      // Process only the first one to serialize the updates and prevent local-storage write races
-      const token = deadTokensInInitiative[0];
-      pendingInitiativeClearsRef.current.add(token.id);
-      updateTokenPosition(campaignId, token.id, { initiative: null } as any);
-      setCombatLog(prev => [{ msg: `Unidade abatida "${token.name || 'Token'}" removida da iniciativa`, type: 'info' }, ...prev]);
-    }
-  }, [tokens, isMaster, campaignId, availableCharacters]);
+  }, [tokens]);
 
   const handleSetDefense = async (tokenId: string, type: 'Weapon' | 'Shield', weaponId?: string | null) => {
     const token = tokens.find(t => t.id === tokenId);
@@ -1833,7 +2146,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const handleDragEnd = (id: string, x: number, y: number) => {
     const token = tokens.find(t => t.id === id);
     if (token) {
-      updateTokenPosition(campaignId, id, { x, y, prevX: token.x, prevY: token.y });
+      updateTokenPosition(campaignId, id, { x, y, prevX: token.x, prevY: token.y }, tokens);
     }
   };
 
@@ -1841,7 +2154,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     if (!selectedTokenId) return;
     const token = tokens.find(t => t.id === selectedTokenId);
     if (token && token.prevX !== undefined && token.prevY !== undefined) {
-      updateTokenPosition(campaignId, token.id, { x: token.prevX, y: token.prevY });
+      updateTokenPosition(campaignId, token.id, { x: token.prevX, y: token.prevY }, tokens);
     }
   };
 
@@ -3231,37 +3544,48 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         </div>
       )}
 
-      {/* Left Sidebar Toggle (Master Only) */}
-      {isMaster && (
-        <button 
-          onClick={() => {
-            const nextVal = !showLeftSidebar;
-            setShowLeftSidebar(nextVal);
-            if (nextVal && window.innerWidth < 768) {
-              setShowSidebar(false);
-            }
-          }}
-          className={cn(
-            "absolute top-4 z-50 p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all shadow-xl duration-300 flex items-center justify-center",
-            showLeftSidebar ? "left-[260px]" : "left-4"
-          )}
-          title={showLeftSidebar ? "Fechar Configurações" : "Configurações da Mesa"}
+      {/* Left Sidebar Toggle (Available to Master and Players) */}
+      <button 
+        onClick={() => {
+          const nextVal = !showLeftSidebar;
+          setShowLeftSidebar(nextVal);
+          if (nextVal && window.innerWidth < 768) {
+            setShowSidebar(false);
+          }
+        }}
+        className={cn(
+          "absolute top-4 z-50 p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all shadow-xl duration-300 flex items-center justify-center cursor-pointer",
+          showLeftSidebar ? "left-[260px]" : "left-4"
+        )}
+        title={showLeftSidebar ? "Fechar Painel" : (isMaster ? "Configurações da Mesa" : "Adicionar Tokens / Ferramentas")}
+      >
+        {showLeftSidebar ? <ChevronLeft size={20} /> : (isMaster ? <Settings size={20} /> : <UserPlus size={20} className="text-blue-400" />)}
+      </button>
+
+      {/* Floating Quick Token Add Button for Players */}
+      {!isMaster && (
+        <button
+          onClick={() => setIsCharacterModalOpen(true)}
+          className="absolute top-4 left-16 z-30 p-2.5 bg-blue-600/90 hover:bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-wider shadow-2xl flex items-center gap-2 border border-blue-400/40 backdrop-blur-md transition-all cursor-pointer"
+          title="Colocar meu token de personagem no mapa"
         >
-          {showLeftSidebar ? <ChevronLeft size={20} /> : <Settings size={20} />}
+          <UserPlus size={15} />
+          <span className="hidden sm:inline">Colocar Meu Token</span>
         </button>
       )}
 
-      {/* Left Sidebar Content (Master Only) */}
-      {isMaster && (
-        <aside className={cn(
-          "absolute top-0 left-0 h-full w-[250px] bg-zinc-900/95 backdrop-blur-xl border-r border-zinc-800 z-40 transition-transform duration-300 ease-in-out flex flex-col shadow-2xl",
-          showLeftSidebar ? "translate-x-0" : "-translate-x-full"
-        )}>
+      {/* Left Sidebar Content */}
+      <aside className={cn(
+        "absolute top-0 left-0 h-full w-[250px] bg-zinc-900/95 backdrop-blur-xl border-r border-zinc-800 z-40 transition-transform duration-300 ease-in-out flex flex-col shadow-2xl",
+        showLeftSidebar ? "translate-x-0" : "-translate-x-full"
+      )}>
         <div className="flex-1 flex flex-col overflow-y-auto p-4 pb-24 gap-6 custom-scrollbar scroll-smooth">
           {/* Header */}
           <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
-            <Settings size={16} className="text-blue-500" />
-            <span className="text-[10px] font-black text-white uppercase tracking-widest">Configurações da Mesa</span>
+            {isMaster ? <Settings size={16} className="text-blue-500" /> : <UserPlus size={16} className="text-blue-500" />}
+            <span className="text-[10px] font-black text-white uppercase tracking-widest">
+              {isMaster ? "Configurações da Mesa" : "Painel do Jogador"}
+            </span>
           </div>
 
           {/* Camera Controls */}
@@ -3276,34 +3600,36 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             </div>
           </div>
 
-          {/* Master Settings */}
+          {/* Token Tools Section (Available to BOTH Master and Players) */}
+          <div className="space-y-3">
+            <span className="text-[8px] font-black text-blue-500 uppercase tracking-widest px-1">Gestão de Tokens</span>
+            <div className="flex flex-col gap-2">
+              <button 
+                onClick={() => setIsCharacterModalOpen(true)}
+                className="w-full flex items-center gap-2 p-3 bg-blue-600/10 border border-blue-500/30 hover:bg-blue-600/20 text-blue-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer"
+              >
+                <User size={14} /> {isMaster ? "Add Personagem" : "Colocar Meu Personagem"}
+              </button>
+              {isMaster && (
+                <button 
+                  onClick={() => setShowCreatureModal(true)}
+                  className="w-full flex items-center gap-2 p-3 bg-amber-600/10 border border-amber-500/30 hover:bg-amber-600/20 text-amber-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                >
+                  <Skull size={14} /> Add Criatura
+                </button>
+              )}
+              <button 
+                onClick={() => setIsTocaModalOpen(true)}
+                className="w-full flex items-center gap-2 p-3 bg-emerald-600/10 border border-emerald-500/30 hover:bg-emerald-600/20 text-emerald-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer"
+              >
+                <PawPrint size={14} /> {isMaster ? "Add da Toca" : "Add da Minha Toca"}
+              </button>
+            </div>
+          </div>
+
+          {/* Master-only Settings */}
           {isMaster && (
             <>
-              {/* Token Tools Section */}
-              <div className="space-y-3">
-                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest px-1">Gestão de Tokens</span>
-                <div className="flex flex-col gap-2">
-                  <button 
-                    onClick={() => setIsCharacterModalOpen(true)}
-                    className="w-full flex items-center gap-2 p-3 bg-blue-600/10 border border-blue-500/30 hover:bg-blue-600/20 text-blue-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-                  >
-                    <User size={14} /> Add Personagem
-                  </button>
-                  <button 
-                    onClick={() => setShowCreatureModal(true)}
-                    className="w-full flex items-center gap-2 p-3 bg-amber-600/10 border border-amber-500/30 hover:bg-amber-600/20 text-amber-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-                  >
-                    <Skull size={14} /> Add Criatura
-                  </button>
-                  <button 
-                    onClick={() => setIsTocaModalOpen(true)}
-                    className="w-full flex items-center gap-2 p-3 bg-emerald-600/10 border border-emerald-500/30 hover:bg-emerald-600/20 text-emerald-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-                  >
-                    <PawPrint size={14} /> Add da Toca
-                  </button>
-                </div>
-              </div>
-
               {/* Map Image Section */}
               <div className="space-y-3">
                 <span className="text-[8px] font-black text-blue-500 uppercase tracking-widest px-1">Mapa de Fundo</span>
@@ -3409,7 +3735,6 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           )}
         </div>
       </aside>
-      )}
 
       {/* Floating Toca Summoner Button */}
       {visibleTocaCharacters.length > 0 && (
@@ -3647,14 +3972,50 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
       {/* Character Modal */}
       {isCharacterModalOpen && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl w-full max-w-md shadow-2xl space-y-6">
+        <div 
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsCharacterModalOpen(false);
+          }}
+          className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150"
+        >
+          <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl w-full max-w-md shadow-2xl space-y-5 relative">
             <div className="space-y-4">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                <User className="text-blue-500" /> Adicionar Personagem
-              </h3>
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                  <User className="text-blue-500" /> Adicionar Personagem
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setIsCharacterModalOpen(false)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-xl text-xs font-bold transition-all border border-zinc-700/60 cursor-pointer shadow-sm"
+                  title="Fechar janela (ESC)"
+                  aria-label="Fechar janela"
+                >
+                  <X size={16} /> Fechar
+                </button>
+              </div>
+
+              {/* Search filter */}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={charModalSearch}
+                  onChange={(e) => setCharModalSearch(e.target.value)}
+                  placeholder="Buscar personagem por nome..."
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                {charModalSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setCharModalSearch("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white text-xs p-1"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
               
-              <div className="space-y-1.5 w-full max-w-xs">
+              <div className="space-y-1.5 w-full">
                 <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider px-1">Tamanho do Token</label>
                 <div className="grid grid-cols-4 gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
                   {TOKEN_SIZES.map(size => (
@@ -3673,114 +4034,149 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               </div>
             </div>
             
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
-              {availableCharacters.filter(c => {
-                if (isMaster) {
-                  // O Mestre pode ver e adicionar qualquer personagem disponível (suas fichas + fichas de jogadores sincronizadas)
-                  return true;
-                } else {
-                  // O Jogador comum só pode ver e adicionar suas próprias fichas
-                  return c.userId === auth.currentUser?.uid || c.userEmail === auth.currentUser?.email;
-                }
-              }).length > 0 ? (
-                availableCharacters.filter(c => {
-                  if (isMaster) {
-                    return true;
-                  } else {
-                    return c.userId === auth.currentUser?.uid || c.userEmail === auth.currentUser?.email;
+            <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1 custom-scrollbar">
+              {(() => {
+                const currentUserUid = auth.currentUser?.uid;
+                const currentUserEmail = auth.currentUser?.email?.toLowerCase();
+                const searchLower = charModalSearch.trim().toLowerCase();
+
+                const filteredChars = availableCharacters.filter(c => {
+                  if (!c || !c.nome) return false;
+                  if (searchLower && !c.nome.toLowerCase().includes(searchLower)) {
+                    return false;
                   }
-                }).map(char => (
-                  <div 
-                    key={char.id}
-                    className="w-full bg-zinc-950 border border-zinc-800 p-4 rounded-xl flex items-center gap-3 hover:bg-zinc-800 hover:border-blue-500 transition-all text-left group"
-                  >
-                    <div className="w-10 h-10 bg-blue-600/20 rounded-full flex items-center justify-center border border-blue-500 group-hover:bg-blue-600 transition-colors overflow-hidden">
-                      {char.imagem ? (
-                        <img src={char.imagem} alt={char.nome} className="w-full h-full object-cover" />
-                      ) : (
-                        <User size={20} className="text-blue-400 group-hover:text-white" />
-                      )}
+                  return true;
+                });
+
+                if (filteredChars.length === 0) {
+                  return (
+                    <div className="text-center py-8 bg-zinc-950 rounded-2xl border border-zinc-800/50 p-4">
+                      <User size={32} className="mx-auto text-zinc-700 mb-2" />
+                      <p className="text-zinc-300 text-xs font-bold mb-1">
+                        {charModalSearch ? "Nenhum personagem encontrado com este nome." : "Nenhum personagem disponível para colocar."}
+                      </p>
+                      <p className="text-zinc-500 text-[10px]">
+                        {isMaster 
+                          ? "Vincule fichas à campanha na aba de Campanhas para adicioná-las aqui." 
+                          : "Vincule sua ficha a esta campanha para colocar seu token na mesa."}
+                      </p>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-white truncate">{char.nome}</p>
-                      {char.userEmail && <p className="text-[9px] text-amber-500/60 font-medium truncate">{char.userEmail}</p>}
-                      <p className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">{char.etnia}</p>
+                  );
+                }
+
+                return filteredChars.map(char => {
+                  const conVal = char.stats?.CON ?? 0;
+                  const dexVal = char.stats?.DEX ?? 0;
+                  const menVal = char.stats?.MEN ?? 0;
+                  const safeMaxHp = getVidaMaxima(conVal);
+                  const safeDesloc = getDeslocamentoBase(
+                    dexVal, 
+                    char.efeitosNegativos || [], 
+                    char.fome || 0, 
+                    char.sede || 0, 
+                    char.clima || 0, 
+                    0, 
+                    char.sanidadeAtual || 0, 
+                    getSanidadeMaxima(menVal)
+                  );
+
+                  return (
+                    <div 
+                      key={char.id}
+                      className="w-full bg-zinc-950 border border-zinc-800 p-4 rounded-xl flex items-center gap-3 hover:bg-zinc-800/70 hover:border-blue-500/50 transition-all text-left group"
+                    >
+                      <div className="w-10 h-10 bg-blue-600/20 rounded-full flex items-center justify-center border border-blue-500 group-hover:bg-blue-600 transition-colors overflow-hidden shrink-0">
+                        {char.imagem ? (
+                          <img src={char.imagem} alt={char.nome} className="w-full h-full object-cover" />
+                        ) : (
+                          <User size={20} className="text-blue-400 group-hover:text-white" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-white truncate">{char.nome}</p>
+                        {char.userEmail && <p className="text-[9px] text-amber-500/70 font-medium truncate">{char.userEmail}</p>}
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[9px] text-zinc-500 uppercase font-medium">{char.etnia || "Aventureiro"}</span>
+                          <span className="text-[9px] text-red-400/80 font-bold">PV: {char.vidaAtual ?? safeMaxHp}/{safeMaxHp}</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (onAddToken) {
+                              const centerX = (dimensions.width / 2 - viewport.x) / viewport.scale;
+                              const centerY = (dimensions.height / 2 - viewport.y) / viewport.scale;
+                              onAddToken({
+                                id: crypto.randomUUID(),
+                                name: char.nome,
+                                imageUrl: char.imagem,
+                                x: centerX || 100,
+                                y: centerY || 100,
+                                size: inputCreatureSize,
+                                type: 'character',
+                                characterId: char.id,
+                                userId: char.userId || auth.currentUser?.uid || 'player',
+                                hp: char.vidaAtual ?? safeMaxHp,
+                                maxHp: safeMaxHp,
+                                color: '#3b82f6',
+                                efeitosNegativos: char.efeitosNegativos || [],
+                                deslocamento: safeDesloc
+                              });
+                            }
+                            setIsCharacterModalOpen(false);
+                          }}
+                          className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/40 rounded-lg text-[9px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer shadow"
+                        >
+                          <UserPlus size={11} /> {isMaster ? "Player" : "Colocar Token"}
+                        </button>
+                        {isMaster && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (onAddToken) {
+                                const centerX = (dimensions.width / 2 - viewport.x) / viewport.scale;
+                                const centerY = (dimensions.height / 2 - viewport.y) / viewport.scale;
+                                onAddToken({
+                                  id: crypto.randomUUID(),
+                                  name: `${char.nome} (Inimigo)`,
+                                  imageUrl: char.imagem,
+                                  x: centerX || 100,
+                                  y: centerY || 100,
+                                  size: inputCreatureSize,
+                                  type: 'creature',
+                                  characterId: char.id,
+                                  userId: 'monster',
+                                  hp: char.vidaAtual ?? safeMaxHp,
+                                  maxHp: safeMaxHp,
+                                  color: '#ef4444',
+                                  efeitosNegativos: char.efeitosNegativos || [],
+                                  deslocamento: safeDesloc
+                                });
+                              }
+                              setIsCharacterModalOpen(false);
+                            }}
+                            className="px-2 py-1 bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white rounded text-[8px] font-black uppercase transition-all cursor-pointer"
+                          >
+                            Inimigo
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex flex-col gap-1">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (onAddToken) {
-                            const centerX = (dimensions.width / 2 - viewport.x) / viewport.scale;
-                            const centerY = (dimensions.height / 2 - viewport.y) / viewport.scale;
-                            onAddToken({
-                              id: crypto.randomUUID(),
-                              name: char.nome,
-                              imageUrl: char.imagem,
-                              x: centerX || 100,
-                              y: centerY || 100,
-                              size: inputCreatureSize,
-                              type: 'character',
-                              characterId: char.id,
-                              userId: char.userId || auth.currentUser?.uid || 'player',
-                              hp: char.vidaAtual || 1,
-                              maxHp: getVidaMaxima(char.stats.CON),
-                              color: '#3b82f6',
-                              efeitosNegativos: char.efeitosNegativos || [],
-                              deslocamento: getDeslocamentoBase(char.stats.DEX, char.efeitosNegativos, char.fome, char.sede, char.clima, 0, char.sanidadeAtual, getSanidadeMaxima(char.stats.MEN))
-                            });
-                          }
-                          setIsCharacterModalOpen(false);
-                        }}
-                        className="px-2 py-1 bg-blue-600/20 hover:bg-blue-600 text-blue-500 hover:text-white rounded text-[8px] font-black uppercase transition-all"
-                      >
-                        Player
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (onAddToken) {
-                            const centerX = (dimensions.width / 2 - viewport.x) / viewport.scale;
-                            const centerY = (dimensions.height / 2 - viewport.y) / viewport.scale;
-                            onAddToken({
-                              id: crypto.randomUUID(),
-                              name: `${char.nome} (Inimigo)`,
-                              imageUrl: char.imagem,
-                              x: centerX || 100,
-                              y: centerY || 100,
-                              size: inputCreatureSize,
-                              type: 'creature',
-                              characterId: char.id,
-                              userId: 'monster',
-                              hp: char.vidaAtual || 1,
-                              maxHp: getVidaMaxima(char.stats.CON),
-                              color: '#ef4444',
-                              efeitosNegativos: char.efeitosNegativos || [],
-                              deslocamento: getDeslocamentoBase(char.stats.DEX, char.efeitosNegativos, char.fome, char.sede, char.clima, 0, char.sanidadeAtual, getSanidadeMaxima(char.stats.MEN))
-                            });
-                          }
-                          setIsCharacterModalOpen(false);
-                        }}
-                        className="px-2 py-1 bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white rounded text-[8px] font-black uppercase transition-all"
-                      >
-                        Inimigo
-                      </button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-8 bg-zinc-950 rounded-2xl border border-zinc-800/50">
-                  <p className="text-zinc-500 text-sm">Nenhum personagem encontrado nesta campanha.</p>
-                </div>
-              )}
+                  );
+                });
+              })()}
             </div>
 
-            <div className="flex gap-2 pt-2">
+            <div className="flex gap-2 pt-2 border-t border-zinc-800">
               <button 
+                type="button"
                 onClick={() => setIsCharacterModalOpen(false)}
-                className="flex-1 p-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl font-bold transition-colors"
+                className="flex-1 p-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2 cursor-pointer border border-zinc-700/50 shadow-md"
               >
-                Voltar
+                <X size={18} /> Cancelar / Fechar Janela
               </button>
             </div>
           </div>
@@ -4096,6 +4492,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 gridSize={gridSize}
                 onDragEnd={handleDragEnd}
                 onClick={() => handleTokenClick(token.id)}
+                onRotate={(id, rot) => updateTokenPosition(campaignId, id, { rotation: rot }, tokens)}
+                isSelected={selectedTokenId === token.id}
                 isAttacker={attackerId === token.id}
                 isTarget={targetId === token.id}
                 isMaster={isMaster}
@@ -4192,7 +4590,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           </button>
         </div>
 
-        <div className="flex-1 flex flex-col overflow-hidden p-4 gap-4">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden p-3 gap-3">
           {sidebarTab === 'creatures' && (
             <>
               {/* Info Panel Title */}
@@ -4205,14 +4603,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                   <div className="flex gap-1.5">
                     <button 
                       onClick={() => setIsCharacterModalOpen(true)}
-                      className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/10 hover:bg-amber-500 text-amber-500 hover:text-zinc-950 rounded-lg text-[8px] font-black uppercase transition-all border border-amber-500/20"
+                      className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/10 hover:bg-amber-500 text-amber-500 hover:text-zinc-950 rounded-lg text-[8px] font-black uppercase transition-all border border-amber-500/20 cursor-pointer"
                     >
                       <Plus size={10} /> Add Inimigo
                     </button>
                     {tokens.length > 0 && (
                       <button 
                         onClick={() => setShowClearConfirm(true)}
-                        className="flex items-center gap-1.5 px-2 py-1 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-lg text-[8px] font-black uppercase transition-all shadow-lg border border-red-500/20"
+                        className="flex items-center gap-1.5 px-2 py-1 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-lg text-[8px] font-black uppercase transition-all shadow-lg border border-red-500/20 cursor-pointer"
                       >
                         <Trash2 size={10} /> Limpar
                       </button>
@@ -4222,61 +4620,60 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               </div>
               
               {/* Creatures List */}
-              <div className="flex-1 overflow-y-auto space-y-3 pr-1 py-1 custom-scrollbar scroll-smooth text-left">
-                {tokens.filter(t => t.type === 'creature').map(token => (
-                  <div key={token.id} className="bg-zinc-950/80 border border-zinc-800 rounded-2xl p-4 flex flex-col gap-3 group hover:border-red-500/30 transition-all shadow-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="relative">
-                        <div className="w-10 h-10 rounded-xl overflow-hidden border border-zinc-800 flex items-center justify-center bg-zinc-900">
-                          {token.imageUrl ? (
-                            <img src={token.imageUrl.startsWith('http') || token.imageUrl.startsWith('/') ? token.imageUrl : `/${token.imageUrl}`} alt={token.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <User size={16} className="text-zinc-600" />
-                          )}
+              <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1 py-1 custom-scrollbar scroll-smooth text-left">
+                {tokens.filter(t => t.type === 'creature').map(token => {
+                  const char = token.characterId ? (availableCharacters.find(c => c.id === token.characterId) || fetchedCharacters?.[token.characterId]) : null;
+                  const tkImage = token.imageUrl || char?.imagem;
+                  return (
+                    <div key={token.id} className="bg-zinc-950/80 border border-zinc-800 rounded-xl p-3 flex flex-col gap-2.5 group hover:border-red-500/30 transition-all shadow-lg">
+                      <div className="flex items-center gap-2.5">
+                        <div className="relative">
+                          <div className="w-8 h-8 rounded-lg overflow-hidden border border-zinc-800 flex items-center justify-center bg-zinc-900 shrink-0">
+                            {tkImage ? (
+                              <img src={tkImage.startsWith('http') || tkImage.startsWith('/') || tkImage.startsWith('data:') ? tkImage : `/${tkImage}`} alt={token.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <User size={14} className="text-zinc-600" />
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[10px] font-black text-white truncate uppercase tracking-widest">{token.name}</div>
+                          <div className="flex items-center gap-1.5 mt-0.5 text-[8px] font-bold text-zinc-500 uppercase tracking-tighter">
+                            <Heart size={8} className="text-red-500" /> 
+                            <input 
+                              type="number"
+                              value={(char ? (char.vidaAtual ?? 0) : (token.hp ?? 0)) || ""}
+                              placeholder="0"
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 0;
+                                handleTokenHpUpdate(token.id, val);
+                              }}
+                              className="w-10 bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-[8px] font-black text-white focus:outline-none focus:border-red-500/50 text-center"
+                            />
+                            / {(() => {
+                              const mhp = Math.max(1, char && char.etnia !== 'Monstro' ? getVidaMaxima(char.stats.CON) : (token.maxHp ?? 10));
+                              return mhp;
+                            })()} HP
+                          </div>
+                        </div>
+                        <div className="flex gap-1 transition-all">
+                          <button 
+                            onClick={() => setViewingCreatureId(token.id === viewingCreatureId ? null : token.id)}
+                            className={cn("p-1.5 rounded transition-all cursor-pointer", viewingCreatureId === token.id ? "bg-amber-500 text-zinc-950" : "hover:bg-amber-500/10 text-amber-500")}
+                          >
+                            <Info size={12} />
+                          </button>
+                          <button 
+                            onClick={() => onRemoveToken?.(token.id)}
+                            className="p-1.5 hover:bg-red-500/10 hover:text-red-500 text-zinc-600 rounded transition-all cursor-pointer"
+                          >
+                            <Trash2 size={12} />
+                          </button>
                         </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[10px] font-black text-white truncate uppercase tracking-widest">{token.name}</div>
-                        <div className="flex items-center gap-1.5 mt-1 text-[8px] font-bold text-zinc-500 uppercase tracking-tighter">
-                          <Heart size={8} className="text-red-500" /> 
-                          <input 
-                            type="number"
-                            value={(() => {
-                              const char = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
-                              return (char ? (char.vidaAtual ?? 0) : (token.hp ?? 0)) || "";
-                            })()}
-                            placeholder="0"
-                            onChange={(e) => {
-                              const val = parseInt(e.target.value) || 0;
-                              handleTokenHpUpdate(token.id, val);
-                            }}
-                            className="w-10 bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-[8px] font-black text-white focus:outline-none focus:border-red-500/50 text-center"
-                          />
-                          / {(() => {
-                            const char = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
-                            const mhp = Math.max(1, char && char.etnia !== 'Monstro' ? getVidaMaxima(char.stats.CON) : (token.maxHp ?? 10));
-                            return mhp;
-                          })()} HP
-                        </div>
-                      </div>
-                      <div className="flex gap-1 transition-all">
-                        <button 
-                          onClick={() => setViewingCreatureId(token.id === viewingCreatureId ? null : token.id)}
-                          className={cn("p-1.5 rounded transition-all", viewingCreatureId === token.id ? "bg-amber-500 text-zinc-950" : "hover:bg-amber-500/10 text-amber-500")}
-                        >
-                          <Info size={12} />
-                        </button>
-                        <button 
-                          onClick={() => onRemoveToken?.(token.id)}
-                          className="p-1.5 hover:bg-red-500/10 hover:text-red-500 text-zinc-600 rounded transition-all"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    </div>
 
                     {/* HP Controls */}
-                    <div className="flex items-center gap-2 bg-zinc-900/50 p-1.5 rounded-xl border border-zinc-800">
+                    <div className="flex items-center gap-2 bg-zinc-900/50 p-1 rounded-xl border border-zinc-800">
                       <button 
                         onClick={() => {
                           const char = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
@@ -4284,9 +4681,9 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                           const newHp = Math.max(0, currentHp - 1);
                           handleTokenHpUpdate(token.id, newHp);
                         }}
-                        className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-red-500 rounded-lg transition-colors border border-transparent hover:border-zinc-700"
+                        className="p-1 hover:bg-zinc-800 text-zinc-500 hover:text-red-500 rounded-lg transition-colors border border-transparent hover:border-zinc-700 cursor-pointer"
                       >
-                        <Minus size={12} />
+                        <Minus size={11} />
                       </button>
                       <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                         <div 
@@ -4309,9 +4706,9 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                           const newHp = Math.min(mhp, chp + 1);
                           handleTokenHpUpdate(token.id, newHp);
                         }}
-                        className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-green-500 rounded-lg transition-colors border border-transparent hover:border-zinc-700"
+                        className="p-1 hover:bg-zinc-800 text-zinc-500 hover:text-green-500 rounded-lg transition-colors border border-transparent hover:border-zinc-700 cursor-pointer"
                       >
-                        <Plus size={12} />
+                        <Plus size={11} />
                       </button>
                     </div>
 
@@ -4324,11 +4721,11 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                           exit={{ height: 0, opacity: 0 }}
                           className="overflow-hidden"
                         >
-                          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 mt-2 space-y-4 shadow-inner">
+                          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 mt-2 space-y-3 shadow-inner">
                             <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
                                <div className="text-[10px] font-black text-amber-500 uppercase tracking-widest flex items-center gap-1.5">
                                  <FileText size={10} /> Ficha Técnica
-                               </div>
+                                </div>
                                <div className="text-[8px] font-bold text-zinc-500 bg-zinc-950 px-2 py-0.5 rounded-full border border-zinc-800">
                                  Size: {token.size}x{token.size}
                                </div>
@@ -4348,7 +4745,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       )}
                     </AnimatePresence>
                   </div>
-                ))}
+                );
+              })}
                 {tokens.filter(t => t.type === 'creature').length === 0 && (
                   <div className="flex flex-col items-center justify-center py-6 px-4 bg-zinc-950/30 border border-dashed border-zinc-800 rounded-2xl">
                     <Skull size={24} className="text-zinc-800 mb-2" />
@@ -4362,15 +4760,17 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           {sidebarTab === 'initiative' && (
             <>
               {/* Initiative Title */}
-              <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-2 shrink-0">
                 <div className="flex items-center gap-2">
                   <Zap size={16} className="text-amber-500" />
-                  <span className="text-[10px] font-black text-white uppercase tracking-widest">Iniciativa</span>
+                  <span className="text-[10px] font-black text-white uppercase tracking-widest">
+                    Iniciativa ({tokens.filter(t => t.type !== 'aoe' && t.initiative !== null && t.initiative !== undefined).length}/{tokens.filter(t => t.type !== 'aoe').length})
+                  </span>
                 </div>
                 {isMaster && (
                    <button 
                     onClick={clearInitiative}
-                    className="text-[8px] font-black text-zinc-500 hover:text-red-400 uppercase tracking-tighter"
+                    className="text-[8px] font-black text-zinc-500 hover:text-red-400 uppercase tracking-tighter cursor-pointer"
                    >
                      Limpar
                    </button>
@@ -4379,69 +4779,136 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
               {/* Master Controls */}
               {isMaster && (
-                <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2 shrink-0">
                   <button 
                     onClick={handleRollInitiative}
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-amber-600/20 border border-amber-500/30 hover:bg-amber-600/30 text-amber-500 rounded-xl transition-all group"
+                    className="flex items-center justify-center gap-1.5 py-2 px-2 bg-amber-600/20 border border-amber-500/30 hover:bg-amber-600/30 text-amber-500 rounded-xl transition-all group cursor-pointer"
                   >
-                    <Dices size={16} className="group-hover:rotate-12 transition-transform" />
-                    <span className="text-xs font-black uppercase tracking-widest">Rolar Iniciativa</span>
+                    <Dices size={14} className="group-hover:rotate-12 transition-transform shrink-0" />
+                    <span className="text-[10px] font-black uppercase tracking-wider truncate">Rolar Todos ({tokens.filter(t => t.type !== 'aoe').length})</span>
                   </button>
                   <button 
                     onClick={handleNextTurn}
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600/20 border border-blue-500/30 hover:bg-blue-600/30 text-blue-500 rounded-xl transition-all group"
+                    className="flex items-center justify-center gap-1.5 py-2 px-2 bg-blue-600/20 border border-blue-500/30 hover:bg-blue-600/30 text-blue-500 rounded-xl transition-all group cursor-pointer"
                   >
-                    <RefreshCw size={16} className="group-hover:rotate-180 transition-transform duration-500" />
-                    <span className="text-xs font-black uppercase tracking-widest">Próximo Turno</span>
+                    <RefreshCw size={14} className="group-hover:rotate-180 transition-transform duration-500 shrink-0" />
+                    <span className="text-[10px] font-black uppercase tracking-wider truncate">Próximo Turno</span>
                   </button>
                 </div>
               )}
 
               {/* Initiative List */}
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1 py-1 custom-scrollbar">
+              <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1 py-1 custom-scrollbar">
                 {[...tokens]
-                  .filter(t => t.initiative !== undefined && t.initiative !== null)
-                  .filter(t => {
-                    const char = t.characterId ? availableCharacters.find(c => c.id === t.characterId) : null;
-                    const hp = char ? (char.vidaAtual ?? 0) : (t.hp ?? 0);
-                    return hp > 0;
+                  .filter(t => t.type !== 'aoe')
+                  .sort((a, b) => {
+                    const hasA = a.initiative !== undefined && a.initiative !== null;
+                    const hasB = b.initiative !== undefined && b.initiative !== null;
+                    if (hasA && hasB) return (b.initiative || 0) - (a.initiative || 0);
+                    if (hasA && !hasB) return -1;
+                    if (!hasA && hasB) return 1;
+                    return (a.name || '').localeCompare(b.name || '');
                   })
-                  .sort((a, b) => (b.initiative || 0) - (a.initiative || 0))
-                  .map((token, idx) => (
-                    <motion.div 
-                      key={token.id}
-                      initial={{ x: 20, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      transition={{ delay: idx * 0.05 }}
-                      className={cn(
-                        "flex items-center gap-3 p-3 bg-zinc-950 border border-zinc-800 rounded-2xl relative overflow-hidden",
-                        idx === 0 && "border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.1)]"
-                      )}
-                    >
-                      <div className="w-8 h-8 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 shrink-0">
-                        {token.imageUrl ? (
-                          <img src={token.imageUrl.startsWith('http') || token.imageUrl.startsWith('/') ? token.imageUrl : `/${token.imageUrl}`} alt={token.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-zinc-600">
-                            <User size={12} />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[10px] font-black text-white truncate uppercase tracking-tighter text-left">{token.name}</div>
-                        <div className="text-[8px] font-bold text-zinc-500 uppercase text-left">{token.type === 'character' ? 'Jogador' : 'Inimigo'}</div>
-                      </div>
-                      <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-                        <span className="text-xs font-black text-amber-500">{token.initiative}</span>
-                      </div>
-                    </motion.div>
-                  ))}
+                  .map((token, idx) => {
+                    const char = token.characterId ? (availableCharacters.find(c => c.id === token.characterId) || fetchedCharacters?.[token.characterId]) : null;
+                    const tkImage = token.imageUrl || char?.imagem;
+                    const curHp = Math.max(char?.vidaAtual ?? 0, token.hp ?? 0, (token.stats as any)?.vida ?? 0);
+                    const isFallen = curHp <= 0 && (token.hp !== undefined || char?.vidaAtual !== undefined);
+                    const hasInitiative = token.initiative !== undefined && token.initiative !== null;
 
-                {tokens.every(t => t.initiative === undefined || t.initiative === null) && (
+                    return (
+                      <div 
+                        key={`${token.id || 'tk'}-${idx}`}
+                        className={cn(
+                          "flex items-center gap-2 p-2 bg-zinc-950 border border-zinc-800 rounded-xl relative overflow-hidden transition-all",
+                          hasInitiative && idx === 0 && "border-amber-500/50 bg-amber-950/10 shadow-[0_0_10px_rgba(245,158,11,0.1)]",
+                          !hasInitiative && "border-zinc-800/60 opacity-90",
+                          isFallen && "opacity-60 border-red-900/40"
+                        )}
+                      >
+                        <div className="w-7 h-7 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 shrink-0">
+                          {tkImage ? (
+                            <img src={tkImage.startsWith('http') || tkImage.startsWith('/') || tkImage.startsWith('data:') ? tkImage : `/${tkImage}`} alt={token.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-zinc-600">
+                              <User size={12} />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <div className="text-[10px] font-black text-white truncate uppercase tracking-tighter text-left">{token.name}</div>
+                            {isFallen ? (
+                              <span className="text-[7px] font-black text-red-400 bg-red-950/60 px-1 py-0.2 rounded border border-red-800/40 uppercase shrink-0">
+                                Abatido
+                              </span>
+                            ) : !hasInitiative ? (
+                              <span className="text-[7px] font-black text-zinc-500 bg-zinc-900 px-1 py-0.2 rounded border border-zinc-800 uppercase shrink-0">
+                                Pendente
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[8px] font-bold text-zinc-500 uppercase text-left">{token.type === 'character' ? 'Jogador' : 'Inimigo'}</span>
+                            <span className="text-[8px] font-bold text-amber-500/80">Esq: +{calculateTokenEsquiva(token)}</span>
+                            <span className="text-[8px] font-bold text-zinc-400 font-mono">
+                              {curHp > 0 ? `${curHp} HP` : '0 HP'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {hasInitiative ? (
+                            <>
+                              {isMaster && (
+                                <div className="flex flex-col">
+                                  <button 
+                                    onClick={() => updateTokenPosition(campaignId, token.id, { initiative: (token.initiative || 0) + 1 }, tokens)}
+                                    className="text-[8px] text-zinc-500 hover:text-amber-400 p-0.5 leading-none cursor-pointer"
+                                    title="Aumentar Iniciativa"
+                                  >
+                                    ▲
+                                  </button>
+                                  <button 
+                                    onClick={() => updateTokenPosition(campaignId, token.id, { initiative: Math.max(0, (token.initiative || 0) - 1) }, tokens)}
+                                    className="text-[8px] text-zinc-500 hover:text-amber-400 p-0.5 leading-none cursor-pointer"
+                                    title="Diminuir Iniciativa"
+                                  >
+                                    ▼
+                                  </button>
+                                </div>
+                              )}
+                              <div className="w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+                                <span className="text-xs font-black text-amber-500">{token.initiative}</span>
+                              </div>
+                              {isMaster && (
+                                <button
+                                  onClick={() => updateTokenPosition(campaignId, token.id, { initiative: null }, tokens)}
+                                  className="text-zinc-600 hover:text-red-400 p-1 cursor-pointer transition-colors"
+                                  title="Remover da iniciativa"
+                                >
+                                  <X size={12} />
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => handleRollSingleInitiative(token.id)}
+                              className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500 text-amber-400 hover:text-zinc-950 border border-amber-500/30 rounded-lg text-[8px] font-black uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer"
+                              title="Rolar iniciativa para este combatente"
+                            >
+                              <Dices size={10} /> Rolar
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                {tokens.filter(t => t.type !== 'aoe').length === 0 && (
                    <div className="flex flex-col items-center justify-center py-12 text-center opacity-30">
                      <Dices size={32} className="mb-2" />
                      <p className="text-[10px] font-black uppercase tracking-widest leading-relaxed">
-                       Iniciativa ainda<br/>não rolada
+                       Nenhum combatente<br/>no mapa
                      </p>
                    </div>
                 )}
@@ -4611,18 +5078,18 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 {/* Shape selectors */}
                 <div>
                   <label className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-1">Formato Geométrico</label>
-                  <div className="grid grid-cols-3 gap-1 bg-zinc-900 p-1 rounded-xl border border-zinc-800/60">
-                    {(['circle', 'square', 'rectangle'] as const).map(sh => (
+                  <div className="grid grid-cols-3 gap-1.5 bg-zinc-900 p-1.5 rounded-xl border border-zinc-800/60">
+                    {(['circle', 'square', 'rectangle', 'cone', 'arc'] as const).map(sh => (
                       <button
                         key={sh}
                         type="button"
                         onClick={() => setAoeFormShape(sh)}
                         className={cn(
-                          "py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer",
-                          aoeFormShape === sh ? "bg-teal-500 text-zinc-950 shadow" : "text-zinc-500 hover:text-zinc-300"
+                          "py-1.5 px-1 rounded-lg text-[9px] font-black uppercase tracking-tight transition-all cursor-pointer truncate",
+                          aoeFormShape === sh ? "bg-teal-500 text-zinc-950 shadow font-bold" : "text-zinc-400 hover:text-zinc-200 bg-zinc-950/40"
                         )}
                       >
-                        {sh === 'circle' ? 'Círculo' : sh === 'square' ? 'Quadrado' : 'Retângulo'}
+                        {sh === 'circle' ? 'Círculo' : sh === 'square' ? 'Quadrado' : sh === 'rectangle' ? 'Retângulo' : sh === 'cone' ? 'Cone' : 'Arco'}
                       </button>
                     ))}
                   </div>
@@ -4663,7 +5130,10 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-1">
-                      {aoeFormShape === 'circle' ? 'Raio (q)' : 'Largura (q)'}
+                      {aoeFormShape === 'circle' ? 'Raio (q)' : 
+                       aoeFormShape === 'square' ? 'Lado (q)' : 
+                       aoeFormShape === 'cone' ? 'Alcance / Raio (q)' :
+                       aoeFormShape === 'arc' ? 'Raio Externo (q)' : 'Largura (q)'}
                     </label>
                     <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800/60 p-1 rounded-xl">
                       <button
@@ -4684,9 +5154,11 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     </div>
                   </div>
 
-                  {aoeFormShape === 'rectangle' ? (
+                  {(aoeFormShape === 'rectangle' || aoeFormShape === 'arc') ? (
                     <div>
-                      <label className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-1">Comprimento (q)</label>
+                      <label className="text-[8px] font-black uppercase text-zinc-500 tracking-wider block mb-1">
+                        {aoeFormShape === 'arc' ? 'Espessura (q)' : 'Comprimento (q)'}
+                      </label>
                       <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800/60 p-1 rounded-xl">
                         <button
                           type="button"
@@ -4707,8 +5179,9 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     </div>
                   ) : (
                     <div className="flex flex-col justify-end text-right">
-                      <span className="text-[8px] font-bold mt-1 text-zinc-650 leading-tight">
-                        Equivale a {aoeFormWidth * 1.5}m de raio/lado.
+                      <span className="text-[8px] font-bold mt-1 text-zinc-500 leading-tight">
+                        {aoeFormShape === 'cone' ? `Cone 60° de ${aoeFormWidth}m.` :
+                         `Equivale a ${aoeFormWidth}m de área.`}
                       </span>
                     </div>
                   )}
@@ -4722,7 +5195,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       const newAoEId = generateId();
                       const newToken: TableToken = {
                         id: newAoEId,
-                        name: aoeFormName || 'Área de Efeito',
+                        name: aoeFormName.trim() || 'Área de Efeito',
                         x: 250,
                         y: 250,
                         size: aoeFormWidth, // base diameter
@@ -4730,7 +5203,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                         aoeShape: aoeFormShape,
                         aoeColor: aoeFormColor,
                         aoeWidth: aoeFormWidth,
-                        aoeHeight: aoeFormShape === 'rectangle' ? aoeFormHeight : aoeFormWidth
+                        aoeHeight: (aoeFormShape === 'rectangle' || aoeFormShape === 'arc') ? aoeFormHeight : aoeFormWidth,
+                        rotation: 0
                       };
                       onAddToken(newToken);
                       setCombatLog(prev => [{ msg: `Área de Efeito "${newToken.name}" adicionada ao mapa!`, type: 'info' }, ...prev]);
@@ -4762,55 +5236,73 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                         key={tk.id} 
                         onClick={() => setSelectedTokenId(tk.id)}
                         className={cn(
-                          "p-2 bg-zinc-950/80 border border-zinc-800 rounded-xl flex items-center justify-between gap-2 hover:border-teal-500/40 transition-colors cursor-pointer group",
-                          selectedTokenId === tk.id && "border-teal-500/60 bg-teal-950/10"
+                          "p-2.5 bg-zinc-950/80 border border-zinc-800 rounded-xl flex flex-col gap-1.5 hover:border-teal-500/40 transition-colors cursor-pointer group",
+                          selectedTokenId === tk.id && "border-teal-500/60 bg-teal-950/20"
                         )}
                       >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0 border border-white/10 shadow-sm", colorDot)} />
-                          <div className="min-w-0 text-left">
-                            <p className="text-[10px] font-black text-white truncate max-w-[80px] uppercase leading-none">{tk.name}</p>
-                            <span className="text-[7px] font-bold text-zinc-500 uppercase tracking-tighter block mt-1">
-                              {tk.aoeShape === 'circle' ? 'Círculo' : tk.aoeShape === 'square' ? 'Quadrado' : 'Retângulo'} ({tk.aoeShape === 'rectangle' ? `${tk.aoeWidth || tk.size}x${tk.aoeHeight || tk.aoeWidth || tk.size}` : `${tk.aoeWidth || tk.size}`}q)
-                            </span>
+                        {/* Row 1: Name and Delete button */}
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <span className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0 border border-white/10 shadow-sm", colorDot)} />
+                            <p className="text-[10px] font-black text-white truncate uppercase leading-none">{tk.name}</p>
                           </div>
-                        </div>
-
-                        {/* Direct play dynamic buttons inside sidebar */}
-                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                           <button
-                            onClick={() => {
-                              const currentW = tk.aoeWidth || tk.size || 1;
-                              updateTokenPosition(campaignId, tk.id, { 
-                                aoeWidth: Math.max(1, currentW - 1) 
-                              });
-                            }}
-                            title="Diminuir"
-                            className="p-1 px-1.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-[8px] rounded hover:text-white cursor-pointer"
-                          >
-                            -
-                          </button>
-                          <button
-                            onClick={() => {
-                              const currentW = tk.aoeWidth || tk.size || 1;
-                              updateTokenPosition(campaignId, tk.id, { 
-                                aoeWidth: Math.min(30, currentW + 1)
-                              });
-                            }}
-                            title="Aumentar"
-                            className="p-1 px-1.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-[8px] rounded hover:text-white cursor-pointer"
-                          >
-                            +
-                          </button>
-                          <button
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               onRemoveToken?.(tk.id);
                               if (selectedTokenId === tk.id) setSelectedTokenId(null);
                             }}
-                            className="p-1 text-zinc-600 hover:text-red-500 rounded transition-colors cursor-pointer"
+                            className="p-1 text-zinc-600 hover:text-red-500 rounded transition-colors cursor-pointer shrink-0"
+                            title="Remover Área"
                           >
-                            <Trash2 size={11} />
+                            <Trash2 size={12} />
                           </button>
+                        </div>
+
+                        {/* Row 2: Shape specs + Direct play controls */}
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-zinc-900" onClick={(e) => e.stopPropagation()}>
+                          <span className="text-[7.5px] font-bold text-zinc-400 uppercase tracking-tight bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800/80 truncate">
+                            {tk.aoeShape === 'circle' ? 'Círculo' : tk.aoeShape === 'square' ? 'Quadrado' : tk.aoeShape === 'cone' ? 'Cone' : tk.aoeShape === 'arc' ? 'Arco' : 'Retângulo'} ({tk.aoeShape === 'rectangle' || tk.aoeShape === 'arc' ? `${tk.aoeWidth || tk.size}x${tk.aoeHeight || tk.aoeWidth || tk.size}` : `${tk.aoeWidth || tk.size}`}q)
+                          </span>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => {
+                                const cur = tk.rotation || 0;
+                                const nextRot = (cur + 45) % 360;
+                                updateTokenPosition(campaignId, tk.id, { rotation: nextRot }, tokens);
+                              }}
+                              title="Girar (+45°)"
+                              className="p-1 px-1.5 bg-zinc-900 border border-zinc-800 hover:border-amber-500/50 text-[8px] font-bold rounded text-amber-500 hover:text-amber-400 cursor-pointer flex items-center gap-0.5"
+                            >
+                              <RotateCw size={9} />
+                              {tk.rotation ? `${tk.rotation}°` : '0°'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                const currentW = tk.aoeWidth || tk.size || 1;
+                                updateTokenPosition(campaignId, tk.id, { 
+                                  aoeWidth: Math.max(1, currentW - 1) 
+                                }, tokens);
+                              }}
+                              title="Diminuir"
+                              className="w-5 h-5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-[9px] font-bold rounded hover:text-white flex items-center justify-center cursor-pointer"
+                            >
+                              -
+                            </button>
+                            <button
+                              onClick={() => {
+                                const currentW = tk.aoeWidth || tk.size || 1;
+                                updateTokenPosition(campaignId, tk.id, { 
+                                  aoeWidth: Math.min(30, currentW + 1)
+                                }, tokens);
+                              }}
+                              title="Aumentar"
+                              className="w-5 h-5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-[9px] font-bold rounded hover:text-white flex items-center justify-center cursor-pointer"
+                            >
+                              +
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -4825,27 +5317,16 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         </div>
       </aside>
       {selectedTokenId && !isAttackingMode && tokens.some(t => t.id === selectedTokenId) && (
-        <div 
-          className="absolute z-[100] bg-zinc-950/95 border border-zinc-800 rounded-2xl shadow-2xl p-4 w-72 backdrop-blur-xl transition-all"
+        <motion.div 
+          drag
+          dragMomentum={false}
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          className="fixed z-[100] bg-zinc-950/95 border border-zinc-800 rounded-2xl shadow-2xl p-4 w-80 max-h-[85vh] flex flex-col backdrop-blur-xl overflow-hidden pointer-events-auto"
           style={{ 
-            left: (() => {
-              const token = tokens.find(t => t.id === selectedTokenId);
-              if (!token) return 0;
-              const sidebarWidth = showSidebar ? 250 : 0;
-              const tokenX = viewport.x + token.x * viewport.scale;
-              const tokenW = token.size * gridSize * viewport.scale;
-              
-              let left = tokenX + tokenW / 2 + 20;
-              
-              // If menu would overflow right (considering sidebar)
-              if (left + 300 > window.innerWidth - sidebarWidth) {
-                left = tokenX - tokenW / 2 - 300;
-              }
-              
-              // Final clamp to screen boundaries
-              return Math.max(10, Math.min(window.innerWidth - sidebarWidth - 300, left));
-            })(),
-            top: Math.max(20, Math.min(window.innerHeight - 450, viewport.y + (tokens.find(t => t.id === selectedTokenId)?.y || 0) * viewport.scale - 100))
+            left: 'max(16px, calc(50vw - 160px))',
+            top: 'max(16px, calc(50vh - 240px))'
           }}
         >
           {(() => {
@@ -4853,10 +5334,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             if (!token) return null;
 
             if (token.type === 'aoe') {
-              const shapesList: { value: 'circle' | 'square' | 'rectangle'; label: string }[] = [
+              const shapesList: { value: 'circle' | 'square' | 'rectangle' | 'cone' | 'arc'; label: string }[] = [
                 { value: 'circle', label: 'Círculo' },
                 { value: 'square', label: 'Quadrado' },
-                { value: 'rectangle', label: 'Retângulo' }
+                { value: 'rectangle', label: 'Retângulo' },
+                { value: 'cone', label: 'Cone' },
+                { value: 'arc', label: 'Arco' }
               ];
               const aoeColors = [
                 { id: 'red', name: 'Vermelho', bg: 'bg-red-500/30', border: 'border-red-500' },
@@ -4868,45 +5351,48 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               ];
 
               return (
-                <div className="space-y-4 text-left">
-                  {/* Header */}
-                  <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-                    <div className="flex items-center gap-3">
-                      <div className="relative w-10 h-10 rounded-xl border border-zinc-800 flex-shrink-0 flex items-center justify-center bg-zinc-900 shadow-inner">
-                        <Target size={18} className="text-amber-500 animate-pulse" />
+                <div className="flex flex-col h-full overflow-hidden text-left">
+                  {/* Draggable Header */}
+                  <div className="flex items-center justify-between pb-3 border-b border-zinc-800 shrink-0 cursor-grab active:cursor-grabbing select-none">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="p-1 text-zinc-500 hover:text-zinc-300">
+                        <GripHorizontal size={14} />
+                      </div>
+                      <div className="relative w-8 h-8 rounded-xl border border-zinc-800 flex-shrink-0 flex items-center justify-center bg-zinc-900 shadow-inner">
+                        <Target size={16} className="text-amber-500 animate-pulse" />
                       </div>
                       <div className="min-w-0">
                         <input
                           type="text"
                           value={token.name}
-                          onChange={(e) => updateTokenPosition(campaignId, token.id, { name: e.target.value })}
+                          onChange={(e) => updateTokenPosition(campaignId, token.id, { name: e.target.value }, tokens)}
                           className="bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-xs font-black uppercase text-zinc-100 max-w-[130px] leading-tight focus:outline-none focus:border-amber-500/50"
                         />
-                        <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest leading-none mt-1">Área de Efeito (VTT)</p>
+                        <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest leading-none mt-1">Área de Efeito</p>
                       </div>
                     </div>
                     <motion.button 
                       whileTap={{ scale: 0.9 }}
                       onClick={() => setSelectedTokenId(null)} 
-                      className="text-zinc-600 hover:text-zinc-400 p-1"
+                      className="text-zinc-500 hover:text-zinc-300 p-1 cursor-pointer"
                     >
                       <X size={16} />
                     </motion.button>
                   </div>
 
-                  {/* Form */}
-                  <div className="space-y-3">
+                  {/* Scrollable Form Body */}
+                  <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 py-3 pr-1">
                     {/* Shape Selector */}
                     <div>
-                      <label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest block mb-1">Formato</label>
-                      <div className="grid grid-cols-3 gap-1 bg-zinc-900/50 p-1 rounded-xl border border-zinc-800">
+                      <label className="text-[8px] font-black uppercase text-zinc-500 tracking-widest block mb-1">Formato</label>
+                      <div className="grid grid-cols-3 gap-1.5 bg-zinc-900/50 p-1.5 rounded-xl border border-zinc-800">
                         {shapesList.map(s => (
                           <button
                             key={s.value}
-                            onClick={() => updateTokenPosition(campaignId, token.id, { aoeShape: s.value })}
+                            onClick={() => updateTokenPosition(campaignId, token.id, { aoeShape: s.value }, tokens)}
                             className={cn(
-                              "py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
-                              token.aoeShape === s.value ? "bg-amber-500 text-zinc-950 shadow-sm" : "text-zinc-400 hover:text-zinc-200"
+                              "py-1.5 px-1 rounded-lg text-[9px] font-black uppercase tracking-tight transition-all cursor-pointer truncate",
+                              token.aoeShape === s.value ? "bg-amber-500 text-zinc-950 shadow-sm font-bold" : "text-zinc-400 hover:text-zinc-200 bg-zinc-950/40"
                             )}
                           >
                             {s.label}
@@ -4918,14 +5404,19 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     {/* Dimensions Sizers */}
                     <div className="space-y-2">
                       <div className="flex justify-between items-center text-[10px] uppercase font-black tracking-widest text-zinc-500 px-1">
-                        <span>{token.aoeShape === 'circle' ? 'Raio' : 'Largura'} ({token.aoeWidth || token.size}q)</span>
-                        <span className="text-zinc-300 font-bold">{((token.aoeWidth || token.size) * 1.5).toFixed(1)}m</span>
+                        <span>
+                          {token.aoeShape === 'circle' ? 'Raio' : 
+                           token.aoeShape === 'square' ? 'Lado' : 
+                           token.aoeShape === 'cone' ? 'Alcance / Raio' : 
+                           token.aoeShape === 'arc' ? 'Raio Externo' : 'Largura'} ({token.aoeWidth || token.size}q)
+                        </span>
+                        <span className="text-zinc-300 font-bold">{(token.aoeWidth || token.size)}m</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => {
                             const cur = token.aoeWidth || token.size || 1;
-                            updateTokenPosition(campaignId, token.id, { aoeWidth: Math.max(1, cur - 1) });
+                            updateTokenPosition(campaignId, token.id, { aoeWidth: Math.max(1, cur - 1) }, tokens);
                           }}
                           className="w-10 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white font-black text-xs cursor-pointer"
                         >
@@ -4936,13 +5427,13 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                           min="1"
                           max="20"
                           value={token.aoeWidth || token.size || 1}
-                          onChange={(e) => updateTokenPosition(campaignId, token.id, { aoeWidth: parseInt(e.target.value) || 1 })}
+                          onChange={(e) => updateTokenPosition(campaignId, token.id, { aoeWidth: parseInt(e.target.value) || 1 }, tokens)}
                           className="flex-1 accent-amber-500 h-1 bg-zinc-800 rounded-lg cursor-pointer"
                         />
                         <button
                           onClick={() => {
                             const cur = token.aoeWidth || token.size || 1;
-                            updateTokenPosition(campaignId, token.id, { aoeWidth: Math.min(30, cur + 1) });
+                            updateTokenPosition(campaignId, token.id, { aoeWidth: Math.min(30, cur + 1) }, tokens);
                           }}
                           className="w-10 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white font-black text-xs cursor-pointer"
                         >
@@ -4951,18 +5442,20 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       </div>
                     </div>
 
-                    {/* Height Sizer for Rectangles */}
-                    {token.aoeShape === 'rectangle' && (
+                    {/* Height Sizer for Rectangles and Arcs */}
+                    {(token.aoeShape === 'rectangle' || token.aoeShape === 'arc') && (
                       <div className="space-y-2">
                         <div className="flex justify-between items-center text-[10px] uppercase font-black tracking-widest text-zinc-500 px-1">
-                          <span>Comprimento ({token.aoeHeight || token.aoeWidth || token.size}q)</span>
-                          <span className="text-zinc-300 font-bold">{((token.aoeHeight || token.aoeWidth || token.size) * 1.5).toFixed(1)}m</span>
+                          <span>
+                            {token.aoeShape === 'arc' ? 'Espessura' : 'Comprimento'} ({token.aoeHeight || token.aoeWidth || token.size}q)
+                          </span>
+                          <span className="text-zinc-300 font-bold">{(token.aoeHeight || token.aoeWidth || token.size)}m</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => {
                               const cur = token.aoeHeight || token.aoeWidth || token.size || 1;
-                              updateTokenPosition(campaignId, token.id, { aoeHeight: Math.max(1, cur - 1) });
+                              updateTokenPosition(campaignId, token.id, { aoeHeight: Math.max(1, cur - 1) }, tokens);
                             }}
                             className="w-10 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white font-black text-xs cursor-pointer"
                           >
@@ -4973,13 +5466,13 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                             min="1"
                             max="20"
                             value={token.aoeHeight || token.aoeWidth || token.size || 1}
-                            onChange={(e) => updateTokenPosition(campaignId, token.id, { aoeHeight: parseInt(e.target.value) || 1 })}
+                            onChange={(e) => updateTokenPosition(campaignId, token.id, { aoeHeight: parseInt(e.target.value) || 1 }, tokens)}
                             className="flex-1 accent-amber-500 h-1 bg-zinc-800 rounded-lg cursor-pointer"
                           />
                           <button
                             onClick={() => {
                               const cur = token.aoeHeight || token.aoeWidth || token.size || 1;
-                              updateTokenPosition(campaignId, token.id, { aoeHeight: Math.min(30, cur + 1) });
+                              updateTokenPosition(campaignId, token.id, { aoeHeight: Math.min(30, cur + 1) }, tokens);
                             }}
                             className="w-10 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white font-black text-xs cursor-pointer"
                           >
@@ -4996,7 +5489,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                         {aoeColors.map(c => (
                           <button
                             key={c.id}
-                            onClick={() => updateTokenPosition(campaignId, token.id, { aoeColor: c.id })}
+                            onClick={() => updateTokenPosition(campaignId, token.id, { aoeColor: c.id }, tokens)}
                             className={cn(
                               "w-6 h-6 rounded-full border transition-all relative flex-shrink-0 cursor-pointer shadow-md",
                               c.bg,
@@ -5008,6 +5501,70 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                             {(token.aoeColor === c.id || (!token.aoeColor && c.id === 'red')) && (
                               <span className="absolute inset-0 m-auto w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_2px_black]" />
                             )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Rotation Control */}
+                    <div className="space-y-2 pt-1 border-t border-zinc-900">
+                      <div className="flex justify-between items-center text-[10px] uppercase font-black tracking-widest text-zinc-500 px-1">
+                        <span className="flex items-center gap-1.5">
+                          <RotateCw size={11} className="text-amber-500" />
+                          Giro / Rotação
+                        </span>
+                        <span className="text-amber-400 font-bold">{token.rotation || 0}°</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = token.rotation || 0;
+                            const next = ((cur - 45) % 360 + 360) % 360;
+                            updateTokenPosition(campaignId, token.id, { rotation: next }, tokens);
+                          }}
+                          title="Girar 45° Anti-horário"
+                          className="w-10 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-amber-500 hover:text-white font-black text-xs cursor-pointer flex items-center justify-center transition-colors"
+                        >
+                          <RotateCcw size={12} />
+                        </button>
+                        <input
+                          type="range"
+                          min="0"
+                          max="355"
+                          step="5"
+                          value={token.rotation || 0}
+                          onChange={(e) => updateTokenPosition(campaignId, token.id, { rotation: parseInt(e.target.value) || 0 }, tokens)}
+                          className="flex-1 accent-amber-500 h-1 bg-zinc-800 rounded-lg cursor-pointer"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = token.rotation || 0;
+                            const next = (cur + 45) % 360;
+                            updateTokenPosition(campaignId, token.id, { rotation: next }, tokens);
+                          }}
+                          title="Girar 45° Horário"
+                          className="w-10 py-1 bg-zinc-900 border border-zinc-800 rounded-lg text-amber-500 hover:text-white font-black text-xs cursor-pointer flex items-center justify-center transition-colors"
+                        >
+                          <RotateCw size={12} />
+                        </button>
+                      </div>
+                      {/* Preset Angle Buttons */}
+                      <div className="grid grid-cols-4 gap-1 pt-1">
+                        {[0, 90, 180, 270].map(angle => (
+                          <button
+                            key={angle}
+                            type="button"
+                            onClick={() => updateTokenPosition(campaignId, token.id, { rotation: angle }, tokens)}
+                            className={cn(
+                              "py-1 rounded-md text-[9px] font-black uppercase tracking-wider transition-all border cursor-pointer",
+                              (token.rotation || 0) === angle 
+                                ? "bg-amber-500/20 border-amber-500/50 text-amber-400 font-bold" 
+                                : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200"
+                            )}
+                          >
+                            {angle}°
                           </button>
                         ))}
                       </div>
@@ -5035,7 +5592,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             const currentHp = char ? (char.vidaAtual ?? 0) : (token.hp ?? 0);
             const maxHp = char && char.etnia !== 'Monstro' ? getVidaMaxima(char.stats.CON) : (token.maxHp ?? 10);
             const isDead = currentHp <= 0;
-            const isMasterOrOwner = isMaster || (token.type === 'character' && (token.userId === auth.currentUser?.uid || (char && (char.userId === auth.currentUser?.uid || char.userEmail === auth.currentUser?.email))));
+            const isMasterOrOwner = isMaster || token.type === 'character' || (token.userId === auth.currentUser?.uid || (char && (char.userId === auth.currentUser?.uid || char.userEmail === auth.currentUser?.email)));
             // Loot button should show for enemies or if the token is dead
             const isEnemy = token.type === 'creature' || (token.type === 'character' && !isMasterOrOwner);
             const tokenDeslocamento = char 
@@ -5047,7 +5604,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
                   <div className="flex items-center gap-3">
                     <div className="relative w-10 h-10 rounded-xl border border-zinc-800 flex-shrink-0 overflow-hidden bg-zinc-900 shadow-inner">
-                      {token.imageUrl ? <img src={token.imageUrl.startsWith('http') || token.imageUrl.startsWith('/') ? token.imageUrl : `/${token.imageUrl}`} className="w-full h-full object-cover" /> : <User size={16} className="text-zinc-700 m-auto mt-2" />}
+                      {(() => {
+                        const tkImage = token.imageUrl || char?.imagem;
+                        if (tkImage) {
+                          const srcToUse = tkImage.startsWith('http') || tkImage.startsWith('/') || tkImage.startsWith('data:') ? tkImage : `/${tkImage}`;
+                          return <img src={srcToUse} className="w-full h-full object-cover" />;
+                        }
+                        return <User size={16} className="text-zinc-700 m-auto mt-2" />;
+                      })()}
                       {isDead && (
                         <div className="absolute inset-0 bg-red-950/20 flex items-center justify-center">
                           <Skull size={18} className="text-red-500 animate-pulse" />
@@ -5229,7 +5793,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               </div>
             );
           })()}
-        </div>
+        </motion.div>
       )}
 
       {/* Weapon Select Modal */}

@@ -1,4 +1,4 @@
-import { supabase, auth, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, or, onSnapshot } from '../lib/supabase';
+import { supabase, auth, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, or, onSnapshot, isNetworkError, safeLocalStorageSetItem, safeLocalStorageGetItem } from '../lib/supabase';
 import { Character } from '../types';
 
 const CHARACTERS_TABLE = 'characters';
@@ -17,7 +17,7 @@ const deepClean = (obj: any): any => {
   );
 };
 
-export const saveCharacterToFirestore = async (character: Character) => {
+export const saveCharacterToSupabase = async (character: Character) => {
   // Always update campaign cache locally first so updates are propagated instantly in VTT/Campaign
   if (character.campaignId) {
     try {
@@ -29,51 +29,173 @@ export const saveCharacterToFirestore = async (character: Character) => {
       }
       saveLocalCampaignCharacters(character.campaignId, updatedLocals);
       notifyCampaignCharListeners(character.campaignId, updatedLocals);
+
+      fetch(`/api/campaigns/${encodeURIComponent(character.campaignId)}/characters`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ character })
+      }).catch(() => {});
     } catch (e) {
       console.error("Error updating campaign character local cache:", e);
     }
   }
 
-  if (!auth.currentUser) {
-    console.warn("⚠️ [Supabase] Tentativa de salvar sem usuário logado.");
+  const userEmail = (character.userEmail || auth.currentUser?.email || "").trim().toLowerCase();
+  if (!userEmail) {
+    console.warn("⚠️ [Supabase] Tentativa de salvar ficha sem email associado.");
     return;
   }
 
-  const isOwnEmail = character.userEmail === auth.currentUser.email;
-  const targetUserId = isOwnEmail ? auth.currentUser.uid : (character.userId || auth.currentUser.uid);
-  const targetUserEmail = character.userEmail || auth.currentUser.email || "";
+  const targetUserId = auth.currentUser?.uid || userEmail;
 
-  console.log(`💾 [Supabase] Salvando ficha: ${character.nome} (${character.id})`);
+  console.log(`💾 [Supabase] Salvando ficha para ${userEmail}: ${character.nome} (${character.id})`);
 
   try {
     const cleanCharacter = deepClean(character);
     cleanCharacter.userId = targetUserId;
-    cleanCharacter.userEmail = targetUserEmail;
+    cleanCharacter.userEmail = userEmail;
 
     const { error } = await supabase
       .from(CHARACTERS_TABLE)
       .upsert({
         id: character.id,
         user_id: targetUserId,
-        user_email: targetUserEmail,
+        user_email: userEmail,
         campaign_id: character.campaignId || null,
         data: cleanCharacter,
         updated_at: new Date().toISOString()
       });
 
     if (error) {
-      console.error(`❌ [Supabase] Erro ao salvar ${character.nome}:`, error);
+      if (isNetworkError(error)) {
+        console.warn(`⚠️ [Supabase] Problema de conexão ao salvar ${character.nome} (salvo localmente):`, error.message || error);
+      } else {
+        console.error(`❌ [Supabase] Erro ao salvar ${character.nome}:`, error);
+      }
       throw error;
     }
     console.log(`✅ [Supabase] Ficha ${character.nome} CONFIRMADA pelo servidor.`);
-  } catch (error) {
-    console.error(`❌ [Supabase] Exception ao salvar ${character.nome}:`, error);
+  } catch (error: any) {
+    if (isNetworkError(error)) {
+      console.warn(`⚠️ [Supabase] Problema de rede ao salvar ${character.nome} (mantendo em modo offline):`, error.message || error);
+    } else {
+      console.error(`❌ [Supabase] Exception ao salvar ${character.nome}:`, error);
+    }
   }
 };
 
-export const deleteCharacterFromFirestore = async (characterId: string) => {
-  if (!auth.currentUser) return;
+export const saveCharacter = saveCharacterToSupabase;
+export const saveCharacterToFirestore = saveCharacterToSupabase;
 
+export const getDeletedCharactersBlacklist = (): Set<string> => {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? (localStorage.getItem('deleted_characters_blacklist') || localStorage.getItem('demons_despair_deleted_chars')) : null;
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch (e) {
+    return new Set();
+  }
+};
+
+export const addCharacterToDeletedBlacklist = (characterId: string) => {
+  try {
+    if (!characterId) return;
+    const raw = safeLocalStorageGetItem('deleted_characters_blacklist') || (typeof localStorage !== 'undefined' ? localStorage.getItem('deleted_characters_blacklist') : null);
+    const list: string[] = raw ? JSON.parse(raw) : [];
+    if (!list.includes(characterId)) {
+      list.push(characterId);
+      const jsonStr = JSON.stringify(list);
+      safeLocalStorageSetItem('deleted_characters_blacklist', jsonStr);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('deleted_characters_blacklist', jsonStr);
+        localStorage.setItem('demons_despair_deleted_chars', jsonStr);
+      }
+    }
+  } catch (e) {}
+};
+
+export const deleteCharacterFromSupabase = async (characterId: string) => {
+  if (!characterId) return;
+
+  // 1. Mark in persistent blacklist so it is never rescued or resurrected by offline caches
+  addCharacterToDeletedBlacklist(characterId);
+
+  // 2. Purge from main app state in localStorage / IndexedDB so reopen never brings it back
+  try {
+    const rawState = safeLocalStorageGetItem('rpg_app_state') || (typeof localStorage !== 'undefined' ? localStorage.getItem('rpg_app_state') : null);
+    if (rawState) {
+      const parsed = JSON.parse(rawState);
+      if (parsed && Array.isArray(parsed.characters)) {
+        parsed.characters = parsed.characters.filter((c: any) => c.id !== characterId);
+        if (parsed.activeCharacterId === characterId) {
+          parsed.activeCharacterId = parsed.characters.length > 0 ? parsed.characters[0].id : '';
+        }
+        safeLocalStorageSetItem('rpg_app_state', JSON.stringify(parsed));
+      }
+    }
+  } catch (e) {}
+
+  // 3. Purge from local table caches immediately
+  try {
+    const raw = safeLocalStorageGetItem('supabase_table_characters');
+    if (raw) {
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        const filtered = list.filter((c: any) => c.id !== characterId && c.data?.id !== characterId);
+        safeLocalStorageSetItem('supabase_table_characters', JSON.stringify(filtered));
+      }
+    }
+  } catch (e) {}
+
+  try {
+    const raw = safeLocalStorageGetItem('rpg_chars_history_backup');
+    if (raw) {
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        const filtered = list.filter((c: any) => c.id !== characterId && c.data?.id !== characterId);
+        safeLocalStorageSetItem('rpg_chars_history_backup', JSON.stringify(filtered));
+      }
+    }
+  } catch (e) {}
+
+  try {
+    const raw = safeLocalStorageGetItem('rpg_system_x_chars');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed?.characters)) {
+        parsed.characters = parsed.characters.filter((c: any) => c.id !== characterId);
+        safeLocalStorageSetItem('rpg_system_x_chars', JSON.stringify(parsed));
+      }
+    }
+  } catch (e) {}
+
+  // 4. Purge from campaign character caches and token caches
+  if (typeof localStorage !== 'undefined') {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('campaign_characters_') || key.startsWith('vtt_tokens_'))) {
+          const stored = safeLocalStorageGetItem(key);
+          if (stored) {
+            try {
+              const parsed = JSON.parse(stored);
+              if (Array.isArray(parsed)) {
+                const filtered = parsed.filter((c: any) => c.id !== characterId && c.characterId !== characterId);
+                safeLocalStorageSetItem(key, JSON.stringify(filtered));
+              }
+            } catch (err) {}
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 5. Dispatch local event to remove immediately from all views
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('supabase_local_change_characters'));
+    window.dispatchEvent(new CustomEvent('supabase_local_change_characters'));
+  }
+
+  // 6. Always invoke supabase.from(CHARACTERS_TABLE).delete() to purge from local Supabase table and remote
   try {
     const { error } = await supabase
       .from(CHARACTERS_TABLE)
@@ -82,19 +204,27 @@ export const deleteCharacterFromFirestore = async (characterId: string) => {
 
     if (error) {
       console.error("[Supabase deleteCharacter] Error:", error);
-      throw error;
+    } else {
+      console.log(`🗑️ [Supabase] Ficha ${characterId} excluída com sucesso do banco local e remoto.`);
     }
   } catch (error) {
-    console.error("[Supabase deleteCharacter] Failed:", error);
+    console.error("[Supabase deleteCharacter] Exception:", error);
   }
 };
 
+export const deleteCharacter = deleteCharacterFromSupabase;
+export const deleteCharacterFromFirestore = deleteCharacterFromSupabase;
+
 export const subscribeToUserCharacters = (
-  userId: string,
+  userIdOrEmail: string,
   userEmail: string,
   onUpdate: (characters: Character[], metadata: { hasPendingWrites: boolean, fromCache: boolean }) => void
 ) => {
-  if (!userId) return () => {};
+  const cleanEmail = (userEmail || userIdOrEmail || auth.currentUser?.email || "").trim().toLowerCase();
+  if (!cleanEmail) {
+    onUpdate([], { hasPendingWrites: false, fromCache: false });
+    return () => {};
+  }
 
   if (isFirebaseQuotaExceeded()) {
     console.warn("⚠️ [Character] Firestore quota exceeded. Skipping snapshot listener.");
@@ -103,26 +233,33 @@ export const subscribeToUserCharacters = (
 
   let active = true;
 
-  const q = userEmail
-    ? query(
-        collection(db, CHARACTERS_TABLE),
-        or(where('user_id', '==', userId), where('user_email', '==', userEmail))
-      )
-    : query(
-        collection(db, CHARACTERS_TABLE),
-        where('user_id', '==', userId)
-      );
+  const q = query(
+    collection(db, CHARACTERS_TABLE),
+    where('user_email', '==', cleanEmail)
+  );
 
   const unsubscribe = onSnapshot(q, (snapshot) => {
     if (!active) return;
     try {
       const characters: Character[] = [];
+      const blacklist = getDeletedCharactersBlacklist();
+      
       snapshot.forEach((doc) => {
         const docData = doc.data();
-        if (docData && docData.data) {
-          const char = { ...docData.data } as Character;
-          if (!char.userId && docData.user_id) char.userId = docData.user_id;
-          if (!char.userEmail && docData.user_email) char.userEmail = docData.user_email;
+        if (!docData) return;
+        
+        let charData: any = docData.data;
+        if (typeof charData === 'string') {
+          try { charData = JSON.parse(charData); } catch (e) { charData = docData; }
+        } else if (!charData || typeof charData !== 'object') {
+          charData = docData;
+        }
+
+        const char = { ...docData, ...charData } as Character;
+        if (!char.userEmail && docData.user_email) char.userEmail = docData.user_email;
+        if (!char.userId && docData.user_id) char.userId = docData.user_id;
+
+        if (char.id && !blacklist.has(char.id) && (char.nome !== undefined || (char as any).atributos !== undefined)) {
           characters.push(char);
         }
       });

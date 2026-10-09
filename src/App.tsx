@@ -69,22 +69,62 @@ import {
   LogOut,
   Wand2,
   Printer,
+  Mail,
+  Lock,
+  LogIn,
+  UserPlus,
+  Settings,
+  Eye,
+  EyeOff,
+  Database,
+  Check,
+  AlertCircle,
+  Terminal,
+  ShieldAlert,
+  Archive,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { jsPDF } from "jspdf";
 import { DiceImage } from "./components/ui/DiceImage";
 import { diceBase64 } from "./diceIcons";
-import { auth, loginWithGoogle, loginAsGuest, logout as firebaseLogout, handleRedirectResult, clearFirestoreCache, isFirebaseQuotaExceeded, onAuthStateChanged, syncLocalToCloud, setSupabaseQuotaExceeded } from "./lib/supabase";
+import { 
+  auth, 
+  loginAsGuest, 
+  logout, 
+  handleRedirectResult, 
+  clearFirestoreCache, 
+  isFirebaseQuotaExceeded, 
+  onAuthStateChanged, 
+  syncLocalToCloud, 
+  forceSyncAndRestoreByEmail,
+  setSupabaseQuotaExceeded, 
+  signInWithEmail, 
+  signUpWithEmail, 
+  resetPasswordForEmail, 
+  loginWithEmailOnly, 
+  updateUserPassword,
+  getSupabaseConfig,
+  setSupabaseConfig,
+  testSupabaseConnection,
+  rescueAllLocalCharacters,
+  loginWithGoogle,
+  safeLocalStorageSetItem,
+  safeLocalStorageGetItem,
+  idbGet,
+  isSupabaseConnected as initialSupabaseConnected
+} from "./lib/supabase";
 import type { FirebaseUserLike as User } from "./lib/supabase";
 import { subscribeToUserCharacters, saveCharacterToFirestore, deleteCharacterFromFirestore } from "./services/characterService";
 import { 
   createCampaign, 
+  saveCampaign,
   subscribeToMasterCampaigns, 
   subscribeToCampaignsByIds,
   joinCampaign, 
   leaveCampaign,
+  linkCharacterToCampaign,
+  unlinkCharacterFromCampaign,
   subscribeToJoinedCampaigns,
   subscribeToCampaignCharacters,
   deleteCampaign 
@@ -119,6 +159,8 @@ import { ArmorProperties } from "./components/ui/ArmorProperties";
 import { CatalystProperties, AmmunitionProperties } from "./components/TocaManager";
 import { subscribeToMaterials, saveMaterial, deleteMaterial } from "./services/materialService";
 import { subscribeToBestiary, saveMonsterToBestiary } from "./services/bestiaryService";
+import { saveItemToLibrary } from "./services/itemLibraryService";
+import { saveSpellToLibrary } from "./services/spellLibraryService";
 import { MaterialData } from "./data/materials";
 import { DEFAULT_MONSTERS } from "./constants/defaultMonsters";
 import { compressImageDataUrl } from "./lib/imageUtils";
@@ -533,13 +575,38 @@ function AppWrapper() {
 export default AppWrapper;
 
 function App() {
+  const deletedCharsRef = useRef<Set<string>>((() => {
+    try {
+      const stored = localStorage.getItem("deleted_characters_blacklist") || localStorage.getItem("demons_despair_deleted_chars");
+      return stored ? new Set<string>(JSON.parse(stored)) : new Set<string>();
+    } catch (e) {
+      return new Set<string>();
+    }
+  })());
+
+  const persistDeletedCharId = (id: string) => {
+    if (!id) return;
+    deletedCharsRef.current.add(id);
+    try {
+      const json = JSON.stringify(Array.from(deletedCharsRef.current));
+      localStorage.setItem("demons_despair_deleted_chars", json);
+      localStorage.setItem("deleted_characters_blacklist", json);
+      safeLocalStorageSetItem("deleted_characters_blacklist", json);
+    } catch (e) {
+      console.error("Error saving deleted character IDs:", e);
+    }
+  };
+
   const [state, setState] = useState<AppState>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = safeLocalStorageGetItem(STORAGE_KEY) || (typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === "object" && Array.isArray(parsed.characters)) {
-          parsed.characters = parsed.characters.map(sanitizeCharacter);
+          const blacklist = deletedCharsRef.current;
+          parsed.characters = parsed.characters
+            .filter((c: any) => c && c.id && !blacklist.has(c.id))
+            .map(sanitizeCharacter);
           // Initialize dirtyCharacterIds if missing
           if (!parsed.dirtyCharacterIds) {
             parsed.dirtyCharacterIds = [];
@@ -559,9 +626,137 @@ function App() {
     };
   });
 
+  // IndexedDB image recovery on load (restores images if localStorage was previously cleared or stripped)
+  useEffect(() => {
+    idbGet(STORAGE_KEY).then((raw) => {
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.characters) && parsed.characters.length > 0) {
+          const blacklist = deletedCharsRef.current;
+          setState((prev) => {
+            let hasImageRestoration = false;
+            const updatedChars = prev.characters
+              .filter((curChar) => !blacklist.has(curChar.id))
+              .map((curChar) => {
+                if (!curChar.imagem) {
+                  const idbMatch = parsed.characters.find((c: any) => c.id === curChar.id);
+                  if (idbMatch?.imagem) {
+                    hasImageRestoration = true;
+                    return { ...curChar, imagem: idbMatch.imagem, imagens: idbMatch.imagens || curChar.imagens };
+                  }
+                }
+                return curChar;
+              });
+            if (hasImageRestoration) {
+              console.log("🖼️ [Storage] Imagens restauradas com sucesso do IndexedDB!");
+              return { ...prev, characters: updatedChars };
+            }
+            return prev;
+          });
+        }
+      } catch (e) {}
+    });
+  }, []);
+
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(() => (state as any).activeCampaignId || null);
 
   const [isLoadingSync, setIsLoadingSync] = useState(true);
+
+  // Full Backup & Import State
+  const [showFullBackupModal, setShowFullBackupModal] = useState(false);
+  const [backupModalTab, setBackupModalTab] = useState<'export' | 'import'>('export');
+  const [pasteFullBackupText, setPasteFullBackupText] = useState("");
+  const [isImportingAll, setIsImportingAll] = useState(false);
+
+  // Email Auth Modal State
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'set_password' | 'reset'>('login');
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authDisplayName, setAuthDisplayName] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [modalAuthError, setModalAuthError] = useState<string | null>(null);
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setModalAuthError(null);
+
+    // Mode 1: Login with Email & Password
+    if (authMode === 'login') {
+      if (!authEmail.trim()) {
+        setModalAuthError("Por favor, informe seu e-mail.");
+        return;
+      }
+      if (!authPassword.trim()) {
+        setModalAuthError("Por favor, informe sua senha.");
+        return;
+      }
+      setAuthSubmitting(true);
+      try {
+        await loginWithEmailOnly(authEmail, authDisplayName, authPassword);
+        showToast("Conectado com sucesso à conta!", "success");
+        setIsAuthModalOpen(false);
+      } catch (err: any) {
+        console.error("Login error:", err);
+        setModalAuthError(err.message || "Erro ao conectar com este e-mail.");
+      } finally {
+        setAuthSubmitting(false);
+      }
+      return;
+    }
+
+    // Mode 2: Set or Change Password / Register
+    if (authMode === 'set_password') {
+      const targetEmail = (authEmail.trim() || user?.email || "").toLowerCase();
+      if (!targetEmail || !targetEmail.includes('@')) {
+        setModalAuthError("Por favor, informe um e-mail válido.");
+        return;
+      }
+      if (!authPassword.trim() || authPassword.length < 6) {
+        setModalAuthError("A senha deve ter pelo menos 6 caracteres.");
+        return;
+      }
+      setAuthSubmitting(true);
+      try {
+        if (!user) {
+          await loginWithEmailOnly(targetEmail, authDisplayName, authPassword);
+        } else {
+          await updateUserPassword(authPassword, targetEmail);
+        }
+        showToast("Conta configurada / senha salva com sucesso!", "success");
+        setIsAuthModalOpen(false);
+        setAuthPassword("");
+      } catch (err: any) {
+        console.error("Set password error:", err);
+        setModalAuthError(err.message || "Erro ao criar conta ou salvar nova senha.");
+      } finally {
+        setAuthSubmitting(false);
+      }
+      return;
+    }
+
+    // Mode 3: Reset password email
+    if (authMode === 'reset') {
+      if (!authEmail.trim()) {
+        setModalAuthError("Por favor, informe seu e-mail.");
+        return;
+      }
+      setAuthSubmitting(true);
+      try {
+        await resetPasswordForEmail(authEmail);
+        showToast("E-mail enviado! Verifique sua Caixa de Entrada e SPAM.", "success");
+        setModalAuthError("✅ Solicitação enviada com sucesso! Verifique sua Caixa de Entrada e a pasta de SPAM/Lixo Eletrônico.");
+      } catch (err: any) {
+        console.error("Password reset error:", err);
+        setModalAuthError(err.message || "Erro ao enviar e-mail de redefinição de senha.");
+      } finally {
+        setAuthSubmitting(false);
+      }
+      return;
+    }
+  };
 
   const [isQuotaExceeded, setIsQuotaExceeded] = useState(() => isFirebaseQuotaExceeded());
   const [isQuotaModalOpen, setIsQuotaModalOpen] = useState(() => isFirebaseQuotaExceeded());
@@ -645,6 +840,7 @@ function App() {
   });
   const [inviteCodeInput, setInviteCodeInput] = useState("");
   const [newCampaignName, setNewCampaignName] = useState("");
+  const [charToLinkCampaignId, setCharToLinkCampaignId] = useState("");
   const [campaignToDelete, setCampaignToDelete] = useState<string | null>(null);
   const [charIdToDelete, setCharIdToDelete] = useState<string | null>(null);
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<{ id: string; url: string; titulo: string } | null>(null);
@@ -690,7 +886,145 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  const handleRescueAllCharacters = useCallback(() => {
+    const rescued = rescueAllLocalCharacters();
+    if (rescued.length === 0) {
+      showToast("Nenhuma ficha antiga encontrada no cache deste navegador.", "info");
+      return;
+    }
+    setState(prev => {
+      const existingMap = new Map<string, Character>();
+      prev.characters.forEach(c => existingMap.set(c.id, c));
+      
+      let added = 0;
+      let updated = 0;
+
+      for (const r of rescued) {
+        const sanitized = sanitizeCharacter({
+          ...r,
+          userId: user?.uid || r.userId,
+          userEmail: user?.email || r.userEmail
+        });
+        
+        if (existingMap.has(sanitized.id)) {
+          const current = existingMap.get(sanitized.id)!;
+          // Se a ficha resgatada tiver nome real e a atual não, ou se tiver mais armas/magias
+          const currentIsPlaceholder = current.nome === 'Novo Personagem' && (!current.armas || current.armas.length === 0);
+          const sanitizedHasData = sanitized.nome !== 'Novo Personagem' || (sanitized.armas && sanitized.armas.length > 0);
+          if (currentIsPlaceholder && sanitizedHasData) {
+            existingMap.set(sanitized.id, sanitized);
+            updated++;
+          }
+        } else {
+          existingMap.set(sanitized.id, sanitized);
+          added++;
+        }
+      }
+
+      let cleaned = Array.from(existingMap.values());
+      // Se encontramos fichas reais, descarta placeholder "Novo Personagem" vazio
+      const hasReal = cleaned.some(c => c.nome && c.nome !== 'Novo Personagem');
+      if (hasReal) {
+        cleaned = cleaned.filter(c => c.nome !== 'Novo Personagem' || (c.armas && c.armas.length > 0) || (c.magias && c.magias.length > 0));
+      }
+
+      const dirty = new Set(prev.dirtyCharacterIds || []);
+      cleaned.forEach(c => dirty.add(c.id));
+      
+      try {
+        safeLocalStorageSetItem(STORAGE_KEY, JSON.stringify({
+          ...prev,
+          characters: cleaned,
+          activeCharacterId: cleaned[0]?.id || "",
+          dirtyCharacterIds: Array.from(dirty)
+        }));
+      } catch (e) {}
+
+      showToast(`Sucesso! ${cleaned.length} ficha(s) restaurada(s) no seu navegador.`, "success");
+      return {
+        ...prev,
+        characters: cleaned,
+        activeCharacterId: cleaned.length > 0 ? (cleaned.some(c => c.id === prev.activeCharacterId) ? prev.activeCharacterId : cleaned[0].id) : "",
+        dirtyCharacterIds: Array.from(dirty)
+      };
+    });
+    if (user?.uid) {
+      syncLocalToCloud().catch(console.error);
+    }
+  }, [user, showToast]);
+
+  // Função para exportar todas as fichas locais em arquivo JSON
+  const handleExportAllBackup = useCallback(() => {
+    const rescued = rescueAllLocalCharacters();
+    const allChars = [...state.characters];
+    for (const r of rescued) {
+      if (!allChars.some(c => c.id === r.id)) {
+        allChars.push(sanitizeCharacter(r));
+      }
+    }
+    const backupData = {
+      version: "5.1",
+      exportedAt: new Date().toISOString(),
+      userEmail: user?.email || "local",
+      characters: allChars
+    };
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `demons_despair_fichas_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast("Backup baixado com sucesso!", "success");
+  }, [state.characters, user, showToast]);
+
+  // Restaura uma ficha individual específica para a lista ativa do usuário
+  const handleRestoreSingleCharacter = useCallback((char: any) => {
+    setState(prev => {
+      const sanitized = sanitizeCharacter({
+        ...char,
+        userId: user?.uid || char.userId,
+        userEmail: user?.email || char.userEmail
+      });
+      const exists = prev.characters.some(c => c.id === sanitized.id);
+      let updatedChars = exists 
+        ? prev.characters.map(c => c.id === sanitized.id ? sanitized : c)
+        : [...prev.characters, sanitized];
+      
+      // Remove o placeholder vazio inicial se houver fichas reais
+      if (updatedChars.length > 1) {
+        updatedChars = updatedChars.filter(c => c.nome !== 'Novo Personagem' || (c.armas && c.armas.length > 0));
+      }
+      const dirty = new Set(prev.dirtyCharacterIds || []);
+      dirty.add(sanitized.id);
+
+      try {
+        safeLocalStorageSetItem(STORAGE_KEY, JSON.stringify({
+          ...prev,
+          characters: updatedChars,
+          activeCharacterId: sanitized.id,
+          dirtyCharacterIds: Array.from(dirty)
+        }));
+      } catch (e) {}
+
+      showToast(`Ficha "${sanitized.nome}" restaurada com sucesso!`, "success");
+      return {
+        ...prev,
+        characters: updatedChars,
+        activeCharacterId: sanitized.id,
+        dirtyCharacterIds: Array.from(dirty)
+      };
+    });
+    if (user?.uid) {
+      syncLocalToCloud().catch(console.error);
+    }
+  }, [user, showToast]);
+
   const [isOnline, setIsOnline] = useState(typeof window !== 'undefined' ? window.navigator.onLine : true);
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState(initialSupabaseConnected);
 
   // Monitorar conexão
   useEffect(() => {
@@ -698,11 +1032,28 @@ function App() {
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    
+    const handleStatusChange = (e: any) => {
+      if (e.detail) {
+        setIsSupabaseConnected(e.detail.connected);
+      }
+    };
+    window.addEventListener('supabase_connection_status_changed', handleStatusChange);
+
+    const handleMixedContentError = (e: any) => {
+      if (e.detail?.message) {
+        showToast(e.detail.message, "error");
+      }
+    };
+    window.addEventListener('supabase_connection_mixed_content_error', handleMixedContentError);
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('supabase_connection_status_changed', handleStatusChange);
+      window.removeEventListener('supabase_connection_mixed_content_error', handleMixedContentError);
     };
-  }, []);
+  }, [showToast]);
 
   // Bloqueio de gestos do navegador para evitar pull-to-refresh e pinch-zoom
   useEffect(() => {
@@ -810,33 +1161,67 @@ function App() {
     };
   }, []);
 
-  // Filter out other users' characters on login/logout state transitions
+  // Adopt and retain local characters on login/logout state transitions
   useEffect(() => {
     if (authLoading) return; // Wait until authentication state is resolved!
 
     if (user) {
       setState(prev => {
-        const filtered = prev.characters.filter(char => {
-          const isOwn = !char.userId && !char.userEmail ||
-                        char.userId === user.uid ||
-                        (char.userEmail && char.userEmail === user.email);
-          return isOwn;
+        const userEmailLower = (user.email || '').trim().toLowerCase();
+
+        // Filter and adopt only characters that belong to this account or are genuinely unowned guests
+        const userCharacters = prev.characters.filter(char => {
+          const charEmailLower = (char.userEmail || '').trim().toLowerCase();
+          const isSameEmail = Boolean(userEmailLower && charEmailLower && userEmailLower === charEmailLower);
+          const isSameUid = Boolean(char.userId && char.userId === user.uid);
+          const isUnownedGuest = (!charEmailLower || charEmailLower.startsWith('guest_')) && (!char.userId || char.userId.startsWith('guest_'));
+          
+          return isSameEmail || isSameUid || isUnownedGuest;
+        }).map(char => {
+          const charEmailLower = (char.userEmail || '').trim().toLowerCase();
+          const isUnownedGuest = (!charEmailLower || charEmailLower.startsWith('guest_')) && (!char.userId || char.userId.startsWith('guest_'));
+          if (isUnownedGuest) {
+            return {
+              ...char,
+              userId: user.uid,
+              userEmail: user.email || char.userEmail
+            };
+          }
+          return char;
         });
-        if (filtered.length === prev.characters.length) return prev;
+
+        let finalChars = userCharacters;
+        const hasRealChars = finalChars.some(c => c.nome && c.nome !== 'Novo Personagem');
+        if (!hasRealChars) {
+          const rescued = rescueAllLocalCharacters();
+          const ownRescued = rescued.filter(c => {
+            const cEmail = (c.userEmail || c.user_email || c.email || '').trim().toLowerCase();
+            const cUid = c.userId || c.user_id;
+            const isSameEmail = Boolean(userEmailLower && cEmail && userEmailLower === cEmail);
+            const isSameUid = Boolean(cUid && cUid === user.uid);
+            const isUnownedGuest = (!cEmail || cEmail.startsWith('guest_')) && (!cUid || String(cUid).startsWith('guest_'));
+            return isSameEmail || isSameUid || isUnownedGuest;
+          });
+
+          if (ownRescued.length > 0) {
+            console.log(`⚡ [Rescue on Login] Resgatadas ${ownRescued.length} fichas do usuário!`);
+            finalChars = ownRescued.map(c => {
+              const cEmail = (c.userEmail || c.user_email || c.email || '').trim().toLowerCase();
+              const isUnownedGuest = (!cEmail || cEmail.startsWith('guest_')) && (!c.userId || String(c.userId).startsWith('guest_'));
+              return {
+                ...sanitizeCharacter(c),
+                userId: isUnownedGuest ? user.uid : (c.userId || user.uid),
+                userEmail: isUnownedGuest ? (user.email || c.userEmail) : (c.userEmail || user.email)
+              };
+            });
+          }
+        }
+
         return {
           ...prev,
-          characters: filtered,
-          activeCharacterId: filtered.length > 0 ? (filtered.some(c => c.id === prev.activeCharacterId) ? prev.activeCharacterId : filtered[0].id) : ""
-        };
-      });
-    } else {
-      setState(prev => {
-        const filtered = prev.characters.filter(char => !char.userId && !char.userEmail);
-        if (filtered.length === prev.characters.length) return prev;
-        return {
-          ...prev,
-          characters: filtered,
-          activeCharacterId: filtered.length > 0 ? (filtered.some(c => c.id === prev.activeCharacterId) ? prev.activeCharacterId : filtered[0].id) : ""
+          characters: finalChars,
+          activeCharacterId: finalChars.length > 0 ? (finalChars.some(c => c.id === prev.activeCharacterId) ? prev.activeCharacterId : finalChars[0].id) : "",
+          dirtyCharacterIds: prev.dirtyCharacterIds || []
         };
       });
     }
@@ -852,6 +1237,13 @@ function App() {
     console.log("🔥 [Sync] Iniciando assinatura de personagens para:", user.uid);
     setIsLoadingSync(true);
     lastSyncedRef.current = {}; // Limpa cache ao trocar de usuário
+
+    // Auto-analisar e restaurar tudo atrelado ao e-mail no Supabase
+    if (user.email) {
+      forceSyncAndRestoreByEmail(user.email, user.uid).catch(e => {
+        console.warn("⚠️ [Sync] Auto-restauração por e-mail em background:", e);
+      });
+    }
 
     const unsubscribe = subscribeToUserCharacters(user.uid, user.email || "", (fireChars, metadata) => {
       console.log(`📡 [Sync] ${fireChars.length} personagens carregados (${metadata.fromCache ? 'Cache' : 'Servidor'}). Pendentes: ${metadata.hasPendingWrites}`);
@@ -893,6 +1285,10 @@ function App() {
           // vamos marcar como dirty para forçar a atualização com o UID correto do usuário logado.
           const needsMigration = fChar.userEmail === user.email && (!fChar.userId || fChar.userId !== user.uid);
           
+          const migratedFChar = needsMigration
+            ? { ...fChar, userId: user.uid, userEmail: user.email || fChar.userEmail }
+            : fChar;
+
           if (needsMigration && !dirtyIds.has(fChar.id)) {
             console.log(`🔄 [Sync] Migrando ${fChar.nome} para o UID ${user.uid} (vincular por email)`);
             dirtyIds.add(fChar.id);
@@ -900,6 +1296,9 @@ function App() {
 
           if (localMatch) {
             const localJson = getSyncJson(localMatch);
+            const localMigrated = needsMigration
+              ? { ...localMatch, userId: user.uid, userEmail: user.email || localMatch.userEmail }
+              : localMatch;
             
             // Se a ficha local é exatamente igual à do servidor ou não está "suja" (dirty), usamos a do servidor
             if (localJson === charJson || !dirtyIds.has(localMatch.id)) {
@@ -908,17 +1307,17 @@ function App() {
                 dirtyIds.delete(localMatch.id);
               }
               lastSyncedRef.current[fChar.id] = charJson;
-              return { ...fChar, isRemoteSynced: true };
+              return { ...migratedFChar, isRemoteSynced: true };
             } else {
               // Se a local está suja (tem alteração não salva), preservamos a local por enquanto
               console.log(`⚠️ [Sync] Preservando alteração local de ${fChar.nome}`);
-              return { ...localMatch, isRemoteSynced: true };
+              return { ...localMigrated, isRemoteSynced: true };
             }
           }
           
           // Nova ficha vinda do servidor
           lastSyncedRef.current[fChar.id] = charJson;
-          return { ...fChar, isRemoteSynced: true };
+          return { ...migratedFChar, isRemoteSynced: true };
         });
 
         // Adicionar fichas que só existem localmente (novas criadas off-line ou em processamento)
@@ -932,19 +1331,18 @@ function App() {
             return !isRemote && !deletedCharsRef.current.has(lc.id);
           }
 
-          // Se lastSyncedRef ou lc.isRemoteSynced tem ela, ela já foi pro servidor alguma vez.
-          const wasPreviouslySynced = lc.isRemoteSynced || !!lastSyncedRef.current[lc.id];
+          // Se a ficha não existe no servidor mas existe localmente e não foi deletada pelo usuário:
+          // NUNCA excluí-la automaticamente! Preservá-la e agendar o envio ao servidor.
           const isDeletedLocally = deletedCharsRef.current.has(lc.id);
-          
-          // Se não está no servidor agora, mas sabemos que já esteve (e não fomos nós que apagamos agora localmente)
-          // Então ela foi apagada remotamente em outro dispositivo/aba ou pelo próprio usuário.
-          if (!isRemote && wasPreviouslySynced && !isDeletedLocally) {
-             console.log(`🗑️ [Sync] Removendo ficha ${lc.nome} (deletada remotamente)`);
-             delete lastSyncedRef.current[lc.id];
-             return false;
+          if (!isRemote && !isDeletedLocally) {
+            if (!dirtyIds.has(lc.id) && lc.nome && lc.nome !== 'Novo Personagem') {
+              console.log(`🛡️ [Sync] Preservando ficha local existente para upload: ${lc.nome}`);
+              dirtyIds.add(lc.id);
+            }
+            return true;
           }
           
-          return !isRemote && !isDeletedLocally;
+          return false;
         });
 
         // Se estamos logados, queremos que as fichas locais (novas e nunca sincronizadas) subam para o servidor
@@ -964,7 +1362,24 @@ function App() {
           }
         });
         
-        const finalCharacters = [...mergedCharacters, ...localOnly];
+        let finalCharacters = [...mergedCharacters, ...localOnly];
+        
+        // Se a lista resultante não possuir nenhuma ficha com nome personalizado/real,
+        // realiza o auto-resgate do histórico local do navegador atrelando ao usuário logado
+        const hasRealCharacters = finalCharacters.some(c => c.nome && c.nome !== 'Novo Personagem');
+        if (!hasRealCharacters) {
+          const rescued = rescueAllLocalCharacters();
+          const validRescued = rescued.filter(r => r.nome && r.nome !== 'Novo Personagem');
+          if (validRescued.length > 0) {
+            console.log(`🛡️ [Auto-Rescue] Restaurando automaticamente ${validRescued.length} fichas do cache local.`);
+            finalCharacters = validRescued.map(r => ({
+              ...sanitizeCharacter(r),
+              userId: user.uid,
+              userEmail: user.email || r.userEmail || ""
+            }));
+            finalCharacters.forEach(c => dirtyIds.add(c.id));
+          }
+        }
         
         return {
           ...prev,
@@ -981,27 +1396,6 @@ function App() {
     };
   }, [user?.uid]);
 
-  // Listen to custom "firebase-quota-exceeded" event
-  useEffect(() => {
-    let lastToastTime = 0;
-    const handleFirebaseQuotaExceeded = () => {
-      setIsQuotaExceeded(true);
-      const now = Date.now();
-      // Throttle to avoid showing multiple toasts for simultaneous background writes
-      if (now - lastToastTime > 60000) {
-        lastToastTime = now;
-        showToast(
-          "⚠️ O limite diário de gravação do banco de dados (Firebase) foi atingido. Suas fichas continuarão sendo salvas localmente neste navegador de forma segura!",
-          "info"
-        );
-      }
-    };
-
-    window.addEventListener("firebase-quota-exceeded", handleFirebaseQuotaExceeded);
-    return () => {
-      window.removeEventListener("firebase-quota-exceeded", handleFirebaseQuotaExceeded);
-    };
-  }, [showToast]);
 
   // Subscribe to Materials
   useEffect(() => {
@@ -1029,7 +1423,7 @@ function App() {
       setIsCampaignsLoaded(true);
     });
     return () => unsubscribe();
-  }, [user?.uid]);
+  }, [user?.uid, user?.email]);
 
   // Player Joined Campaigns Effect - Fetch campaigns based on player email instead of character campaignId fields
   useEffect(() => {
@@ -1053,13 +1447,17 @@ function App() {
   // Validate activeCampaignId against current campaigns to auto-deselect if deleted/invalid
   useEffect(() => {
     if (user?.uid && activeCampaignId && !isLoadingSync && isCampaignsLoaded && isJoinedCampaignsLoaded) {
-      const exists = campaigns.some(c => c.id === activeCampaignId);
-      if (!exists) {
-        console.log("🧹 Clearing stale/orphan activeCampaignId because it does not exist in campaigns:", activeCampaignId);
-        setActiveCampaignIdWithSync(null);
+      const allLoadedCamps = [...masterCampaigns, ...joinedCampaigns];
+      // Only clear if we actually loaded campaigns and the active campaign is definitely not in the user's master or joined list
+      if (allLoadedCamps.length > 0) {
+        const exists = allLoadedCamps.some(c => c.id === activeCampaignId) || campaignCharacters.length > 0;
+        if (!exists) {
+          console.log("🧹 Clearing stale/orphan activeCampaignId because it does not exist in campaigns:", activeCampaignId);
+          setActiveCampaignIdWithSync(null);
+        }
       }
     }
-  }, [campaigns, activeCampaignId, user?.uid, isLoadingSync, isCampaignsLoaded, isJoinedCampaignsLoaded]);
+  }, [masterCampaigns, joinedCampaigns, campaignCharacters.length, activeCampaignId, user?.uid, isLoadingSync, isCampaignsLoaded, isJoinedCampaignsLoaded]);
 
   // Redirect to library if there are no characters (activeChar is null) and we are not on the DM/library/oracle pages
   useEffect(() => {
@@ -1114,32 +1512,46 @@ function App() {
     };
   }, [activeCampaignId]);
 
-  // Clean up other players' characters when switching campaigns or when they are not actively on the campaign table
+  // Merge campaign characters with user's local characters so players always see their characters in VTT
+  const vttAvailableCharacters = useMemo(() => {
+    const map = new Map<string, Character>();
+    campaignCharacters.forEach(c => {
+      if (!deletedCharsRef.current.has(c.id)) {
+        map.set(c.id, c);
+      }
+    });
+    state.characters.forEach(c => {
+      if (!deletedCharsRef.current.has(c.id) && !map.has(c.id)) {
+        map.set(c.id, c);
+      }
+    });
+    return Array.from(map.values());
+  }, [campaignCharacters, state.characters]);
+
+  // Automatically merge campaign characters into state.characters so Mestre and players have full sheet access
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!user?.uid || !activeCampaignId || campaignCharacters.length === 0) return;
+
     setState(prev => {
-      const isMasterOfCampaign = activeCampaignId && campaigns.some(camp => camp.id === activeCampaignId && camp.masterId === user.uid);
-      
-      const filtered = prev.characters.filter(char => {
-        const isOwn = char.userId === user.uid || (char.userEmail && char.userEmail === user.email) || (!char.userId && !char.userEmail);
-        if (isOwn) return true;
-        
-        // If we are GM of the campaign, keep player characters that are active in this campaign
-        if (isMasterOfCampaign) {
-          return campaignCharacters.some(cc => cc.id === char.id);
+      let changed = false;
+      const charMap = new Map(prev.characters.map(c => [c.id, c]));
+
+      campaignCharacters.forEach(cc => {
+        if (cc && cc.id && !deletedCharsRef.current.has(cc.id) && !charMap.has(cc.id)) {
+          charMap.set(cc.id, cc);
+          changed = true;
         }
-        
-        return false;
       });
-      
-      if (filtered.length === prev.characters.length) return prev;
+
+      if (!changed) return prev;
+      const newChars = Array.from(charMap.values());
       return {
         ...prev,
-        characters: filtered,
-        activeCharacterId: filtered.some(c => c.id === prev.activeCharacterId) ? prev.activeCharacterId : (filtered.length > 0 ? filtered[0].id : "")
+        characters: newChars,
+        activeCharacterId: prev.activeCharacterId || (newChars.length > 0 ? newChars[0].id : "")
       };
     });
-  }, [activeCampaignId, campaignCharacters, user?.uid, campaigns]);
+  }, [activeCampaignId, campaignCharacters, user?.uid]);
 
   const [tocaEditingCreatureId, setTocaEditingCreatureId] = useState<string | null>(null);
   const [bestiaryEditingMonsterId, setBestiaryEditingMonsterId] = useState<string | null>(null);
@@ -1165,35 +1577,18 @@ function App() {
 
   const menuRef = useRef<HTMLDivElement>(null);
   const sideMenuRef = useRef<HTMLDivElement>(null);
-  const deletedCharsRef = useRef<Set<string>>((() => {
-    try {
-      const stored = localStorage.getItem("demons_despair_deleted_chars");
-      return stored ? new Set<string>(JSON.parse(stored)) : new Set<string>();
-    } catch (e) {
-      return new Set<string>();
-    }
-  })());
-
-  const persistDeletedCharId = (id: string) => {
-    deletedCharsRef.current.add(id);
-    try {
-      localStorage.setItem("demons_despair_deleted_chars", JSON.stringify(Array.from(deletedCharsRef.current)));
-    } catch (e) {
-      console.error("Error saving deleted character IDs:", e);
-    }
-  };
 
   const cleanCharFromCampaignCaches = (charId: string) => {
     try {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key && key.startsWith("campaign_characters_")) {
-          const stored = localStorage.getItem(key);
+          const stored = safeLocalStorageGetItem(key);
           if (stored) {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed)) {
               const filtered = parsed.filter((c: any) => c.id !== charId);
-              localStorage.setItem(key, JSON.stringify(filtered));
+              safeLocalStorageSetItem(key, JSON.stringify(filtered));
             }
           }
         }
@@ -1289,7 +1684,7 @@ function App() {
   // Debounced sync to localStorage
   useEffect(() => {
     const timer = setTimeout(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      safeLocalStorageSetItem(STORAGE_KEY, JSON.stringify(state));
     }, 1000);
     return () => clearTimeout(timer);
   }, [state]);
@@ -1304,6 +1699,7 @@ function App() {
     hitSucceeded?: boolean;
     hitResult?: number;
     dmgResult?: number;
+    damage?: number;
     hitRolls?: number[];
     dmgRolls?: number[];
     hitBonus?: number;
@@ -1315,6 +1711,11 @@ function App() {
     defenseRolls?: number[];
     defenseResult?: number;
     combatNote?: string;
+    attackerName?: string;
+    targetName?: string;
+    detailedTitle?: string;
+    combatStatus?: string;
+    effectType?: string;
   } | null>(null);
 
   const getDetailedCombatTitle = useCallback((roll: any) => {
@@ -1569,12 +1970,12 @@ function App() {
     showToast("Forçando sincronização com a nuvem...", "info");
     try {
       console.log("🔄 [Manual Sync] Iniciando upload forçado das fichas permitidas.");
-      
-      const isMasterOfCampaign = activeCampaignId && campaigns.some(c => c.id === activeCampaignId && c.masterId === user.uid);
+      const userEmailLower = user.email?.toLowerCase();
+      const isMasterOfCampaign = activeCampaignId && campaigns.some(c => c.id === activeCampaignId && ((c.masterEmail && c.masterEmail.toLowerCase() === userEmailLower) || c.masterId === user.uid));
 
       // 1. Filtrar e fazer upload apenas das fichas que pertencem a nós ou que somos o mestre da campanha ativa
       const allowedCharacters = state.characters.filter(char => {
-        const isOwn = char.userId === user.uid || (char.userEmail && char.userEmail === user.email) || (!char.userId && !char.userEmail);
+        const isOwn = (char.userEmail && char.userEmail.toLowerCase() === userEmailLower) || char.userId === user.uid || (!char.userId && !char.userEmail);
         const isCampaignNPC = isMasterOfCampaign && char.campaignId === activeCampaignId;
         return isOwn || isCampaignNPC;
       });
@@ -1613,8 +2014,12 @@ function App() {
     bonus: number,
     label?: string,
   ) => {
-    if (!activeChar) return;
+    if (!activeChar && (label === "Fome e Sede" || label === "Cansaço" || label?.includes("3d8"))) {
+      showToast("Selecione um personagem para rolar dados de condição.", "info");
+      return;
+    }
     if (label === "Fome e Sede") {
+      if (!activeChar) return;
       const hungerProfBase = calculateProficiencyBonus(
         activeChar.stats,
         "Fome",
@@ -2826,7 +3231,7 @@ function App() {
         dirtyCharacterIds: Array.from(new Set([...(prev.dirtyCharacterIds || []), updatedChar.id]))
       };
     });
-  }, [tocaEditingCreatureId, bestiaryEditingMonsterId, bestiaryMonsters]); // auth.currentUser is imported from lib/firebase so it's always fresh enough
+  }, [tocaEditingCreatureId, bestiaryEditingMonsterId, bestiaryMonsters]);
 
   const handleAddItemToCharacterCompartment = useCallback((characterId: string, compartmentId: string, item: Item) => {
     updateChar(char => {
@@ -2917,8 +3322,9 @@ function App() {
     
     characters.forEach(char => {
       if (dirtyIds.has(char.id)) {
-        const isMasterOfCharCampaign = char.campaignId && campaigns.some(c => c.id === char.campaignId && c.masterId === user.uid);
-        const isOwn = char.userId === user.uid || (char.userEmail && char.userEmail === user.email) || (!char.userId && !char.userEmail) || isMasterOfCharCampaign;
+        const userEmailLower = user.email?.toLowerCase();
+        const isMasterOfCharCampaign = char.campaignId && campaigns.some(c => c.id === char.campaignId && ((c.masterEmail && c.masterEmail.toLowerCase() === userEmailLower) || c.masterId === user.uid));
+        const isOwn = (char.userEmail && char.userEmail.toLowerCase() === userEmailLower) || char.userId === user.uid || (!char.userId && !char.userEmail) || isMasterOfCharCampaign;
         
         if (!isOwn) {
           // Se não é nossa ficha (e.g. criatura do mestre na campanha ou ficha de outro jogador),
@@ -2964,8 +3370,14 @@ function App() {
                 if (!currentDirty.includes(char.id)) return prev;
                 return { ...prev, dirtyCharacterIds: currentDirty.filter(id => id !== char.id) };
               });
-            } catch (err) {
-              console.error(`❌ [Sync] Erro ao sincronizar ${char.nome}:`, err);
+            } catch (err: any) {
+              const errMsg = String(err?.message || err || "").toLowerCase();
+              const isNetError = errMsg.includes('fetch') || errMsg.includes('network') || errMsg.includes('typeerror') || errMsg.includes('cors');
+              if (isNetError) {
+                console.warn(`⚠️ [Sync] Problema de conexão ao sincronizar ${char.nome} (mantendo em modo offline):`, err?.message || err);
+              } else {
+                console.error(`❌ [Sync] Erro ao sincronizar ${char.nome}:`, err);
+              }
             } finally {
               delete syncTimersRef.current[char.id];
             }
@@ -3235,6 +3647,261 @@ function App() {
     );
   }
 
+  // Exportar Tudo (Backup Completo: Fichas, Campanhas, Bestiário, Materiais, Customizações, Toca)
+  const exportAllUserData = () => {
+    try {
+      let localCustomItems: any[] = [];
+      try {
+        const saved = localStorage.getItem('supabase_table_custom_items');
+        if (saved) localCustomItems = JSON.parse(saved);
+      } catch (e) {}
+
+      let localCustomSpells: any[] = [];
+      try {
+        const saved = localStorage.getItem('supabase_table_custom_spells');
+        if (saved) localCustomSpells = JSON.parse(saved);
+      } catch (e) {}
+
+      let tocaData: any = null;
+      try {
+        const saved = localStorage.getItem('toca_creatures_data');
+        if (saved) tocaData = JSON.parse(saved);
+      } catch (e) {}
+
+      const fullBackup = {
+        app: "Demons Despair RPG",
+        version: "1.12.43",
+        exportDate: new Date().toISOString(),
+        user: {
+          uid: user?.uid || null,
+          email: user?.email || null,
+          displayName: user?.displayName || null,
+        },
+        characters: state.characters || [],
+        activeCharacterId: state.activeCharacterId,
+        campaigns: campaigns || [],
+        activeCampaignId: activeCampaignId,
+        bestiary: bestiaryMonsters || [],
+        customMaterials: customMaterials || [],
+        customItems: localCustomItems || [],
+        customSpells: localCustomSpells || [],
+        toca: tocaData,
+      };
+
+      const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(fullBackup, null, 2))}`;
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10);
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}h${String(now.getMinutes()).padStart(2, '0')}`;
+      const fileName = `demons_despair_backup_completo_${dateStr}_${timeStr}.json`;
+
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", jsonString);
+      downloadAnchor.setAttribute("download", fileName);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      showToast("Backup completo exportado com sucesso!", "success");
+    } catch (err: any) {
+      console.error("Erro ao exportar backup completo:", err);
+      showToast("Falha ao exportar backup completo.", "error");
+    }
+  };
+
+  // Importar Tudo (Restaura/Adiciona Fichas, Campanhas, Monstros, Materiais, Customizações)
+  const processImportAllJson = async (jsonText: string) => {
+    setIsImportingAll(true);
+    try {
+      const parsed = JSON.parse(jsonText);
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error("Arquivo JSON inválido.");
+      }
+
+      let charsImported = 0;
+      let campsImported = 0;
+      let bestiaryImported = 0;
+      let matsImported = 0;
+      let itemsImported = 0;
+      let spellsImported = 0;
+
+      // 1. IMPORTAR FICHAS DE PERSONAGEM
+      let rawChars: any[] = [];
+      if (Array.isArray(parsed)) {
+        rawChars = parsed;
+      } else if (Array.isArray(parsed.characters)) {
+        rawChars = parsed.characters;
+      } else if (parsed.nome || parsed.id) {
+        rawChars = [parsed];
+      }
+
+      if (rawChars.length > 0) {
+        const sanitizedChars = rawChars.map((c: any) => {
+          const sc = sanitizeCharacter(c);
+          if (user) {
+            sc.userId = user.uid;
+            sc.userEmail = user.email || "";
+          }
+          return sc;
+        });
+
+        setState(prev => {
+          const map = new Map<string, Character>();
+          prev.characters.forEach(c => map.set(c.id, c));
+          sanitizedChars.forEach(c => map.set(c.id, c));
+          const updatedChars = Array.from(map.values());
+          const dirty = new Set(prev.dirtyCharacterIds || []);
+          sanitizedChars.forEach(c => dirty.add(c.id));
+
+          return {
+            ...prev,
+            characters: updatedChars,
+            activeCharacterId: sanitizedChars[sanitizedChars.length - 1]?.id || prev.activeCharacterId,
+            dirtyCharacterIds: Array.from(dirty)
+          };
+        });
+
+        // Persist characters to cloud/local
+        for (const ch of sanitizedChars) {
+          try {
+            saveCharacterToFirestore(ch);
+          } catch (e) {}
+        }
+        charsImported = sanitizedChars.length;
+      }
+
+      // 2. IMPORTAR CAMPANHAS
+      const rawCamps = parsed.campaigns || parsed.campanhas;
+      if (Array.isArray(rawCamps) && rawCamps.length > 0) {
+        const validCamps: Campaign[] = [];
+        for (const camp of rawCamps) {
+          if (camp && camp.id) {
+            const sanitizedCamp: Campaign = {
+              ...camp,
+              masterId: user?.uid || camp.masterId || "",
+              masterEmail: user?.email || camp.masterEmail || "",
+            };
+            validCamps.push(sanitizedCamp);
+            saveCampaign(sanitizedCamp).catch(console.error);
+            campsImported++;
+          }
+        }
+        if (validCamps.length > 0) {
+          setMasterCampaigns(prev => {
+            const map = new Map<string, Campaign>();
+            prev.forEach(c => map.set(c.id, c));
+            validCamps.forEach(c => map.set(c.id, c));
+            return Array.from(map.values());
+          });
+        }
+      }
+
+      // 3. IMPORTAR BESTIÁRIO
+      const rawBestiary = parsed.bestiary || parsed.monstros || parsed.bestiario;
+      if (Array.isArray(rawBestiary) && rawBestiary.length > 0) {
+        const validMonsters: BestiaryMonster[] = [];
+        for (const m of rawBestiary) {
+          if (m && (m.name || m.id)) {
+            const sanitizedMonster: BestiaryMonster = {
+              ...m,
+              id: m.id || generateId(),
+              masterId: user?.uid || m.masterId || "",
+            };
+            validMonsters.push(sanitizedMonster);
+            if (user?.uid) {
+              saveMonsterToBestiary(sanitizedMonster).catch(() => {});
+            }
+            bestiaryImported++;
+          }
+        }
+        if (validMonsters.length > 0) {
+          setBestiaryMonsters(prev => {
+            const map = new Map<string, BestiaryMonster>();
+            prev.forEach(m => map.set(m.id, m));
+            validMonsters.forEach(m => map.set(m.id, m));
+            return Array.from(map.values());
+          });
+        }
+      }
+
+      // 4. IMPORTAR MATERIAIS
+      const rawMats = parsed.customMaterials || parsed.materials || parsed.materiais;
+      if (Array.isArray(rawMats) && rawMats.length > 0) {
+        const validMats: MaterialData[] = [];
+        for (const mat of rawMats) {
+          if (mat && (mat.name || mat.id)) {
+            const sMat: MaterialData = { ...mat, id: mat.id || generateId() };
+            validMats.push(sMat);
+            if (user?.uid) {
+              saveMaterial(user.uid, sMat).catch(() => {});
+            }
+            matsImported++;
+          }
+        }
+        if (validMats.length > 0) {
+          setCustomMaterials(prev => {
+            const map = new Map<string, MaterialData>();
+            prev.forEach(m => map.set(m.id, m));
+            validMats.forEach(m => map.set(m.id, m));
+            return Array.from(map.values());
+          });
+        }
+      }
+
+      // 5. IMPORTAR ITENS CUSTOMIZADOS
+      const rawItems = parsed.customItems || parsed.items || parsed.itens;
+      if (Array.isArray(rawItems) && rawItems.length > 0) {
+        for (const item of rawItems) {
+          if (item && item.nome && user?.uid) {
+            saveItemToLibrary(user.uid, item).catch(() => {});
+            itemsImported++;
+          }
+        }
+      }
+
+      // 6. IMPORTAR MAGIAS CUSTOMIZADAS
+      const rawSpells = parsed.customSpells || parsed.spells || parsed.magias;
+      if (Array.isArray(rawSpells) && rawSpells.length > 0) {
+        for (const spell of rawSpells) {
+          if (spell && spell.nome && user?.uid) {
+            saveSpellToLibrary(user.uid, spell).catch(() => {});
+            spellsImported++;
+          }
+        }
+      }
+
+      // 7. IMPORTAR TOCA SE HOUVER
+      if (parsed.toca) {
+        try {
+          safeLocalStorageSetItem('toca_creatures_data', JSON.stringify(parsed.toca));
+        } catch (e) {}
+      }
+
+      const totalCustom = matsImported + itemsImported + spellsImported;
+      showToast(`Backup importado com sucesso! ${charsImported} ficha(s), ${campsImported} campanha(s), ${bestiaryImported} monstro(s), ${totalCustom} customizações.`, "success");
+      setShowFullBackupModal(false);
+      setPasteFullBackupText("");
+    } catch (err: any) {
+      console.error("Erro ao importar backup completo:", err);
+      showToast(err.message || "Erro ao processar o arquivo de backup.", "error");
+    } finally {
+      setIsImportingAll(false);
+    }
+  };
+
+  const handleFullBackupFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        await processImportAllJson(content);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
   const exportJSON = () => {
     if (!activeChar) return;
     try {
@@ -3331,26 +3998,6 @@ function App() {
     reader.readAsText(file);
   };
 
-  const exportPDF = () => {
-    if (!activeChar) return;
-    const doc = new jsPDF();
-    doc.setFontSize(20);
-    doc.text(`Ficha: ${activeChar.nome}`, 10, 20);
-    doc.setFontSize(12);
-    doc.text(`Etnia: ${activeChar.etnia}`, 10, 30);
-    doc.text(`Vida: ${activeChar.vidaAtual}/${vidaMax}`, 10, 40);
-    doc.text(`Mana: ${activeChar.manaAtual}/${manaMax}`, 10, 50);
-    doc.text(`Deslocamento: ${deslocamentoFinal}m`, 10, 60);
-
-    let y = 80;
-    doc.text("Status:", 10, y);
-    Object.entries(stats).forEach(([key, val], i) => {
-      doc.text(`${key}: ${val}`, 10, y + 10 + i * 7);
-    });
-
-    doc.save(`${activeChar.nome}.pdf`);
-  };
-
   const duplicateChar = () => {
     if (!activeChar) return;
     const newChar = {
@@ -3392,16 +4039,20 @@ function App() {
       const newActiveId = remaining.length > 0 ? remaining[0].id : null;
       const newDirtyIds = (prev.dirtyCharacterIds || []).filter(id => id !== idToDelete);
       
-      return {
+      const nextState = {
         ...prev,
         characters: remaining,
         activeCharacterId: newActiveId,
         dirtyCharacterIds: newDirtyIds
       };
+      try {
+        safeLocalStorageSetItem(STORAGE_KEY, JSON.stringify(nextState));
+      } catch (e) {}
+      return nextState;
     });
     
-    // Sync to Firestore if logged in
-    if (user && idToDelete) {
+    // Purge character from local Supabase, caches, and remote
+    if (idToDelete) {
       deleteCharacterFromFirestore(idToDelete);
     }
     
@@ -3438,7 +4089,7 @@ function App() {
           reader.onerror = reject;
           reader.readAsDataURL(file);
         });
-        const compressed = await compressImageDataUrl(dataUrl, 1024, 0.8);
+        const compressed = await compressImageDataUrl(dataUrl, 800, 0.7);
         dataUrls.push(compressed);
       } catch (err) {
         console.error("Erro ao carregar ou comprimir imagem da nota:", err);
@@ -3527,7 +4178,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.12.18</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.13.39</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -3598,7 +4249,7 @@ function App() {
                         color="purple"
                       />
 
-                      {campaigns.some(c => c.masterId === user?.uid) && (
+                      {campaigns.some(c => (c.masterEmail && c.masterEmail.toLowerCase() === user?.email?.toLowerCase()) || (c.masterId && c.masterId === user?.uid)) && (
                         <>
                           <MenuButton 
                             active={activePage === "bestiary"} 
@@ -3637,14 +4288,14 @@ function App() {
           <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
             <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
             <div className="w-[1px] h-3 bg-zinc-800" />
-            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.12.18</span>
+            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.13.39</span>
           </div>
 
           {/* Quick Active Page Status - desktop only */}
           <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
               <div className="flex flex-col">
                 <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.12.18</span>
+                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.13.39</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -3722,16 +4373,16 @@ function App() {
                 onClick={forceCloudSync}
                 className={cn(
                   "flex items-center justify-center w-8 h-8 rounded-lg border transition-all",
-                  state.dirtyCharacterIds.length > 0 
+                  ((state.dirtyCharacterIds?.length || 0) > 0 || !isSupabaseConnected) 
                     ? "bg-blue-500 border-blue-400 text-black shadow-[0_0_15px_rgba(59,130,246,0.4)]" 
                     : "bg-zinc-800/50 border-zinc-700/50 text-zinc-500 hover:text-amber-500 hover:border-amber-500/30"
                 )}
-                title={state.dirtyCharacterIds.length > 0 ? "Sincronizando..." : "Sincronizar"}
+                title={!isSupabaseConnected ? "Salvando no Cache (Supabase Indisponível)" : (((state.dirtyCharacterIds?.length || 0) > 0) ? "Sincronizando..." : "Sincronizar")}
               >
-                <RefreshCwIcon className={cn("w-4 h-4", state.dirtyCharacterIds.length > 0 && "animate-spin")} />
+                <RefreshCwIcon className={cn("w-4 h-4", (((state.dirtyCharacterIds?.length || 0) > 0 || !isSupabaseConnected)) && "animate-spin")} />
               </motion.button>
               
-              {state.dirtyCharacterIds.length > 0 && (
+              {((state.dirtyCharacterIds?.length || 0) > 0) && (
                 <button
                   onClick={() => {
                     setGlobalConfirm({
@@ -3752,34 +4403,35 @@ function App() {
             </div>
           )}
 
-          {/* Firebase Auth Indicator */}
+          {/* Auth Status & Login Indicator */}
           <motion.button
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             whileTap={{ scale: 0.95 }}
-            onClick={async () => {
+            onClick={() => {
               if (user) {
-                firebaseLogout();
-              } else {
-                try {
-                  await loginWithGoogle();
-                } catch (error: any) {
-                  showToast("Erro ao iniciar login.", "error");
-                  console.error("Login Error:", error);
+                if (window.confirm(`Conectado como ${user.email || user.displayName || 'Usuário'}.\nDeseja sair da conta?`)) {
+                  logout();
+                  showToast("Você saiu da conta.", "info");
                 }
+              } else {
+                setModalAuthError(null);
+                setIsAuthModalOpen(true);
               }
             }}
             className={cn(
-              "flex items-center justify-center w-8 h-8 rounded-lg border transition-all",
+              "flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer",
               user 
-                ? (isOnline ? "bg-amber-500/10 border-amber-500/30" : "bg-red-500/10 border-red-500/30")
-                : "bg-zinc-800 border-zinc-700"
+                ? (!isSupabaseConnected ? "bg-blue-500/10 border-blue-500/30" : (isOnline ? "bg-amber-500/10 border-amber-500/30" : "bg-red-500/10 border-red-500/30"))
+                : "bg-amber-500/20 border-amber-500/40 text-amber-500 hover:bg-amber-500/30"
             )}
-            title={user ? (isOnline ? `Conectado: ${user.email} (Clique para Sair)` : "Você está offline") : "Entrar com Firebase"}
+            title={user ? (!isSupabaseConnected ? `Salvando no Cache (Supabase Indisponível)` : (isOnline ? `Conectado: ${user.email} (Clique para Sair)` : "Você está offline")) : "Entrar ou Criar Conta"}
           >
             <div className={cn(
               "w-2.5 h-2.5 rounded-full",
-              user ? (isOnline ? "bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-red-500") : "bg-zinc-600"
+              user 
+                ? (!isSupabaseConnected ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)] animate-pulse" : (isOnline ? "bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-red-500"))
+                : "bg-amber-500 animate-pulse"
             )} />
           </motion.button>
 
@@ -3825,33 +4477,79 @@ function App() {
             <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={async () => {
-                showToast("Recuperando e sincronizando fichas locais...", "info");
+                showToast("Analisando o Supabase e vinculando dados do seu e-mail...", "info");
                 try {
-                  await syncLocalToCloud();
-                  showToast("Fichas recuperadas com sucesso!", "success");
-                  lastSyncedRef.current = {};
-                  setState(prev => ({ ...prev, dirtyCharacterIds: [] }));
-                  setTimeout(() => {
-                    window.location.reload();
-                  }, 1200);
+                  const result = await forceSyncAndRestoreByEmail(user?.email, user?.uid);
+                  if (result.characters && result.characters.length > 0) {
+                    setState(prev => {
+                      const hasReal = result.characters.some((c: any) => c.nome && c.nome !== 'Novo Personagem');
+                      const finalChars = hasReal 
+                        ? result.characters.filter((c: any) => c.nome !== 'Novo Personagem' || result.characters.length === 1) 
+                        : result.characters;
+                      const dirty = new Set(prev.dirtyCharacterIds || []);
+                      finalChars.forEach((c: any) => dirty.add(c.id));
+                      return {
+                        ...prev,
+                        characters: finalChars,
+                        activeCharacterId: finalChars.some((c: any) => c.id === prev.activeCharacterId)
+                          ? prev.activeCharacterId
+                          : (finalChars[0]?.id || ""),
+                        dirtyCharacterIds: Array.from(dirty)
+                      };
+                    });
+                    lastSyncedRef.current = {};
+                    showToast(`Sincronização concluída! ${result.characters.length} ficha(s) vinculada(s) à sua conta.`, "success");
+                  } else {
+                    showToast("Nenhuma ficha detectada no Supabase.", "info");
+                  }
+                  setIsMenuOpen(false);
                 } catch (err) {
                   console.error("Erro na sincronização:", err);
-                  showToast("Erro ao sincronizar dados.", "error");
-                  window.location.reload();
+                  showToast("Erro ao sincronizar com o Supabase.", "error");
                 }
               }}
-              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300 cursor-pointer"
             >
               <RefreshCwIcon size={18} className="text-blue-500" /> Forçar Sincronização
             </motion.button>
+
+            {/* Exportar Tudo (Backup Completo) */}
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => {
+                setBackupModalTab('export');
+                setShowFullBackupModal(true);
+                setIsMenuOpen(false);
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-bold text-amber-400 cursor-pointer"
+            >
+              <Download size={18} className="text-amber-500" /> Exportar Tudo
+            </motion.button>
+
+            {/* Importar Tudo (Restaurar) */}
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => {
+                setBackupModalTab('import');
+                setShowFullBackupModal(true);
+                setIsMenuOpen(false);
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-bold text-amber-400 cursor-pointer"
+            >
+              <Upload size={18} className="text-amber-500" /> Importar Tudo
+            </motion.button>
+
+            <div className="my-1 border-t border-zinc-800/60" />
 
             <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={() => {
                 const nc = createEmptyCharacter();
                 setState((prev) => ({
-                  characters: [...prev.characters, nc],
+                  ...prev,
+                  characters: [...(prev.characters || []), nc],
                   activeCharacterId: nc.id,
+                  dirtyCharacterIds: Array.from(new Set([...(prev.dirtyCharacterIds || []), nc.id])),
                 }));
                 if (user) {
                   saveCharacterToFirestore(nc);
@@ -3871,7 +4569,7 @@ function App() {
               }}
               className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
             >
-              <Copy size={18} className="text-amber-500" /> Copiar Ficha
+              <Copy size={18} className="text-amber-500" /> Copiar Ficha Atual
             </motion.button>
 
             <motion.button
@@ -3880,13 +4578,13 @@ function App() {
                 exportJSON();
                 setIsMenuOpen(false);
               }}
-              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300 cursor-pointer"
             >
-              <Download size={18} className="text-amber-500" /> Exportar JSON
+              <Download size={18} className="text-zinc-400" /> Exportar Ficha
             </motion.button>
 
             <label className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300 cursor-pointer">
-              <Upload size={18} className="text-amber-500" /> Importar JSON
+              <Upload size={18} className="text-zinc-400" /> Importar Ficha
               <input
                 type="file"
                 className="hidden"
@@ -3898,26 +4596,6 @@ function App() {
               />
             </label>
 
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={() => {
-                exportPDF();
-                setIsMenuOpen(false);
-              }}
-              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
-            >
-              <Activity size={18} className="text-amber-500" /> Exportar PDF
-            </motion.button>
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={() => {
-                setIsPrintModalOpen(true);
-                setIsMenuOpen(false);
-              }}
-              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300"
-            >
-              <Printer size={18} className="text-amber-500" /> Versão de Impressão (Papel)
-            </motion.button>
 
             <div className="pt-1 border-t border-zinc-800 mt-1">
               <motion.button
@@ -4113,30 +4791,6 @@ function App() {
           )}
         </AnimatePresence>
       </header>
-
-      {isQuotaExceeded && (
-        <div className="bg-amber-950/20 border-b border-amber-800/30 px-4 py-3 text-amber-200">
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 text-xs md:text-sm">
-            <div className="flex items-start gap-3">
-              <span className="text-lg leading-none mt-0.5">⚠️</span>
-              <div>
-                <p className="font-black uppercase tracking-wider text-amber-500 font-sans text-[10px] mb-0.5">Limite de Banco de Dados Excedido</p>
-                <p className="text-zinc-300 font-medium">
-                  A cota gratuita diária de gravação foi atingida no Firebase. Suas fichas e progresso continuarão sendo guardados localmente com segurança até que o limite seja liberado!
-                </p>
-              </div>
-            </div>
-            <a 
-              href="https://console.firebase.google.com/project/gen-lang-client-0677748971/firestore/databases/ai-studio-1a82e7bc-e41e-43fa-8f91-4d5fb7def03d/data?openUpgradeDialog=true"
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="whitespace-nowrap px-3 py-1.5 bg-amber-550 hover:bg-amber-600 text-black font-black uppercase tracking-wider rounded-lg transition-all shadow-[0_0_10px_rgba(245,158,11,0.15)] flex items-center gap-1 cursor-pointer text-[9px] md:text-xxs-tight"
-            >
-              Fazer Upgrade / Liberar Banco <ExternalLink size={12} className="inline ml-1" />
-            </a>
-          </div>
-        </div>
-      )}
 
       <main key={activeChar?.id || "no-char"} className={cn(
         "flex-1 overscroll-none flex flex-col min-h-0",
@@ -8085,20 +8739,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
           }
 
           const renderDiceContent = () => {
-            return !activeChar ? (
-              <div className="flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto h-[60vh]">
-                <Sword size={48} className="text-zinc-600 mb-4 animate-pulse" />
-                <h3 className="text-lg font-bold text-zinc-300 mb-2">Nenhum Personagem Selecionado</h3>
-                <p className="text-zinc-500 text-sm mb-6">Você precisa criar ou selecionar um personagem na aba "Ficha" para rolar dados de combate.</p>
-                <motion.button
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setActivePage("sheet")}
-                  className="px-6 py-2 bg-amber-500 text-zinc-950 font-bold rounded-lg hover:bg-amber-400 transition-colors text-sm cursor-pointer"
-                >
-                  Ir para Ficha
-                </motion.button>
-              </div>
-            ) : (
+            return (
               <div className="flex flex-col h-full w-full max-w-5xl mx-auto bg-zinc-950">
             {/* Tabs Header */}
             <div className="flex border-b border-zinc-800 bg-zinc-900/10">
@@ -8142,13 +8783,14 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
 
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
               {diceTab === "mesa" ? (
-                <div className="space-y-8 pb-24">
-                  {/* Armas do Personagem */}
-                  <SubSection
-                    title="Combate (Acerto & Dano)"
-                    icon={<Sword size={14} />}
-                    defaultCollapsed={true}
-                  >
+                <div className="space-y-6 pb-24">
+                  {/* Armas do Personagem (se ativo) */}
+                  {activeChar && (
+                    <SubSection
+                      title="Combate (Acerto & Dano)"
+                      icon={<Sword size={14} />}
+                      defaultCollapsed={false}
+                    >
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
                       {(activeChar.armas || []).map((arma, aIdx) => {
                         const statMap: Record<string, keyof Stats> = {
@@ -8346,6 +8988,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                       })}
                     </div>
                   </SubSection>
+                  )}
 
                   {/* Dice Grid */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
@@ -8364,7 +9007,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                         onClick={() =>
                           rollDice(dice.sides, diceQuantity, diceBonus)
                         }
-                        className="flex flex-col items-center group"
+                        className="flex flex-col items-center group cursor-pointer"
                       >
                         <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
                           <DiceImage
@@ -8380,78 +9023,84 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                     ))}
 
                     {/* Special 3d8 Preset */}
-                    <motion.button
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => {
-                        const acuraciaBonus = calculateProficiencyBonus(
-                          activeChar.stats,
-                          "Acurácia",
-                          ["FOR", "DEX"],
-                          activeChar.fome,
-                          activeChar.sede,
-                          activeChar.cansaco,
-                          activeChar.clima,
-                          climateProficiency,
-                          activeChar.bonusProficiencias?.["Acurácia"] || 0,
-                          activeChar.efeitosNegativos || [],
-                          activeChar.sanidadeAtual,
-                          getSanidadeMaxima(activeChar.stats.MEN)
-                        );
-                        rollDice(8, 3, diceBonus + acuraciaBonus, "3d8");
-                      }}
-                      className="flex flex-col items-center group"
-                    >
-                      <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
-                        <DiceImage
-                          sides={8}
-                          fileName="3d8.png"
-                          className="w-12 h-12 object-contain group-hover:scale-110 transition-transform"
-                        />
-                        <div className="absolute -top-1 -right-1 bg-amber-500 text-zinc-950 text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">
-                          3d8
+                    {activeChar && (
+                      <motion.button
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => {
+                          const acuraciaBonus = calculateProficiencyBonus(
+                            activeChar.stats,
+                            "Acurácia",
+                            ["FOR", "DEX"],
+                            activeChar.fome,
+                            activeChar.sede,
+                            activeChar.cansaco,
+                            activeChar.clima,
+                            climateProficiency,
+                            activeChar.bonusProficiencias?.["Acurácia"] || 0,
+                            activeChar.efeitosNegativos || [],
+                            activeChar.sanidadeAtual,
+                            getSanidadeMaxima(activeChar.stats.MEN)
+                          );
+                          rollDice(8, 3, diceBonus + acuraciaBonus, "3d8 (Acurácia)");
+                        }}
+                        className="flex flex-col items-center group cursor-pointer"
+                      >
+                        <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
+                          <DiceImage
+                            sides={8}
+                            fileName="3d8.png"
+                            className="w-12 h-12 object-contain group-hover:scale-110 transition-transform"
+                          />
+                          <div className="absolute -top-1 -right-1 bg-amber-500 text-zinc-950 text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">
+                            3d8
+                          </div>
                         </div>
-                      </div>
-                      <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">
-                        3d8
-                      </span>
-                    </motion.button>
+                        <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">
+                          3d8
+                        </span>
+                      </motion.button>
+                    )}
 
                     {/* Fome e Sede Roll */}
-                    <motion.button
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => rollDice(0, 0, 0, "Fome e Sede")}
-                      className="flex flex-col items-center group"
-                    >
-                      <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
-                        <div className="flex gap-1">
-                          <Utensils size={20} className="text-amber-500" />
-                          <Droplets size={20} className="text-blue-500" />
+                    {activeChar && (
+                      <motion.button
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => rollDice(0, 0, 0, "Fome e Sede")}
+                        className="flex flex-col items-center group cursor-pointer"
+                      >
+                        <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
+                          <div className="flex gap-1">
+                            <Utensils size={20} className="text-amber-500" />
+                            <Droplets size={20} className="text-blue-500" />
+                          </div>
+                          <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">
+                            SURV
+                          </div>
                         </div>
-                        <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">
-                          SURV
-                        </div>
-                      </div>
-                      <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">
-                        Fome & Sede
-                      </span>
-                    </motion.button>
+                        <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">
+                          Fome & Sede
+                        </span>
+                      </motion.button>
+                    )}
 
                     {/* Cansaço Roll */}
-                    <motion.button
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => rollDice(0, 0, 0, "Cansaço")}
-                      className="flex flex-col items-center group"
-                    >
-                      <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
-                        <Battery size={24} className="text-yellow-500" />
-                        <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">
-                          SURV
+                    {activeChar && (
+                      <motion.button
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => rollDice(0, 0, 0, "Cansaço")}
+                        className="flex flex-col items-center group cursor-pointer"
+                      >
+                        <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
+                          <Battery size={24} className="text-yellow-500" />
+                          <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">
+                            SURV
+                          </div>
                         </div>
-                      </div>
-                      <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">
-                        Cansaço
-                      </span>
-                    </motion.button>
+                        <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">
+                          Cansaço
+                        </span>
+                      </motion.button>
+                    )}
                   </div>
 
                   {/* Controls Bar - Moved below dice grid */}
@@ -8606,12 +9255,16 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                             ) as HTMLInputElement;
                             const sides = parseInt(sidesInput?.value) || 20;
                             const name = nameInput?.value || `d${sides}`;
-                            updateChar({
-                              dadosCustomizados: [
-                                ...(activeChar.dadosCustomizados || []),
-                                { id: generateId(), lados: sides, nome: name },
-                              ],
-                            });
+                            if (activeChar) {
+                              updateChar({
+                                dadosCustomizados: [
+                                  ...(activeChar.dadosCustomizados || []),
+                                  { id: generateId(), lados: sides, nome: name },
+                                ],
+                              });
+                            } else {
+                              showToast("Selecione uma ficha para salvar dados personalizados.", "info");
+                            }
                             if (nameInput) nameInput.value = "";
                           }}
                           className="h-10 px-4 bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-zinc-950 rounded-md transition-all flex items-center gap-2 font-bold text-xs uppercase"
@@ -8740,659 +9393,6 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
           const renderOtherPages = () => {
             return activePage === "dice" ? (
               renderDiceContent()
-            ) : false ? (
-              !activeChar ? (
-                <div className="flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto h-[60vh]">
-                  <Sword size={48} className="text-zinc-600 mb-4 animate-pulse" />
-                  <h3 className="text-lg font-bold text-zinc-300 mb-2">Nenhum Personagem Selecionado</h3>
-                  <p className="text-zinc-500 text-sm mb-6">Você precisa criar ou selecionar um personagem na aba "Ficha" para rolar dados de combate.</p>
-                  <motion.button
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setActivePage("sheet")}
-                    className="px-6 py-2 bg-amber-500 text-zinc-950 font-bold rounded-lg hover:bg-amber-400 transition-colors text-sm cursor-pointer"
-                  >
-                    Ir para Ficha
-                  </motion.button>
-                </div>
-              ) : (
-                <div className="flex flex-col h-full w-full max-w-5xl mx-auto bg-zinc-950">
-            {/* Tabs Header */}
-            <div className="flex border-b border-zinc-800 bg-zinc-900/10">
-              <motion.button
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setDiceTab("mesa")}
-                className={cn(
-                  "flex-1 py-4 text-sm font-bold uppercase tracking-widest transition-all relative",
-                  diceTab === "mesa"
-                    ? "text-amber-500"
-                    : "text-zinc-500 hover:text-zinc-300",
-                )}
-              >
-                Mesa
-                {diceTab === "mesa" && (
-                  <motion.div
-                    layoutId="diceTab"
-                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500"
-                  />
-                )}
-              </motion.button>
-              <motion.button
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setDiceTab("historico")}
-                className={cn(
-                  "flex-1 py-4 text-sm font-bold uppercase tracking-widest transition-all relative",
-                  diceTab === "historico"
-                    ? "text-amber-500"
-                    : "text-zinc-500 hover:text-zinc-300",
-                )}
-              >
-                Histórico
-                {diceTab === "historico" && (
-                  <motion.div
-                    layoutId="diceTab"
-                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500"
-                  />
-                )}
-              </motion.button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
-              {diceTab === "mesa" ? (
-                <div className="space-y-8 pb-24">
-                  {/* Armas do Personagem */}
-                  <SubSection
-                    title="Combate (Acerto & Dano)"
-                    icon={<Sword size={14} />}
-                    defaultCollapsed={true}
-                  >
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
-                      {(activeChar.armas || []).map((arma, aIdx) => {
-                        const statMap: Record<string, keyof Stats> = {
-                          Força: "FOR",
-                          Destreza: "DEX",
-                          Inteligência: "INT",
-                          Ritual: "RIT",
-                        };
-                        const statKey = statMap[arma.atributoBase || "Força"];
-                        const statValue = activeChar.stats[statKey] || 0;
-                        const scalingBonus = calculateWeaponDamageBonus(
-                          arma as any,
-                          statValue,
-                        );
-
-                        const acuraciaBonus = calculateProficiencyBonus(
-                          activeChar.stats,
-                          "Acurácia",
-                          ["FOR", "DEX"],
-                          activeChar.fome,
-                          activeChar.sede,
-                          activeChar.cansaco,
-                          activeChar.clima,
-                          climateProficiency,
-                          activeChar.bonusProficiencias?.["Acurácia"] || 0,
-                          activeChar.efeitosNegativos || [],
-                          activeChar.sanidadeAtual,
-                          getSanidadeMaxima(activeChar.stats.MEN)
-                        );
-
-                        const totalHit = (acuraciaBonus || 0);
-                        const weaponAcerto = (arma.acerto || 0);
-                        let displayDano = arma.dano || "1d6";
-                        if (arma.categoria === 'Arma de Fogo') {
-                          if (arma.magazineAmmo && arma.magazineAmmo.length > 0) {
-                            displayDano = arma.magazineAmmo[0].dano || "1d6";
-                          } else {
-                            const loadedBullet = (activeChar.compartimentos || [])
-                              .filter((c: any) => !c.externo)
-                              .flatMap((c: any) => (c.itens || []))
-                              .find((i: any) => i.id === arma.bulletId);
-                            if (loadedBullet && loadedBullet.dano) {
-                              displayDano = loadedBullet.dano;
-                            } else {
-                              displayDano = "Falta Bala";
-                            }
-                          }
-                        }
-                        const danoStr = displayDano.toLowerCase().replace(/\s+/g, "");
-
-                        return (
-                          <motion.button
-                            key={`${arma.id}-${aIdx}`}
-                            whileTap={{ scale: 0.98 }}
-                            onClick={() => rollCombat(arma, diceBonus)}
-                            className="flex flex-col gap-3 p-4 bg-zinc-900/40 border border-zinc-800 rounded-xl hover:border-amber-500/30 transition-all text-left relative group overflow-hidden"
-                          >
-                            <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-100 transition-opacity">
-                              <Sword size={24} className="text-amber-500" />
-                            </div>
-
-                            <div className="flex flex-col">
-                              <span className="text-xs font-black text-amber-500 uppercase tracking-tighter truncate pr-8">
-                                {arma.nome}
-                              </span>
-                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
-                                <span className="text-[9px] text-zinc-500 font-bold uppercase">
-                                  {arma.categoria !== 'Arma de Fogo' ? (
-                                    <>Escala {arma.escala || "0"} • {arma.atributoBase} • </>
-                                  ) : null}
-                                  Acerto Arma: {weaponAcerto}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800/50">
-                              <div className="flex flex-col">
-                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">
-                                  Bônus Acerto
-                                </span>
-                                <span className="text-xs font-black text-amber-500">
-                                  +{totalHit}
-                                </span>
-                                <span className="text-[7px] text-zinc-600 uppercase font-bold">
-                                  Acurácia +{acuraciaBonus}
-                                </span>
-                              </div>
-                              <div className="flex flex-col">
-                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">
-                                  Dano
-                                </span>
-                                <span className="text-xs font-black text-zinc-300">
-                                  {danoStr}{arma.categoria !== 'Arma de Fogo' && (scalingBonus > 0 ? `+${scalingBonus}` : scalingBonus < 0 ? scalingBonus : "")}
-                                </span>
-                                {arma.categoria !== 'Arma de Fogo' && (
-                                  <span className="text-[7px] text-zinc-600 uppercase font-bold">
-                                    Escala +{scalingBonus}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="pt-2 border-t border-zinc-800/50 flex items-center justify-between">
-                              <span className="text-[10px] font-black text-amber-500/80 uppercase tracking-widest flex items-center gap-1">
-                                Rolar <Plus size={10} />
-                              </span>
-                            </div>
-                          </motion.button>
-                        );
-                      })}
-                      {!activeChar.armas?.length && !activeChar.magias?.length && (
-                        <div className="col-span-full py-4 text-center text-zinc-600 text-[10px] font-bold uppercase italic border border-dashed border-zinc-800 rounded-xl">
-                          Nenhum ataque ou magia disponível
-                        </div>
-                      )}
-                      
-                      {/* Magias do Personagem */}
-                      {(activeChar.magias || []).map((spell, sIdx) => {
-                        const acuraciaBonus = calculateProficiencyBonus(
-                          activeChar.stats,
-                          "Acurácia",
-                          ["FOR", "DEX"],
-                          activeChar.fome,
-                          activeChar.sede,
-                          activeChar.cansaco,
-                          activeChar.clima,
-                          climateProficiency,
-                          activeChar.bonusProficiencias?.["Acurácia"] || 0,
-                          activeChar.efeitosNegativos || [],
-                          activeChar.sanidadeAtual,
-                          getSanidadeMaxima(activeChar.stats.MEN)
-                        );
-
-                        const totalHit = (acuraciaBonus || 0);
-                        const spellAcerto = (spell.acerto || 0);
-                        const danoStr = (spell.dano || "1d6").toLowerCase().replace(/\s+/g, "");
-                        
-                        const catalyst = activeChar.catalisadores?.[0];
-                        const catalystBonus = catalyst ? (calculateWeaponDamageBonus(catalyst as any, activeChar.stats.INT) || 0) : 0;
-
-                        return (
-                          <motion.button
-                            key={`${spell.id}-${sIdx}`}
-                            whileTap={{ scale: 0.98 }}
-                            onClick={() => rollSpell(spell, diceBonus)}
-                            className="flex flex-col gap-3 p-4 bg-indigo-900/10 border border-indigo-900/30 rounded-xl hover:border-indigo-500/50 transition-all text-left relative group overflow-hidden"
-                          >
-                            <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-100 transition-opacity">
-                              <Zap size={24} className="text-indigo-400" />
-                            </div>
-
-                            <div className="flex flex-col">
-                              <span className="text-xs font-black text-indigo-400 uppercase tracking-tighter truncate pr-8">
-                                {spell.nome}
-                              </span>
-                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
-                                <span className="text-[9px] text-zinc-500 font-bold uppercase">
-                                  {spell.escola} • Acerto Magia: {spellAcerto} • Mana: {spell.mana}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800/50">
-                              <div className="flex flex-col">
-                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">
-                                  Bônus Acerto
-                                </span>
-                                <span className="text-xs font-black text-indigo-400">
-                                  +{totalHit}
-                                </span>
-                                <span className="text-[7px] text-zinc-600 uppercase font-bold">
-                                  Acurácia +{acuraciaBonus}
-                                </span>
-                              </div>
-                              <div className="flex flex-col">
-                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">
-                                  Dano
-                                </span>
-                                <span className="text-xs font-black text-zinc-300">
-                                  {danoStr}{catalystBonus > 0 ? `+${catalystBonus}` : catalystBonus < 0 ? catalystBonus : ""}
-                                </span>
-                                <span className="text-[7px] text-zinc-600 uppercase font-bold text-indigo-900/70">
-                                  Catalisador +{catalystBonus}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="pt-2 border-t border-zinc-800/50 flex items-center justify-between">
-                              <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-1">
-                                Conjurar <Zap size={10} />
-                              </span>
-                            </div>
-                          </motion.button>
-                        );
-                      })}
-                    </div>
-                  </SubSection>
-
-                  {/* Dice Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
-                    {[
-                      { sides: 4, img: "d4.png" },
-                      { sides: 6, img: "d6.png" },
-                      { sides: 8, img: "d8.png" },
-                      { sides: 10, img: "d10.png" },
-                      { sides: 12, img: "d12.png" },
-                      { sides: 20, img: "d20.png" },
-                      { sides: 100, img: "d100.png" },
-                    ].map((dice) => (
-                      <motion.button
-                        whileTap={{ scale: 0.95 }}
-                        key={`d${dice.sides}`}
-                        onClick={() =>
-                          rollDice(dice.sides, diceQuantity, diceBonus)
-                        }
-                        className="flex flex-col items-center group"
-                      >
-                        <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
-                          <DiceImage
-                            sides={dice.sides}
-                            fileName={dice.img}
-                            className="w-12 h-12 object-contain group-hover:scale-110 transition-transform"
-                          />
-                        </div>
-                        <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">
-                          d{dice.sides}
-                        </span>
-                      </motion.button>
-                    ))}
-
-                    {/* Special 3d8 Preset */}
-                    <motion.button
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => {
-                        const acuraciaBonus = calculateProficiencyBonus(
-                          activeChar.stats,
-                          "Acurácia",
-                          ["FOR", "DEX"],
-                          activeChar.fome,
-                          activeChar.sede,
-                          activeChar.cansaco,
-                          activeChar.clima,
-                          climateProficiency,
-                          activeChar.bonusProficiencias?.["Acurácia"] || 0,
-                          activeChar.efeitosNegativos || [],
-                          activeChar.sanidadeAtual,
-                          getSanidadeMaxima(activeChar.stats.MEN)
-                        );
-                        rollDice(8, 3, diceBonus + acuraciaBonus, "3d8");
-                      }}
-                      className="flex flex-col items-center group"
-                    >
-                      <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
-                        <DiceImage
-                          sides={8}
-                          fileName="3d8.png"
-                          className="w-12 h-12 object-contain group-hover:scale-110 transition-transform"
-                        />
-                        <div className="absolute -top-1 -right-1 bg-amber-500 text-zinc-950 text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">
-                          3d8
-                        </div>
-                      </div>
-                      <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">
-                        3d8
-                      </span>
-                    </motion.button>
-
-                    {/* Fome e Sede Roll */}
-                    <motion.button
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => rollDice(0, 0, 0, "Fome e Sede")}
-                      className="flex flex-col items-center group"
-                    >
-                      <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
-                        <div className="flex gap-1">
-                          <Utensils size={20} className="text-amber-500" />
-                          <Droplets size={20} className="text-blue-500" />
-                        </div>
-                        <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">
-                          SURV
-                        </div>
-                      </div>
-                      <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">
-                        Fome & Sede
-                      </span>
-                    </motion.button>
-
-                    {/* Cansaço Roll */}
-                    <motion.button
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => rollDice(0, 0, 0, "Cansaço")}
-                      className="flex flex-col items-center group"
-                    >
-                      <div className="w-20 h-20 mb-3 flex items-center justify-center relative bg-zinc-900/50 border border-zinc-800 rounded-2xl group-hover:border-amber-500/50 transition-all shadow-lg group-active:scale-95">
-                        <Battery size={24} className="text-yellow-500" />
-                        <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-sm">
-                          SURV
-                        </div>
-                      </div>
-                      <span className="text-xs font-black text-zinc-400 uppercase tracking-tighter">
-                        Cansaço
-                      </span>
-                    </motion.button>
-                  </div>
-
-                  {/* Controls Bar - Moved below dice grid */}
-                  <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 flex items-center justify-center gap-8">
-                    <div className="flex flex-col items-center gap-1">
-                      <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
-                        Quantidade
-                      </span>
-                      <div className="flex items-center gap-3">
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() =>
-                            setDiceQuantity(Math.max(1, diceQuantity - 1))
-                          }
-                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
-                        >
-                          <Minus size={16} />
-                        </motion.button>
-                        <span className="text-xl font-black text-amber-500 min-w-[2ch] text-center">
-                          {diceQuantity}
-                        </span>
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() =>
-                            setDiceQuantity(Math.min(99, diceQuantity + 1))
-                          }
-                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
-                        >
-                          <Plus size={16} />
-                        </motion.button>
-                      </div>
-                    </div>
-
-                    <div className="w-px h-8 bg-zinc-800" />
-
-                    <div className="flex flex-col items-center gap-1">
-                      <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
-                        Bônus
-                      </span>
-                      <div className="flex items-center gap-3">
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => setDiceBonus(diceBonus - 1)}
-                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
-                        >
-                          <Minus size={16} />
-                        </motion.button>
-                        <span className="text-xl font-black text-amber-500 min-w-[3ch] text-center">
-                          {diceBonus > 0 ? "+" : ""}
-                          {diceBonus}
-                        </span>
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => setDiceBonus(diceBonus + 1)}
-                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
-                        >
-                          <Plus size={16} />
-                        </motion.button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Custom Dice Section */}
-                  {activeChar.dadosCustomizados &&
-                    activeChar.dadosCustomizados.length > 0 && (
-                      <SubSection
-                        title="Dados Personalizados"
-                        icon={<Dices size={14} />}
-                        defaultCollapsed={false}
-                      >
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-2">
-                          {activeChar.dadosCustomizados.map((dice) => (
-                            <div key={dice.id} className="relative group">
-                              <motion.button
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() =>
-                                  rollDice(
-                                    dice.lados,
-                                    diceQuantity,
-                                    diceBonus,
-                                    dice.nome,
-                                  )
-                                }
-                                className="w-full flex flex-col items-center justify-center p-4 bg-zinc-900/30 border border-zinc-800 rounded-xl hover:border-amber-500/30 transition-all"
-                              >
-                                <Dices
-                                  size={24}
-                                  className="text-amber-500/50 mb-2"
-                                />
-                                <span className="text-[10px] font-bold text-zinc-400 uppercase truncate w-full text-center">
-                                  {dice.nome}
-                                </span>
-                              </motion.button>
-                              <motion.button
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() =>
-                                  updateChar({
-                                    dadosCustomizados:
-                                      activeChar.dadosCustomizados.filter(
-                                        (d) => d.id !== dice.id,
-                                      ),
-                                  })
-                                }
-                                className="absolute -top-1 -right-1 p-1 bg-zinc-950 border border-zinc-800 text-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-all"
-                              >
-                                <Trash2 size={10} />
-                              </motion.button>
-                            </div>
-                          ))}
-                        </div>
-                      </SubSection>
-                    )}
-
-                  {/* Create Custom Dice */}
-                  <SubSection
-                    title="Novo Dado"
-                    icon={<Plus size={14} />}
-                    defaultCollapsed={true}
-                  >
-                    <div className="bg-zinc-900/20 border border-zinc-800/50 rounded-xl p-4 mt-2">
-                      <div className="flex flex-wrap gap-4 items-end">
-                        <div className="flex-1 min-w-[120px]">
-                          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-                            Lados
-                          </label>
-                          <input
-                            type="number"
-                            id="new-dice-sides-v2"
-                            className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-amber-500 font-bold text-center"
-                            defaultValue={20}
-                          />
-                        </div>
-                        <div className="flex-1 min-w-[120px]">
-                          <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-                            Nome (Opcional)
-                          </label>
-                          <input
-                            type="text"
-                            id="new-dice-name-v2"
-                            className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500 transition-all text-zinc-300"
-                            placeholder="Ex: Dado de Sorte"
-                          />
-                        </div>
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => {
-                            const sidesInput = document.getElementById(
-                              "new-dice-sides-v2",
-                            ) as HTMLInputElement;
-                            const nameInput = document.getElementById(
-                              "new-dice-name-v2",
-                            ) as HTMLInputElement;
-                            const sides = parseInt(sidesInput?.value) || 20;
-                            const name = nameInput?.value || `d${sides}`;
-                            updateChar({
-                              dadosCustomizados: [
-                                ...(activeChar.dadosCustomizados || []),
-                                { id: generateId(), lados: sides, nome: name },
-                              ],
-                            });
-                            if (nameInput) nameInput.value = "";
-                          }}
-                          className="h-10 px-4 bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-zinc-950 rounded-md transition-all flex items-center gap-2 font-bold text-xs uppercase"
-                        >
-                          <Plus size={16} /> Adicionar
-                        </motion.button>
-                      </div>
-                    </div>
-                  </SubSection>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {diceHistory.length > 0 && (
-                    <div className="flex justify-end">
-                      <motion.button
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => setDiceHistory([])}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-[10px] font-bold uppercase transition-all"
-                      >
-                        <Trash2 size={14} /> Limpar Histórico
-                      </motion.button>
-                    </div>
-                  )}
-                  <div className="space-y-3">
-                    {diceHistory.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-20 text-zinc-600">
-                        <History size={48} className="mb-4 opacity-20" />
-                        <p className="text-sm font-medium">
-                          Nenhuma rolagem recente
-                        </p>
-                      </div>
-                    ) : (
-                      diceHistory.map((roll, idx) => (
-                        <motion.div
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          key={roll.id}
-                          className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-3 group space-y-2"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className={cn(
-                                "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold",
-                                roll.isCombat && roll.hitSucceeded === false ? "bg-zinc-800 text-zinc-500" : "bg-zinc-800 text-amber-500"
-                              )}>
-                                {roll.isCombat ? roll.hitResult : roll.result}
-                              </div>
-                              <div>
-                                <div className="text-[10px] font-bold text-zinc-300 uppercase">
-                                  {roll.isCombat ? roll.armaNome : (roll.formula || `d${roll.result}`)}
-                                </div>
-                                <div className="text-[9px] text-zinc-600">
-                                  {new Date(roll.timestamp).toLocaleTimeString(
-                                    [],
-                                    { hour: "2-digit", minute: "2-digit" },
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                            {roll.isCombat ? (
-                              <div className="flex flex-col items-end gap-1">
-                                {roll.hitSucceeded !== false && (
-                                  <div className="bg-amber-500/10 px-2 py-1 rounded text-amber-500 text-[10px] font-black uppercase leading-none">
-                                    {roll.dmgResult} Dano
-                                  </div>
-                                )}
-                                <div className={cn(
-                                  "px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider leading-none",
-                                  roll.hitSucceeded === false 
-                                    ? (getDetailedCombatTitle(roll).includes("defendeu") ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20")
-                                    : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                                )}>
-                                  {getDetailedCombatTitle(roll)}
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
-
-                          <div className="text-[9px] text-zinc-400/80 leading-tight">
-                            {roll.isCombat ? (
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-1 opacity-70">
-                                  <span className="font-bold">Acerto:</span>
-                                  <span>{roll.hitFormula}</span>
-                                  <span className="text-zinc-500">[{roll.hitRolls?.join(', ')}]</span>
-                                </div>
-                                {roll.hitSucceeded !== false && (
-                                  <>
-                                    <div className="flex items-center gap-1 opacity-70">
-                                      <span className="font-bold">Dano:</span>
-                                      <span>{roll.dmgFormula}</span>
-                                      <span className="text-zinc-500">[{roll.dmgRolls?.join(', ')}]</span>
-                                    </div>
-                                    {roll.hitLocation && (
-                                      <div className="flex items-center gap-1 opacity-70">
-                                        <span className="font-bold">Local:</span>
-                                        <span className="text-amber-500/80">{roll.hitLocation}</span>
-                                      </div>
-                                    )}
-                                  </>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-1 opacity-70">
-                                <span>{roll.formula}</span>
-                                {roll.rolls && roll.rolls.length > 0 && (
-                                  <span className="text-zinc-500">[{roll.rolls.join(', ')}]</span>
-                                )}
-                                {roll.bonus !== 0 && (
-                                  <span className="text-amber-500/60">{roll.bonus! > 0 ? '+' : ''}{roll.bonus}</span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </motion.div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Bottom Controls Bar - REMOVED (Moved to top) */}
-                </div>
-              )
             ) : activePage === "notes" ? (
           !activeChar ? (
             <div className="flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto h-[60vh]">
@@ -9608,7 +9608,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                     Biblioteca de Personagens
                   </h2>
                   <p className="text-zinc-500 text-sm">
-                    {state.characters.filter(char => !user || !char.userId || char.userId === user.uid).length} personagem(ns) sincronizados com a nuvem.
+                    {state.characters.filter(char => !user || !char.userId || char.userId === user.uid || (user.email && char.userEmail === user.email)).length} personagem(ns) sincronizados com a nuvem.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -9645,7 +9645,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {state.characters.filter(char => !user || !char.userId || char.userId === user.uid).map((char) => (
+                {state.characters.filter(char => !user || !char.userId || char.userId === user.uid || (user.email && char.userEmail === user.email)).map((char) => (
                   <motion.div
                     key={char.id}
                     layoutId={char.id}
@@ -9753,16 +9753,20 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                                   clearTimeout(syncTimersRef.current[char.id]);
                                   delete syncTimersRef.current[char.id];
                                 }
-                                if (user) deleteCharacterFromFirestore(char.id);
+                                deleteCharacterFromFirestore(char.id);
                                 setState(prev => {
                                   const filtered = prev.characters.filter(c => c.id !== char.id);
                                   const newDirtyIds = (prev.dirtyCharacterIds || []).filter(id => id !== char.id);
-                                  return {
+                                  const nextState = {
                                     ...prev,
                                     characters: filtered,
                                     activeCharacterId: filtered.length > 0 ? filtered[0].id : "",
                                     dirtyCharacterIds: newDirtyIds
                                   };
+                                  try {
+                                    safeLocalStorageSetItem(STORAGE_KEY, JSON.stringify(nextState));
+                                  } catch (e) {}
+                                  return nextState;
                                 });
                                 showToast("Personagem removido.", "info");
                                 setCharIdToDelete(null);
@@ -9847,9 +9851,9 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                         const reader = new FileReader();
                         reader.onloadend = async () => {
                           try {
-                            // Compressing to fit Firestore limit (1MB total for doc)
-                            // 1280px at 0.8 is a good compromise for quality vs size
-                            const compressed = await compressImageDataUrl(reader.result as string, 1280, 0.8);
+                            // Compressing to fit Firestore limit and storage quota
+                            // 800px at 0.7 gives excellent fidelity while preserving storage
+                            const compressed = await compressImageDataUrl(reader.result as string, 800, 0.7);
                             const newImg = {
                               id: generateId(),
                               url: compressed,
@@ -9937,25 +9941,47 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                 
                 {!user ? (
                   <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl text-center w-full max-w-sm md:w-auto">
-                    <Shield size={32} className="mx-auto text-zinc-700 mb-4" />
-                    <p className="text-zinc-400 mb-4">Você precisa estar logado para usar o Modo Mestre.</p>
-                    <div className="flex flex-col gap-3">
+                    <Shield size={32} className="mx-auto text-amber-500 mb-4" />
+                    <p className="text-zinc-300 font-bold mb-1">Acesso ao Modo Mestre</p>
+                    <p className="text-zinc-500 text-xs mb-4">Informe seu e-mail e senha para conectar e gerenciar suas fichas e campanhas.</p>
+                    <div className="flex flex-col gap-2.5">
                       <button 
-                        onClick={loginWithGoogle}
-                        className="px-6 py-2 bg-amber-500 text-zinc-950 font-bold rounded-lg hover:bg-amber-400 transition-colors w-full"
+                        type="button"
+                        onClick={() => { setAuthMode('login'); setModalAuthError(null); setIsAuthModalOpen(true); }}
+                        className="px-6 py-2.5 bg-amber-500 text-zinc-950 font-black rounded-xl hover:bg-amber-400 transition-all w-full text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg"
                       >
-                        Entrar com Google
+                        <LogIn size={16} /> Entrar na Conta (E-mail e Senha)
                       </button>
                       <button 
-                        onClick={loginAsGuest}
-                        className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-lg transition-colors w-full text-xs"
+                        type="button"
+                        onClick={() => { setAuthMode('set_password'); setModalAuthError(null); setIsAuthModalOpen(true); }}
+                        className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-zinc-700 font-bold rounded-xl transition-all w-full text-xs flex items-center justify-center gap-2 cursor-pointer"
                       >
-                        Usar como Convidado (Modo Offline)
+                        <Lock size={16} /> Criar / Trocar Senha
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={loginAsGuest}
+                        className="px-4 py-1.5 bg-transparent hover:bg-zinc-800/50 text-zinc-500 hover:text-zinc-300 font-medium rounded-lg transition-colors w-full text-[11px] cursor-pointer mt-1"
+                      >
+                        Usar Modo Convidado (Offline)
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full md:w-auto">
+                  <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full md:w-auto items-center">
+                    <div className="bg-zinc-900/80 border border-zinc-800 px-3 py-1.5 rounded-xl flex items-center gap-2 text-xs text-zinc-400">
+                      <UserIcon size={14} className="text-amber-500" />
+                      <span className="truncate max-w-[150px] font-medium">{user.email || user.displayName}</span>
+                      <button
+                        type="button"
+                        onClick={() => { setAuthEmail(user.email || ""); setAuthMode('set_password'); setModalAuthError(null); setIsAuthModalOpen(true); }}
+                        className="text-[10px] text-amber-400 hover:underline font-bold ml-1 cursor-pointer"
+                        title="Cadastrar ou alterar senha para esta conta"
+                      >
+                        Criar/Trocar Senha
+                      </button>
+                    </div>
                     <div className="flex gap-2 flex-1 sm:flex-none">
                        <input 
                          type="text" 
@@ -9966,23 +9992,29 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                        />
                        <button 
                          onClick={async () => {
-                           if (false) {
-                             showToast("Selecione uma ficha para vincular à campanha.", "error");
-                             return;
-                           }
                            if (!inviteCodeInput.trim()) {
                              showToast("Por favor, digite o código de convite da campanha.", "error");
                              return;
                            }
                            try {
-                             await joinCampaign(inviteCodeInput.trim(), user?.email || "");
-                             showToast("Você entrou na campanha!", "success");
+                             const joinedCampId = await joinCampaign(inviteCodeInput.trim(), user?.email || "");
+                             if (activeChar) {
+                               try {
+                                 await linkCharacterToCampaign(joinedCampId, activeChar);
+                                 showToast(`Você entrou na campanha e vinculou a ficha "${activeChar.nome}"!`, "success");
+                               } catch (e) {
+                                 showToast("Você entrou na campanha!", "success");
+                               }
+                             } else {
+                               showToast("Você entrou na campanha!", "success");
+                             }
+                             setActiveCampaignIdWithSync(joinedCampId);
                              setInviteCodeInput("");
                            } catch (err: any) {
                              showToast(err.message, "error");
                            }
                          }}
-                         className="whitespace-nowrap px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors text-xs uppercase"
+                         className="whitespace-nowrap px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors text-xs uppercase cursor-pointer"
                        >
                          Entrar
                        </button>
@@ -10471,7 +10503,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                         <UserIcon size={12} /> Campanhas que Participo
                       </h3>
                       <div className="space-y-2">
-                        {joinedCampaigns.filter(camp => camp.masterId !== user?.uid).map(camp => (
+                        {joinedCampaigns.filter(camp => (camp.masterEmail?.toLowerCase() !== user?.email?.toLowerCase()) && camp.masterId !== user?.uid).map(camp => (
                           <div
                             key={camp.id}
                             className={cn(
@@ -10539,7 +10571,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                           );
                         })}
 
-                        {joinedCampaigns.filter(camp => camp.masterId !== user?.uid).length === 0 && orphanedCampaignIds.length === 0 && (
+                        {joinedCampaigns.filter(camp => (camp.masterEmail?.toLowerCase() !== user?.email?.toLowerCase()) && camp.masterId !== user?.uid).length === 0 && orphanedCampaignIds.length === 0 && (
                           <div className="text-center py-8 bg-zinc-900/50 border border-dashed border-zinc-800 rounded-2xl">
                              <p className="text-[10px] text-zinc-600 font-bold uppercase">Nenhuma campanha vinculada</p>
                           </div>
@@ -10549,62 +10581,136 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                   </div>
 
                   {/* Fichas na Campanha */}
-                  <div className="lg:col-span-8">
-                    <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest px-1">Fichas na Selecionada</h3>
+                  <div className="lg:col-span-8 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest px-1">Fichas na Campanha Selecionada</h3>
+                      {activeCampaignId && (
+                        <span className="text-[10px] text-zinc-500 font-bold bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded-full">
+                          {campaignCharacters.length} {campaignCharacters.length === 1 ? "ficha" : "fichas"}
+                        </span>
+                      )}
+                    </div>
+
                     {activeCampaignId && campaigns.some(c => c.id === activeCampaignId) ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {campaignCharacters.map(char => (
-                          <div 
-                            key={char.id}
-                            className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex items-center justify-between group hover:border-purple-500/50 transition-all overflow-hidden"
-                          >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="shrink-0 w-12 h-12 bg-zinc-800 rounded-lg overflow-hidden flex items-center justify-center">
-                                {char.imagem ? (
-                                  <img src={char.imagem} className="w-full h-full object-cover" />
-                                ) : (
-                                  <UserIcon size={24} className="text-zinc-600" />
-                                )}
-                              </div>
-                              <div className="min-w-0">
-                                <h4 className="font-bold text-white leading-none mb-1 truncate">{char.nome}</h4>
-                                {char.userEmail && (
-                                  <p className="text-[9px] text-zinc-500 font-medium truncate mb-1">{char.userEmail}</p>
-                                )}
-                                <div className="flex gap-2">
-                                  <span className="text-[10px] bg-red-500/10 text-red-400 px-1.5 rounded font-bold">PV: {char.vidaAtual}</span>
-                                  <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 rounded font-bold">PM: {char.manaAtual}</span>
-                                </div>
-                              </div>
+                      <div className="space-y-4">
+                        {/* Barra para vincular ficha pessoal à mesa */}
+                        {state.characters.length > 0 && (
+                          <div className="bg-zinc-950 p-3.5 rounded-2xl border border-zinc-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-inner">
+                            <div className="flex items-center gap-2">
+                              <UserPlus size={16} className="text-blue-500 shrink-0" />
+                              <span className="text-xs font-bold text-zinc-200">Vincular ficha a esta mesa:</span>
                             </div>
-                            <button 
-                              onClick={() => {
-                                // Master opening player's character
-                                setState(prev => {
-                                  const exists = prev.characters.find(c => c.id === char.id);
-                                  if (exists) {
-                                    return { ...prev, activeCharacterId: char.id };
-                                  } else {
-                                    return { 
-                                      ...prev, 
-                                      characters: [...prev.characters, char],
-                                      activeCharacterId: char.id
-                                    };
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={charToLinkCampaignId}
+                                onChange={(e) => setCharToLinkCampaignId(e.target.value)}
+                                className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                              >
+                                <option value="">Selecione uma das suas fichas...</option>
+                                {state.characters.map(c => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.nome} {campaignCharacters.some(cc => cc.id === c.id) ? "(Já na mesa)" : ""}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const char = state.characters.find(c => c.id === charToLinkCampaignId);
+                                  if (!char) {
+                                    showToast("Selecione um personagem para vincular.", "error");
+                                    return;
                                   }
-                                });
-                                setActivePage("sheet");
-                              }}
-                              className="shrink-0 opacity-0 group-hover:opacity-100 p-2 bg-purple-600 text-white rounded-lg transition-all text-[10px] font-bold uppercase whitespace-nowrap"
-                            >
-                              Ver/Editar
-                            </button>
-                          </div>
-                        ))}
-                        {campaignCharacters.length === 0 && (
-                          <div className="col-span-full py-12 text-center text-zinc-600 italic text-sm">
-                            Nenhum jogador vinculado a esta campanha ainda.
+                                  try {
+                                    await linkCharacterToCampaign(activeCampaignId, char);
+                                    updateChar({ campaignId: activeCampaignId }, char.id);
+                                    showToast(`Ficha "${char.nome}" vinculada à campanha com sucesso!`, "success");
+                                    setCharToLinkCampaignId("");
+                                  } catch (err: any) {
+                                    showToast(err.message || "Erro ao vincular ficha.", "error");
+                                  }
+                                }}
+                                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold uppercase transition-all whitespace-nowrap cursor-pointer shadow-md"
+                              >
+                                Vincular
+                              </button>
+                            </div>
                           </div>
                         )}
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {campaignCharacters.map(char => (
+                            <div 
+                              key={char.id}
+                              className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex items-center justify-between group hover:border-purple-500/50 transition-all overflow-hidden shadow-lg"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="shrink-0 w-12 h-12 bg-zinc-800 rounded-lg overflow-hidden flex items-center justify-center border border-zinc-700/50">
+                                  {char.imagem ? (
+                                    <img src={char.imagem} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <UserIcon size={24} className="text-zinc-600" />
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <h4 className="font-bold text-white leading-none mb-1 truncate">{char.nome}</h4>
+                                  {char.userEmail && (
+                                    <p className="text-[9px] text-zinc-500 font-medium truncate mb-1">{char.userEmail}</p>
+                                  )}
+                                  <div className="flex gap-2">
+                                    <span className="text-[10px] bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded font-bold">PV: {char.vidaAtual}</span>
+                                    <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded font-bold">PM: {char.manaAtual}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button 
+                                  onClick={() => {
+                                    setState(prev => {
+                                      const exists = prev.characters.find(c => c.id === char.id);
+                                      if (exists) {
+                                        return { ...prev, activeCharacterId: char.id };
+                                      } else {
+                                        return { 
+                                          ...prev, 
+                                          characters: [...prev.characters, char],
+                                          activeCharacterId: char.id
+                                        };
+                                      }
+                                    });
+                                    setActivePage("sheet");
+                                  }}
+                                  className="p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-all text-[10px] font-bold uppercase whitespace-nowrap cursor-pointer shadow"
+                                  title="Ver ou editar a ficha"
+                                >
+                                  Ver/Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      await unlinkCharacterFromCampaign(activeCampaignId, char.id);
+                                      updateChar({ campaignId: "" }, char.id);
+                                      showToast(`Ficha "${char.nome}" desvinculada da campanha.`, "success");
+                                    } catch (err: any) {
+                                      showToast(err.message || "Erro ao desvincular.", "error");
+                                    }
+                                  }}
+                                  className="p-2 text-zinc-500 hover:text-red-400 hover:bg-zinc-800 rounded-lg transition-all cursor-pointer"
+                                  title="Desvincular ficha desta campanha"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                          {campaignCharacters.length === 0 && (
+                            <div className="col-span-full py-12 text-center text-zinc-500 italic text-sm bg-zinc-950/40 border border-dashed border-zinc-800 rounded-2xl p-6">
+                              Nenhuma ficha vinculada a esta mesa ainda. Use a caixa acima para vincular uma ficha!
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/10 border border-dashed border-zinc-800 rounded-3xl">
@@ -10689,10 +10795,10 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
             {activeCampaignId ? (
               <VTTBoard 
                 campaignId={activeCampaignId}
-                isMaster={!!(activeCampaignId && campaigns.some(c => c.id === activeCampaignId && c.masterId === user?.uid))}
+                isMaster={!!(activeCampaignId && campaigns.some(c => c.id === activeCampaignId && ((c.masterEmail && c.masterEmail.toLowerCase() === user?.email?.toLowerCase()) || (c.masterId && c.masterId === user?.uid))))}
                 tokens={tokens}
                 config={tableConfig}
-                availableCharacters={campaignCharacters}
+                availableCharacters={vttAvailableCharacters}
                 activeCharacterId={activeChar?.id || null}
                 customMaterials={customMaterials}
                 onAddToken={(t) => addToken(activeCampaignId, t)}
@@ -10702,6 +10808,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                 onUpdateCharacter={updateChar}
                 renderCharacterSheet={renderSheetContent}
                 renderDiceContent={renderDiceContent}
+                onRollResult={handleRollResult}
                 isVttSheetOpen={isVttSheetOpen}
                 setIsVttSheetOpen={setIsVttSheetOpen}
               />
@@ -10784,6 +10891,578 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
       </div>
     </div>
   )}
+
+  {/* Pop-up Modal de Resultado de Rolagem (Dados e Combate) */}
+  <AnimatePresence>
+    {lastRoll && (
+      <div 
+        id="roll-result-popup-overlay"
+        className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150"
+        onClick={() => setLastRoll(null)}
+      >
+        <motion.div
+          id="roll-result-popup-card"
+          initial={{ scale: 0.9, opacity: 0, y: 12 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          exit={{ scale: 0.9, opacity: 0, y: 12 }}
+          onClick={(e) => e.stopPropagation()}
+          className="bg-zinc-950 border border-amber-500/40 p-5 sm:p-6 rounded-2xl max-w-md w-full shadow-2xl space-y-4 font-sans relative overflow-hidden"
+        >
+          {/* Atmospheric subtle glow */}
+          <div className="absolute -top-10 -right-10 w-28 h-28 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
+
+          {/* Cabeçalho */}
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-500 shrink-0">
+                {lastRoll.isCombat ? <Sword size={18} /> : <Dices size={18} />}
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-black text-amber-500 uppercase tracking-wider truncate">
+                  {lastRoll.isCombat
+                    ? (getDetailedCombatTitle(lastRoll) || lastRoll.armaNome || "Resultado de Combate")
+                    : "Resultado da Rolagem"}
+                </h3>
+                {lastRoll.isCombat && (lastRoll.armaNome || lastRoll.attackerName) && (
+                  <span className="text-[11px] text-zinc-400 font-bold block truncate">
+                    {lastRoll.attackerName ? `${lastRoll.attackerName} • ` : ""}{lastRoll.armaNome || ""}{lastRoll.targetName ? ` vs ${lastRoll.targetName}` : ""}
+                  </span>
+                )}
+              </div>
+            </div>
+            <button
+              id="close-roll-popup-btn"
+              type="button"
+              onClick={() => setLastRoll(null)}
+              className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer shrink-0 ml-2"
+              title="Fechar"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Conteúdo da Rolagem */}
+          {lastRoll.isCombat ? (
+            <div className="space-y-3">
+              {/* Acerto e Dano */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 flex flex-col items-center justify-center text-center">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">
+                    Acerto (3d8)
+                  </span>
+                  <span className="text-2xl font-black text-amber-400 my-0.5">
+                    {lastRoll.hitResult ?? lastRoll.result}
+                  </span>
+                  <span className="text-[11px] text-zinc-400 font-mono">
+                    {lastRoll.hitRolls && lastRoll.hitRolls.length > 0
+                      ? `[${lastRoll.hitRolls.join(", ")}]${lastRoll.hitBonus !== undefined && lastRoll.hitBonus !== 0 ? (lastRoll.hitBonus > 0 ? ` +${lastRoll.hitBonus}` : ` ${lastRoll.hitBonus}`) : ""}`
+                      : (lastRoll.hitFormula || "")}
+                  </span>
+                </div>
+
+                <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 flex flex-col items-center justify-center text-center">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">
+                    Dano
+                  </span>
+                  <span className="text-2xl font-black text-red-400 my-0.5">
+                    {lastRoll.dmgResult ?? (lastRoll.damage !== undefined ? lastRoll.damage : "-")}
+                  </span>
+                  <span className="text-[11px] text-zinc-400 font-mono">
+                    {lastRoll.dmgRolls && lastRoll.dmgRolls.length > 0
+                      ? `[${lastRoll.dmgRolls.join(", ")}]${lastRoll.dmgBonus !== undefined && lastRoll.dmgBonus !== 0 ? (lastRoll.dmgBonus > 0 ? ` +${lastRoll.dmgBonus}` : ` ${lastRoll.dmgBonus}`) : ""}`
+                      : (lastRoll.dmgFormula || "")}
+                  </span>
+                </div>
+              </div>
+
+              {/* Local do Golpe e Informações Adicionais */}
+              <div className="bg-zinc-900/50 border border-zinc-800/80 rounded-xl p-3 space-y-1.5 text-xs">
+                {lastRoll.hitLocation && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-400 font-medium">Local do Golpe:</span>
+                    <span className="font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                      {lastRoll.hitLocation}
+                    </span>
+                  </div>
+                )}
+                {lastRoll.defenseResult !== undefined && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-400 font-medium">Defesa do Alvo:</span>
+                    <span className="font-mono text-zinc-300">
+                      {lastRoll.defenseRolls && lastRoll.defenseRolls.length > 0 ? `[${lastRoll.defenseRolls.join(", ")}] = ` : ""}{lastRoll.defenseResult}
+                    </span>
+                  </div>
+                )}
+                {lastRoll.combatNote && (
+                  <div className="pt-1.5 border-t border-zinc-800 text-[11px] text-zinc-400 italic">
+                    {lastRoll.combatNote}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-4 flex flex-col items-center justify-center text-center">
+                <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">
+                  Resultado
+                </span>
+                <div className="w-16 h-16 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-3xl font-black text-amber-400 shadow-inner mb-2">
+                  {lastRoll.result}
+                </div>
+                <div className="text-xs font-bold text-zinc-300">
+                  {lastRoll.formula}
+                </div>
+                {lastRoll.rolls && lastRoll.rolls.length > 0 && (
+                  <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-1 font-mono">
+                    <span>Dados:</span>
+                    <span className="text-amber-400">[{lastRoll.rolls.join(", ")}]</span>
+                    {lastRoll.bonus !== 0 && (
+                      <span className="text-zinc-500">
+                        {lastRoll.bonus! > 0 ? `+${lastRoll.bonus}` : lastRoll.bonus} (bônus)
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Botões de Ação */}
+          <div className="flex items-center gap-2 pt-1">
+            {!lastRoll.isCombat && lastRoll.sides && (
+              <button
+                id="repeat-roll-btn"
+                type="button"
+                onClick={() => {
+                  rollDice(lastRoll.sides || 20, diceQuantity, diceBonus, "Rolagem Repetida");
+                }}
+                className="flex-1 py-2.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-200 border border-zinc-800 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <RotateCw size={14} />
+                Rolar Novamente
+              </button>
+            )}
+            <button
+              id="close-roll-modal-btn"
+              type="button"
+              onClick={() => setLastRoll(null)}
+              className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1 cursor-pointer"
+            >
+              Fechar
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    )}
+  </AnimatePresence>
+
+  {/* Modal de Autenticação (E-mail, Senha, Google, Convidado) */}
+  <AnimatePresence>
+    {isAuthModalOpen && (
+      <div 
+        className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+        onClick={() => setIsAuthModalOpen(false)}
+      >
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.95, opacity: 0 }}
+          onClick={(e) => e.stopPropagation()}
+          className="bg-zinc-950 border border-zinc-800 p-6 rounded-2xl max-w-md w-full shadow-2xl space-y-5 font-sans relative"
+        >
+          {/* Botão Fechar */}
+          <button
+            type="button"
+            onClick={() => setIsAuthModalOpen(false)}
+            className="absolute top-4 right-4 p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
+          >
+            <X size={20} />
+          </button>
+
+          {/* Cabeçalho */}
+          <div className="text-center space-y-1">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-500 mb-2">
+              <Shield size={24} />
+            </div>
+            <h3 className="text-xl font-black text-amber-500 uppercase tracking-tight">
+              {authMode === 'login' 
+                ? "Acessar Conta" 
+                : authMode === 'set_password' 
+                ? "Criar / Trocar Senha" 
+                : "Redefinir Senha"}
+            </h3>
+            <p className="text-xs text-zinc-400">
+              {authMode === 'login' 
+                ? "Digite seu e-mail e senha para acessar sua conta com segurança" 
+                : authMode === 'set_password'
+                ? "Cadastre ou atualize a senha para proteger sua conta"
+                : "Enviaremos um e-mail para redefinição"}
+            </p>
+          </div>
+
+
+
+          {/* Abas Alternar Login / Senha */}
+          {authMode !== 'reset' ? (
+            <div className="grid grid-cols-2 p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
+              <button
+                type="button"
+                onClick={() => { setAuthMode('login'); setModalAuthError(null); }}
+                className={cn(
+                  "py-2 text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5",
+                  authMode === 'login' 
+                    ? "bg-amber-500 text-zinc-950 shadow-md" 
+                    : "text-zinc-400 hover:text-white"
+                )}
+              >
+                <LogIn size={14} /> Entrar
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAuthMode('set_password'); setModalAuthError(null); }}
+                className={cn(
+                  "py-2 text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5",
+                  authMode === 'set_password' 
+                    ? "bg-amber-500 text-zinc-950 shadow-md" 
+                    : "text-zinc-400 hover:text-white"
+                )}
+              >
+                <Lock size={14} /> Criar Conta / Senha
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => { setAuthMode('login'); setModalAuthError(null); }}
+              className="text-xs text-amber-400 hover:underline flex items-center justify-center gap-1 cursor-pointer mx-auto"
+            >
+              ← Voltar para o Login
+            </button>
+          )}
+
+          {/* Erro de Autenticação */}
+          {modalAuthError && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs font-medium text-amber-300 text-center animate-in fade-in leading-relaxed">
+              {modalAuthError}
+            </div>
+          )}
+
+          {/* Formulário */}
+          <form onSubmit={handleAuthSubmit} className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                Seu E-mail *
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
+                  <Mail size={16} />
+                </div>
+                <input
+                  type="email"
+                  required
+                  placeholder="seu.email@exemplo.com"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                />
+              </div>
+            </div>
+
+            {authMode !== 'reset' && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                  Nome / Apelido (Opcional)
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
+                    <UserIcon size={16} />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Seu nome de jogador"
+                    value={authDisplayName}
+                    onChange={(e) => setAuthDisplayName(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+            )}
+
+            {authMode === 'login' && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                    Senha de Acesso *
+                  </label>
+                </div>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
+                    <Lock size={16} />
+                  </div>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    required
+                    placeholder="Digite sua senha"
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-10 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {authMode === 'set_password' && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                    Senha Desejada (Mínimo 6 dígitos) *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => { setAuthMode('reset'); setModalAuthError(null); }}
+                    className="text-[10px] text-amber-500 hover:underline cursor-pointer font-semibold"
+                  >
+                    Esqueci minha senha
+                  </button>
+                </div>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
+                    <Lock size={16} />
+                  </div>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    required
+                    placeholder="Mínimo 6 caracteres"
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-10 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={authSubmitting}
+              className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-amber-500/50 text-zinc-950 font-black rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer shadow-lg flex items-center justify-center gap-2 mt-2"
+            >
+              {authSubmitting ? (
+                <>
+                  <RefreshCwIcon size={16} className="animate-spin" />
+                  <span>Processando...</span>
+                </>
+              ) : (
+                <>
+                  {authMode === 'login' ? <LogIn size={16} /> : authMode === 'set_password' ? <Lock size={16} /> : <Mail size={16} />}
+                  <span>
+                    {authMode === 'login' 
+                      ? "Entrar na Conta" 
+                      : authMode === 'set_password' 
+                      ? (user ? "Atualizar Senha" : "Criar Conta / Salvar Senha")
+                      : "Enviar E-mail de Redefinição"}
+                  </span>
+                </>
+              )}
+            </button>
+          </form>
+
+
+        </motion.div>
+      </div>
+    )}
+  </AnimatePresence>
+
+  {/* Modal de Importar / Exportar Tudo (Backup Completo) */}
+  <AnimatePresence>
+    {showFullBackupModal && (
+      <div 
+        className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+        onClick={() => setShowFullBackupModal(false)}
+      >
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.95, opacity: 0 }}
+          onClick={(e) => e.stopPropagation()}
+          className="bg-zinc-950 border border-zinc-800 p-6 rounded-2xl max-w-xl w-full shadow-2xl space-y-5 font-sans relative max-h-[90vh] overflow-y-auto"
+        >
+          {/* Botão Fechar */}
+          <button
+            type="button"
+            onClick={() => setShowFullBackupModal(false)}
+            className="absolute top-4 right-4 p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
+          >
+            <X size={20} />
+          </button>
+
+          {/* Cabeçalho */}
+          <div className="flex items-center gap-3 border-b border-zinc-800/80 pb-4">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-500 shrink-0">
+              <Archive size={22} />
+            </div>
+            <div>
+              <h3 className="text-lg font-black text-amber-500 uppercase tracking-tight">
+                Importar & Exportar Tudo
+              </h3>
+              <p className="text-xs text-zinc-400">
+                Backup completo de todas as suas fichas, campanhas, monstros, materiais e customizações
+              </p>
+            </div>
+          </div>
+
+          {/* Abas */}
+          <div className="grid grid-cols-2 gap-1 bg-zinc-900/80 p-1 rounded-xl border border-zinc-800/80">
+            <button
+              type="button"
+              onClick={() => setBackupModalTab('export')}
+              className={cn(
+                "py-2.5 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer",
+                backupModalTab === 'export' ? "bg-amber-500 text-zinc-950 shadow-md" : "text-zinc-400 hover:text-white"
+              )}
+            >
+              <Download size={16} />
+              Exportar Tudo
+            </button>
+            <button
+              type="button"
+              onClick={() => setBackupModalTab('import')}
+              className={cn(
+                "py-2.5 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer",
+                backupModalTab === 'import' ? "bg-amber-500 text-zinc-950 shadow-md" : "text-zinc-400 hover:text-white"
+              )}
+            >
+              <Upload size={16} />
+              Importar Tudo
+            </button>
+          </div>
+
+          {/* Aba EXPORTAR */}
+          {backupModalTab === 'export' && (
+            <div className="space-y-4 pt-1">
+              <div className="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-zinc-300">Conteúdo do Backup:</span>
+                  <span className="text-[11px] text-amber-400 font-mono font-bold">
+                    {state.characters.length} fichas • {campaigns.length} campanhas • {bestiaryMonsters.length} monstros
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs text-zinc-400">
+                  <div className="p-2.5 bg-zinc-950/70 border border-zinc-850 rounded-lg">
+                    <span className="block text-[10px] text-zinc-500 uppercase font-black">Fichas</span>
+                    <strong className="text-sm text-zinc-200">{state.characters.length}</strong>
+                  </div>
+                  <div className="p-2.5 bg-zinc-950/70 border border-zinc-850 rounded-lg">
+                    <span className="block text-[10px] text-zinc-500 uppercase font-black">Campanhas</span>
+                    <strong className="text-sm text-zinc-200">{campaigns.length}</strong>
+                  </div>
+                  <div className="p-2.5 bg-zinc-950/70 border border-zinc-850 rounded-lg">
+                    <span className="block text-[10px] text-zinc-500 uppercase font-black">Bestiário</span>
+                    <strong className="text-sm text-zinc-200">{bestiaryMonsters.length}</strong>
+                  </div>
+                  <div className="p-2.5 bg-zinc-950/70 border border-zinc-850 rounded-lg">
+                    <span className="block text-[10px] text-zinc-500 uppercase font-black">Materiais</span>
+                    <strong className="text-sm text-zinc-200">{customMaterials.length}</strong>
+                  </div>
+                  <div className="p-2.5 bg-zinc-950/70 border border-zinc-850 rounded-lg col-span-2 sm:col-span-2">
+                    <span className="block text-[10px] text-zinc-500 uppercase font-black">Customizações</span>
+                    <strong className="text-sm text-zinc-200">Itens, Magias, Toca & Notas</strong>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Gera um arquivo de backup seguro contendo todos os dados da sua conta para você salvar no seu dispositivo e restaurar quando quiser.
+              </p>
+
+              <button
+                type="button"
+                onClick={exportAllUserData}
+                className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Download size={18} />
+                Baixar Arquivo de Backup Completo
+              </button>
+            </div>
+          )}
+
+          {/* Aba IMPORTAR */}
+          {backupModalTab === 'import' && (
+            <div className="space-y-4 pt-1">
+              <div className="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-xl space-y-3">
+                <label className="block text-xs font-bold text-zinc-300">
+                  Selecione o arquivo de Backup
+                </label>
+                <label className="w-full py-6 border-2 border-dashed border-zinc-700 hover:border-amber-500/60 bg-zinc-950/60 rounded-xl flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors group">
+                  <div className="w-10 h-10 rounded-full bg-amber-500/10 group-hover:bg-amber-500/20 text-amber-400 flex items-center justify-center transition-colors">
+                    <Upload size={20} />
+                  </div>
+                  <span className="text-xs font-bold text-zinc-300 group-hover:text-amber-400 transition-colors">
+                    Clique para escolher o arquivo de backup do seu dispositivo
+                  </span>
+                  <span className="text-[11px] text-zinc-500">
+                    Compatível com backups completos, listas de fichas ou fichas individuais
+                  </span>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept=".json"
+                    onChange={handleFullBackupFileInput}
+                  />
+                </label>
+              </div>
+
+              {/* Colar JSON Opcional */}
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setPasteFullBackupText(prev => prev ? "" : " ")}
+                  className="text-xs font-bold text-zinc-400 hover:text-amber-400 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <Terminal size={14} />
+                  {pasteFullBackupText ? "Ocultar área de texto JSON" : "Ou colar texto JSON diretamente"}
+                </button>
+
+                {pasteFullBackupText !== "" && (
+                  <div className="space-y-2 animate-in fade-in duration-150">
+                    <textarea
+                      value={pasteFullBackupText.trim()}
+                      onChange={(e) => setPasteFullBackupText(e.target.value)}
+                      placeholder='Cole o conteúdo do seu arquivo .json aqui...'
+                      rows={4}
+                      className="w-full p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-xs font-mono text-zinc-200 focus:outline-none focus:border-amber-500 transition-colors"
+                    />
+                    <button
+                      type="button"
+                      disabled={isImportingAll || !pasteFullBackupText.trim()}
+                      onClick={() => processImportAllJson(pasteFullBackupText.trim())}
+                      className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      {isImportingAll ? <RefreshCwIcon size={14} className="animate-spin" /> : <Upload size={14} />}
+                      {isImportingAll ? "Processando..." : "Importar JSON Colado"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </motion.div>
+      </div>
+    )}
+  </AnimatePresence>
 </div>
 );
 }
