@@ -3670,7 +3670,7 @@ function App() {
 
       const fullBackup = {
         app: "Demons Despair RPG",
-        version: "1.12.43",
+        version: "1.13.49",
         exportDate: new Date().toISOString(),
         user: {
           uid: user?.uid || null,
