@@ -202,7 +202,7 @@ async function startServer() {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3000);
         const start = Date.now();
-        const headers: Record<string, string> = { "User-Agent": "DemonsDespair/1.14" };
+        const headers: Record<string, string> = { "User-Agent": "DemonsDespair/1.14.3" };
         if (anonKey) headers["apikey"] = anonKey;
 
         const healthRes = await fetch(`${testUrl}/auth/v1/health`, {

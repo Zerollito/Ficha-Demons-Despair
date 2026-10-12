@@ -46,20 +46,18 @@ export const saveCharacterToSupabase = async (character: Character) => {
     return;
   }
 
-  const targetUserId = auth.currentUser?.uid || userEmail;
-
   console.log(`💾 [Supabase] Salvando ficha para ${userEmail}: ${character.nome} (${character.id})`);
 
   try {
     const cleanCharacter = deepClean(character);
-    cleanCharacter.userId = targetUserId;
+    delete (cleanCharacter as any).userId;
     cleanCharacter.userEmail = userEmail;
 
     const { error } = await supabase
       .from(CHARACTERS_TABLE)
       .upsert({
         id: character.id,
-        user_id: targetUserId,
+        user_id: userEmail,
         user_email: userEmail,
         campaign_id: character.campaignId || null,
         data: cleanCharacter,
@@ -257,7 +255,7 @@ export const subscribeToUserCharacters = (
 
         const char = { ...docData, ...charData } as Character;
         if (!char.userEmail && docData.user_email) char.userEmail = docData.user_email;
-        if (!char.userId && docData.user_id) char.userId = docData.user_id;
+        delete (char as any).userId;
 
         if (char.id && !blacklist.has(char.id) && (char.nome !== undefined || (char as any).atributos !== undefined)) {
           characters.push(char);

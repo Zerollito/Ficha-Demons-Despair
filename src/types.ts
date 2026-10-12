@@ -261,7 +261,7 @@ export interface TocaCreature {
 
 export interface Character {
   id: string;
-  userId: string;
+  userId?: string;
   userEmail?: string;
   campaignId?: string;
   isRemoteSynced?: boolean;

@@ -1944,11 +1944,51 @@ export const auth = {
         console.warn("⚠️ [Supabase] Sign out on cloud failed, clearing local state anyway:", err);
       }
     }
+
+    // Salva cópia de segurança das fichas do usuário na chave da própria conta antes de deslogar
+    if (currentAuthUser?.email) {
+      try {
+        const cleanEmail = currentAuthUser.email.trim().toLowerCase();
+        const mainCharsRaw = localStorage.getItem('rpg_system_x_chars');
+        if (mainCharsRaw) {
+          const parsed = JSON.parse(mainCharsRaw);
+          if (parsed && Array.isArray(parsed.characters)) {
+            const userOnly = parsed.characters.filter((c: any) => {
+              const cEmail = (c.userEmail || c.user_email || '').trim().toLowerCase();
+              return cEmail === cleanEmail || c.userId === currentAuthUser.uid;
+            });
+            localStorage.setItem('rpg_chars_account_' + cleanEmail, JSON.stringify(userOnly));
+          }
+        }
+      } catch (e) {}
+    }
+
     currentAuthUser = null;
     localStorage.removeItem('supabase_auth_user');
-    
-    // Preserve local characters and tables so switching login methods (Google -> Email) preserves user data!
-    console.log("⚡ [Supabase Local] Sessão finalizada. Dados locais preservados.");
+
+    // Limpa da chave ativa 'rpg_system_x_chars' as fichas da conta registrada para que
+    // um jogador que entre sem login NÃO veja as fichas da conta anterior!
+    try {
+      const mainCharsRaw = localStorage.getItem('rpg_system_x_chars');
+      if (mainCharsRaw) {
+        const parsed = JSON.parse(mainCharsRaw);
+        if (parsed && Array.isArray(parsed.characters)) {
+          const guestOnly = parsed.characters.filter((c: any) => {
+            const cEmail = (c.userEmail || c.user_email || '').trim().toLowerCase();
+            const cUid = c.userId || c.user_id || '';
+            return (!cEmail || cEmail.startsWith('guest_')) && (!cUid || String(cUid).startsWith('guest_'));
+          });
+          const cleanState = {
+            ...parsed,
+            characters: guestOnly,
+            activeCharacterId: guestOnly.length > 0 ? guestOnly[0].id : ''
+          };
+          localStorage.setItem('rpg_system_x_chars', JSON.stringify(cleanState));
+        }
+      }
+    } catch (e) {}
+
+    console.log("⚡ [Supabase Local] Sessão finalizada. Dados da conta preservados e sessão de convidado limpa.");
 
     window.location.reload();
   }
@@ -1996,8 +2036,8 @@ export const loginWithGoogle = async () => {
     console.log("⚡ [Supabase] Guest login generated instantly (no Supabase URL configured).");
     const mockUser = {
       uid: 'guest_user_' + Math.random().toString(36).substring(2, 11),
-      email: 'mestre.demons@gmail.com',
-      displayName: 'Mestre Hefesto (Offline)'
+      email: '',
+      displayName: 'Convidado (Offline)'
     };
     currentAuthUser = mockUser;
     localStorage.setItem('supabase_auth_user', JSON.stringify(mockUser));
@@ -2351,8 +2391,8 @@ export const loginAsGuest = async () => {
   console.log("⚡ [Supabase] Guest/Offline login initiated.");
   const mockUser = {
     uid: 'guest_user_' + Math.random().toString(36).substring(2, 11),
-    email: 'mestre.demons@gmail.com',
-    displayName: 'Mestre Hefesto (Offline)'
+    email: '',
+    displayName: 'Convidado (Offline)'
   };
   currentAuthUser = mockUser;
   localStorage.setItem('supabase_auth_user', JSON.stringify(mockUser));

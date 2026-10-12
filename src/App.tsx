@@ -205,6 +205,23 @@ function cn(...inputs: ClassValue[]) {
 
 const STORAGE_KEY = "rpg_system_x_chars";
 
+// Função utilitária para verificar se uma ficha pertence ao usuário logado ou se é anônima/guest
+export const isCharacterOwnedByCurrentUser = (char: Character, currentUser: any | null): boolean => {
+  if (!char) return false;
+  const charEmail = (char.userEmail || (char as any).user_email || '').trim().toLowerCase();
+  const isGuestEmail = !charEmail || charEmail.startsWith('guest_');
+
+  if (currentUser && currentUser.email) {
+    const userEmail = (currentUser.email || '').trim().toLowerCase();
+    const isSameEmail = Boolean(userEmail && charEmail && userEmail === charEmail);
+    return isSameEmail || isGuestEmail;
+  }
+
+  // Se o usuário NÃO está logado (!currentUser):
+  // Ele SÓ tem permissão para visualizar fichas anônimas/de convidado (guest).
+  return isGuestEmail;
+};
+
 // Using generateId from lib/random
 
 // Utility for parsing and rolling complex dice formulas like 1d20+2d12+5
@@ -599,15 +616,36 @@ function App() {
 
   const [state, setState] = useState<AppState>(() => {
     const saved = safeLocalStorageGetItem(STORAGE_KEY) || (typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null);
+    const savedUserRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('supabase_auth_user') : null;
+    let initialUser: any = null;
+    if (savedUserRaw) {
+      try { initialUser = JSON.parse(savedUserRaw); } catch (e) {}
+    }
+
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === "object" && Array.isArray(parsed.characters)) {
           const blacklist = deletedCharsRef.current;
-          parsed.characters = parsed.characters
+          let chars = parsed.characters
             .filter((c: any) => c && c.id && !blacklist.has(c.id))
             .map(sanitizeCharacter);
-          // Initialize dirtyCharacterIds if missing
+
+          // Isolamento imediato: se não há usuário logado no storage, nunca carregar fichas de usuários registrados
+          if (!initialUser || (!initialUser.uid && !initialUser.email)) {
+            chars = chars.filter((c: Character) => isCharacterOwnedByCurrentUser(c, null));
+          } else {
+            chars = chars.filter((c: Character) => isCharacterOwnedByCurrentUser(c, initialUser));
+          }
+
+          if (chars.length === 0) {
+            chars = [createEmptyCharacter()];
+          }
+
+          parsed.characters = chars;
+          if (!chars.some((c: Character) => c.id === parsed.activeCharacterId)) {
+            parsed.activeCharacterId = chars[0]?.id || "";
+          }
           if (!parsed.dirtyCharacterIds) {
             parsed.dirtyCharacterIds = [];
           }
@@ -1047,24 +1085,7 @@ function App() {
     };
     window.addEventListener('supabase_connection_mixed_content_error', handleMixedContentError);
 
-    // Auto-teste inicial da conexão com o Supabase ao carregar
-    testSupabaseConnection().then(res => {
-      if (res.success) {
-        setIsSupabaseConnected(true);
-      }
-    }).catch(() => {});
-
-    // Retentativas automáticas periódicas a cada 15 segundos se o app estiver offline ou em CACHE_ONLY
-    const retryInterval = setInterval(() => {
-      testSupabaseConnection().then(res => {
-        if (res.success) {
-          setIsSupabaseConnected(true);
-        }
-      }).catch(() => {});
-    }, 15000);
-
     return () => {
-      clearInterval(retryInterval);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('supabase_connection_status_changed', handleStatusChange);
@@ -1188,12 +1209,7 @@ function App() {
 
         // Filter and adopt only characters that belong to this account or are genuinely unowned guests
         const userCharacters = prev.characters.filter(char => {
-          const charEmailLower = (char.userEmail || '').trim().toLowerCase();
-          const isSameEmail = Boolean(userEmailLower && charEmailLower && userEmailLower === charEmailLower);
-          const isSameUid = Boolean(char.userId && char.userId === user.uid);
-          const isUnownedGuest = (!charEmailLower || charEmailLower.startsWith('guest_')) && (!char.userId || char.userId.startsWith('guest_'));
-          
-          return isSameEmail || isSameUid || isUnownedGuest;
+          return isCharacterOwnedByCurrentUser(char, user);
         }).map(char => {
           const charEmailLower = (char.userEmail || '').trim().toLowerCase();
           const isUnownedGuest = (!charEmailLower || charEmailLower.startsWith('guest_')) && (!char.userId || char.userId.startsWith('guest_'));
@@ -1208,6 +1224,21 @@ function App() {
         });
 
         let finalChars = userCharacters;
+
+        // Se não tem fichas reais, tenta primeiro restaurar da chave privada da conta salva no logout
+        if (!finalChars.some(c => c.nome && c.nome !== 'Novo Personagem') && userEmailLower) {
+          try {
+            const accountSavedRaw = localStorage.getItem('rpg_chars_account_' + userEmailLower);
+            if (accountSavedRaw) {
+              const parsed = JSON.parse(accountSavedRaw);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                console.log(`⚡ [Account Restore] Restauradas ${parsed.length} fichas do cache da conta: ${userEmailLower}`);
+                finalChars = parsed.map(sanitizeCharacter);
+              }
+            }
+          } catch (e) {}
+        }
+
         const hasRealChars = finalChars.some(c => c.nome && c.nome !== 'Novo Personagem');
         if (!hasRealChars) {
           const rescued = rescueAllLocalCharacters();
@@ -1239,6 +1270,27 @@ function App() {
           characters: finalChars,
           activeCharacterId: finalChars.length > 0 ? (finalChars.some(c => c.id === prev.activeCharacterId) ? prev.activeCharacterId : finalChars[0].id) : "",
           dirtyCharacterIds: prev.dirtyCharacterIds || []
+        };
+      });
+    } else {
+      // Quando o jogador NÃO está logado (!user):
+      // Isolamento estrito de conta: remove imediatamente qualquer ficha de usuários registrados.
+      // Jogador não logado só tem acesso a fichas anônimas/convidado (guest) ou uma nova ficha limpa!
+      setState(prev => {
+        const guestChars = prev.characters.filter(char => isCharacterOwnedByCurrentUser(char, null));
+        let finalChars = guestChars;
+        if (finalChars.length === 0) {
+          finalChars = [createEmptyCharacter()];
+        }
+        const activeId = finalChars.some(c => c.id === prev.activeCharacterId)
+          ? prev.activeCharacterId
+          : finalChars[0].id;
+
+        return {
+          ...prev,
+          characters: finalChars,
+          activeCharacterId: activeId,
+          dirtyCharacterIds: []
         };
       });
     }
@@ -1615,6 +1667,16 @@ function App() {
     }
   };
 
+  // Lista de personagens visíveis e permitidos para a conta atual (ou guest se deslogado)
+  const visibleCharacters = useMemo(() => {
+    if (!user) {
+      // Quando não logado: isolamento estrito, exibe apenas fichas de visitante/convidado deste navegador
+      return state.characters.filter(c => isCharacterOwnedByCurrentUser(c, null));
+    }
+    // Quando logado: exibe as fichas pertencentes a este usuário ou fichas anônimas locais adotadas
+    return state.characters.filter(c => isCharacterOwnedByCurrentUser(c, user));
+  }, [state.characters, user]);
+
   const activeChar = useMemo(() => {
     if (tocaEditingCreatureId) {
       for (const parent of state.characters) {
@@ -1646,11 +1708,11 @@ function App() {
         } as unknown as Character;
       }
     }
-    const char = state.characters.find((c) => c.id === state.activeCharacterId);
+    const char = visibleCharacters.find((c) => c.id === state.activeCharacterId);
     if (char) return char;
-    if (state.characters.length > 0) return state.characters[0];
+    if (visibleCharacters.length > 0) return visibleCharacters[0];
     return null;
-  }, [state, tocaEditingCreatureId, bestiaryEditingMonsterId, bestiaryMonsters]);
+  }, [visibleCharacters, state.activeCharacterId, state.characters, tocaEditingCreatureId, bestiaryEditingMonsterId, bestiaryMonsters]);
 
   // Ensure there is at least one character
   useEffect(() => {
@@ -4195,7 +4257,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.1</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.3</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4305,14 +4367,14 @@ function App() {
           <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
             <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
             <div className="w-[1px] h-3 bg-zinc-800" />
-            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.1</span>
+            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.1</span>
           </div>
 
           {/* Quick Active Page Status - desktop only */}
           <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
               <div className="flex flex-col">
                 <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.1</span>
+                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.1</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -4382,43 +4444,7 @@ function App() {
             </div>
           )}
 
-          {/* Character Sync Indicator */}
-          {user && (
-            <div className="flex items-center gap-1">
-              <motion.button
-                whileTap={{ scale: 0.9 }}
-                onClick={forceCloudSync}
-                className={cn(
-                  "flex items-center justify-center w-8 h-8 rounded-lg border transition-all",
-                  ((state.dirtyCharacterIds?.length || 0) > 0 || !isSupabaseConnected) 
-                    ? "bg-blue-500 border-blue-400 text-black shadow-[0_0_15px_rgba(59,130,246,0.4)]" 
-                    : "bg-zinc-800/50 border-zinc-700/50 text-zinc-500 hover:text-amber-500 hover:border-amber-500/30"
-                )}
-                title={!isSupabaseConnected ? "Salvando no Cache (Supabase Indisponível)" : (((state.dirtyCharacterIds?.length || 0) > 0) ? "Sincronizando..." : "Sincronizar")}
-              >
-                <RefreshCwIcon className={cn("w-4 h-4", (((state.dirtyCharacterIds?.length || 0) > 0 || !isSupabaseConnected)) && "animate-spin")} />
-              </motion.button>
-              
-              {((state.dirtyCharacterIds?.length || 0) > 0) && (
-                <button
-                  onClick={() => {
-                    setGlobalConfirm({
-                      title: "Limpar Cache de Sincronização",
-                      message: "Isso irá limpar o cache local e forçar o carregamento total do servidor. Dados não sincronizados serão perdidos. Prosseguir?",
-                      onConfirm: () => {
-                        clearFirestoreCache();
-                        setGlobalConfirm(null);
-                      }
-                    });
-                  }}
-                  className="p-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500/20 transition-colors"
-                  title="Resetar cache de sincronização (Use se estiver travado)"
-                >
-                  <Skull className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-          )}
+
 
           {/* Auth Status & Login Indicator */}
           <motion.button
@@ -4483,101 +4509,13 @@ function App() {
                 }}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 truncate"
               >
-                {state.characters.map((c) => (
+                {visibleCharacters.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.nome}
                   </option>
                 ))}
               </select>
             </div>
-
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={async () => {
-                showToast("Analisando o Supabase e vinculando dados do seu e-mail...", "info");
-                try {
-                  const result = await forceSyncAndRestoreByEmail(user?.email, user?.uid);
-                  if (result.characters && result.characters.length > 0) {
-                    setState(prev => {
-                      const hasReal = result.characters.some((c: any) => c.nome && c.nome !== 'Novo Personagem');
-                      const finalChars = hasReal 
-                        ? result.characters.filter((c: any) => c.nome !== 'Novo Personagem' || result.characters.length === 1) 
-                        : result.characters;
-                      const dirty = new Set(prev.dirtyCharacterIds || []);
-                      finalChars.forEach((c: any) => dirty.add(c.id));
-                      return {
-                        ...prev,
-                        characters: finalChars,
-                        activeCharacterId: finalChars.some((c: any) => c.id === prev.activeCharacterId)
-                          ? prev.activeCharacterId
-                          : (finalChars[0]?.id || ""),
-                        dirtyCharacterIds: Array.from(dirty)
-                      };
-                    });
-                    lastSyncedRef.current = {};
-                    showToast(`Sincronização concluída! ${result.characters.length} ficha(s) vinculada(s) à sua conta.`, "success");
-                  } else {
-                    showToast("Nenhuma ficha detectada no Supabase.", "info");
-                  }
-                  setIsMenuOpen(false);
-                } catch (err) {
-                  console.error("Erro na sincronização:", err);
-                  showToast("Erro ao sincronizar com o Supabase.", "error");
-                }
-              }}
-              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300 cursor-pointer"
-            >
-              <RefreshCwIcon size={18} className="text-blue-500" /> Forçar Sincronização
-            </motion.button>
-
-            {/* Testar / Reconectar Supabase */}
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={async () => {
-                showToast("Testando conexão com o Supabase...", "info");
-                try {
-                  const res = await testSupabaseConnection();
-                  if (res.success) {
-                    setIsSupabaseConnected(true);
-                    showToast(`Supabase Conectado com sucesso! (${res.latency || 0}ms)`, "success");
-                  } else {
-                    showToast(`Supabase Inacessível: ${res.message}`, "error");
-                  }
-                } catch (e: any) {
-                  showToast(`Erro ao testar Supabase: ${e.message}`, "error");
-                }
-                setIsMenuOpen(false);
-              }}
-              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-emerald-400 cursor-pointer"
-            >
-              <Database size={18} className="text-emerald-400" /> Testar Conexão Supabase
-            </motion.button>
-
-            {/* Exportar Tudo (Backup Completo) */}
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={() => {
-                setBackupModalTab('export');
-                setShowFullBackupModal(true);
-                setIsMenuOpen(false);
-              }}
-              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-bold text-amber-400 cursor-pointer"
-            >
-              <Download size={18} className="text-amber-500" /> Exportar Tudo
-            </motion.button>
-
-            {/* Importar Tudo (Restaurar) */}
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={() => {
-                setBackupModalTab('import');
-                setShowFullBackupModal(true);
-                setIsMenuOpen(false);
-              }}
-              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-bold text-amber-400 cursor-pointer"
-            >
-              <Upload size={18} className="text-amber-500" /> Importar Tudo
-            </motion.button>
 
             <div className="my-1 border-t border-zinc-800/60" />
 
@@ -4635,7 +4573,6 @@ function App() {
                 accept=".json"
               />
             </label>
-
 
             <div className="pt-1 border-t border-zinc-800 mt-1">
               <motion.button
@@ -9648,7 +9585,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                     Biblioteca de Personagens
                   </h2>
                   <p className="text-zinc-500 text-sm">
-                    {state.characters.filter(char => !user || !char.userId || char.userId === user.uid || (user.email && char.userEmail === user.email)).length} personagem(ns) sincronizados com a nuvem.
+                    {visibleCharacters.length} personagem(ns) {user ? "sincronizados com a sua conta." : "locais (modo visitante)."}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -9684,8 +9621,32 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                 </div>
               </div>
 
+              {!user && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-500 shrink-0">
+                      <UserIcon size={20} />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-amber-400 uppercase tracking-tight">Modo Visitante (Sem Login)</h4>
+                      <p className="text-xs text-zinc-400">Você está visualizando apenas fichas locais deste navegador. Para acessar suas fichas salvas na nuvem ou sincronizar com o Mestre, faça login na sua conta.</p>
+                    </div>
+                  </div>
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      setModalAuthError(null);
+                      setIsAuthModalOpen(true);
+                    }}
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs uppercase rounded-xl transition-all shadow-md shrink-0 whitespace-nowrap cursor-pointer"
+                  >
+                    Entrar na Conta
+                  </motion.button>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {state.characters.filter(char => !user || !char.userId || char.userId === user.uid || (user.email && char.userEmail === user.email)).map((char) => (
+                {visibleCharacters.map((char) => (
                   <motion.div
                     key={char.id}
                     layoutId={char.id}
@@ -9833,7 +9794,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                 ))}
               </div>
 
-              {state.characters.length === 0 && (
+              {visibleCharacters.length === 0 && (
                 <div className="text-center py-32 bg-zinc-900/20 border-2 border-dashed border-zinc-800 rounded-3xl">
                   <Library size={64} className="mx-auto text-zinc-800 mb-6" />
                   <h3 className="text-xl font-bold text-zinc-400 uppercase tracking-tighter">Sua biblioteca está vazia</h3>
@@ -10634,7 +10595,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                     {activeCampaignId && campaigns.some(c => c.id === activeCampaignId) ? (
                       <div className="space-y-4">
                         {/* Barra para vincular ficha pessoal à mesa */}
-                        {state.characters.length > 0 && (
+                        {visibleCharacters.length > 0 && (
                           <div className="bg-zinc-950 p-3.5 rounded-2xl border border-zinc-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-inner">
                             <div className="flex items-center gap-2">
                               <UserPlus size={16} className="text-blue-500 shrink-0" />
@@ -10647,7 +10608,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                                 className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
                               >
                                 <option value="">Selecione uma das suas fichas...</option>
-                                {state.characters.map(c => (
+                                {visibleCharacters.map(c => (
                                   <option key={c.id} value={c.id}>
                                     {c.nome} {campaignCharacters.some(cc => cc.id === c.id) ? "(Já na mesa)" : ""}
                                   </option>
@@ -10805,7 +10766,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
         ) : activePage === "items" ? (
           <div className="max-w-6xl mx-auto">
             <ItemLibrary 
-              characters={state.characters}
+              characters={visibleCharacters}
               activeCharId={activeChar?.id || null}
               onAddItemToCharacter={handleAddItemToCharacterCompartment}
               showToast={showToast}
@@ -10815,7 +10776,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
         ) : activePage === "spells" ? (
           <div className="max-w-6xl mx-auto">
             <SpellLibrary 
-              characters={state.characters}
+              characters={visibleCharacters}
               activeCharId={activeChar?.id || null}
               onAddSpellToCharacter={handleAddSpellToCharacter}
               showToast={showToast}
