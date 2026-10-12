@@ -1,0 +1,3 @@
+-- Demons Despair RPG
+-- Seed file com codificação UTF-8 sem BOM
+-- O Supabase CLI requer formato UTF-8 para evitar o erro SQLSTATE 08P01.
