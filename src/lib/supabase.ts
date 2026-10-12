@@ -157,14 +157,38 @@ export let hasActiveRealSession = false;
 
 export let isSupabaseConnected = true;
 
+let connectionTimeout: any = null;
+
 export const setSupabaseConnectionState = (connected: boolean) => {
-  if (isSupabaseConnected !== connected) {
-    isSupabaseConnected = connected;
-    console.log(`📡 [Supabase Connection] State changed to: ${connected ? 'CONNECTED' : 'CACHE_ONLY'}`);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('supabase_connection_status_changed', { 
-        detail: { connected } 
-      }));
+  if (connected) {
+    if (connectionTimeout) {
+      clearTimeout(connectionTimeout);
+      connectionTimeout = null;
+    }
+    if (isSupabaseConnected !== true) {
+      isSupabaseConnected = true;
+      console.log(`📡 [Supabase Connection] State changed to: CONNECTED`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('supabase_connection_status_changed', { 
+          detail: { connected: true } 
+        }));
+      }
+    }
+  } else {
+    // Only set to false after a 5 second delay to avoid flickering on transient timeouts
+    if (!connectionTimeout) {
+      connectionTimeout = setTimeout(() => {
+        if (isSupabaseConnected !== false) {
+          isSupabaseConnected = false;
+          console.log(`📡 [Supabase Connection] State changed to: CACHE_ONLY`);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('supabase_connection_status_changed', { 
+              detail: { connected: false } 
+            }));
+          }
+        }
+        connectionTimeout = null;
+      }, 5000);
     }
   }
 };

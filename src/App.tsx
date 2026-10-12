@@ -4573,8 +4573,8 @@ function App() {
             className={cn(
               "flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer",
               user 
-                ? (isSupabaseConnected 
-                    ? (state.dirtyCharacterIds?.length > 0 
+                ? ((isSupabaseConnected || (state.dirtyCharacterIds?.length || 0) > 0)
+                    ? ((state.dirtyCharacterIds?.length || 0) > 0 
                         ? "bg-green-500/20 border-green-500/50" 
                         : "bg-green-500/10 border-green-500/30")
                     : "bg-blue-500/10 border-blue-500/30")
@@ -4588,7 +4588,7 @@ function App() {
               <div className={cn(
                 "w-2.5 h-2.5 rounded-full",
                 user 
-                  ? (isSupabaseConnected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]")
+                  ? ((isSupabaseConnected || (state.dirtyCharacterIds?.length || 0) > 0) ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]")
                   : "bg-amber-500 animate-pulse"
               )} />
             )}
