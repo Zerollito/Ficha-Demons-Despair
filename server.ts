@@ -102,6 +102,17 @@ async function startServer() {
         };
         delete headers['content-length'];
 
+        // Garante que clientes mobile ou de túnel que enviem chave antiga ou vazia usem a anon key JWT padrão do Supabase local
+        const defaultLocalKey = (process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNRebZhBc_4bXn6U").trim();
+        const clientApiKey = (headers['apikey'] as string) || '';
+        if (!clientApiKey || clientApiKey.startsWith('sb_publishable_')) {
+          headers['apikey'] = defaultLocalKey;
+          const authHeader = (headers['authorization'] as string) || '';
+          if (!authHeader || authHeader.includes('sb_publishable_')) {
+            headers['authorization'] = `Bearer ${defaultLocalKey}`;
+          }
+        }
+
         const proxyReq = clientLib.request({
           hostname: parsedTarget.hostname,
           port: parsedTarget.port || (isHttps ? 443 : 80),
@@ -173,42 +184,53 @@ async function startServer() {
 
   // Supabase ping diagnostic endpoint
   app.get("/api/supabase/ping", async (req, res) => {
-    const rawUrl = (req.query.url as string) || process.env.VITE_SUPABASE_URL || "http://127.0.0.1:54321";
-    const anonKey = (req.query.key as string) || process.env.VITE_SUPABASE_ANON_KEY || "";
-    let cleanUrl = rawUrl.trim();
-    if (cleanUrl.endsWith("/")) cleanUrl = cleanUrl.slice(0, -1);
-    if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
-      cleanUrl = "http://" + cleanUrl;
+    const rawUrl = (req.query.url as string) || "";
+    const anonKey = (req.query.key as string) || process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNRebZhBc_4bXn6U";
+    
+    // Tenta primeiro testar a URL solicitada (se fornecida e não for localhost)
+    let candidates = [targetSupabase];
+    if (rawUrl && rawUrl !== targetSupabase) {
+      let clean = rawUrl.trim();
+      if (clean.endsWith("/")) clean = clean.slice(0, -1);
+      if (!clean.startsWith("http://") && !clean.startsWith("https://")) clean = "http://" + clean;
+      candidates = [clean, targetSupabase];
     }
 
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3500);
-      const start = Date.now();
-      const headers: Record<string, string> = { "User-Agent": "DemonsDespair/1.12" };
-      if (anonKey) headers["apikey"] = anonKey;
+    let lastError = "Erro ao conectar com Supabase";
+    for (const testUrl of candidates) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        const start = Date.now();
+        const headers: Record<string, string> = { "User-Agent": "DemonsDespair/1.14" };
+        if (anonKey) headers["apikey"] = anonKey;
 
-      const healthRes = await fetch(`${cleanUrl}/auth/v1/health`, {
-        headers,
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      const latency = Date.now() - start;
+        const healthRes = await fetch(`${testUrl}/auth/v1/health`, {
+          headers,
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        const latency = Date.now() - start;
 
-      return res.json({
-        online: healthRes.ok || healthRes.status < 500,
-        status: healthRes.status,
-        statusText: healthRes.statusText,
-        latency,
-        url: cleanUrl,
-      });
-    } catch (err: any) {
-      return res.json({
-        online: false,
-        error: err.name === "AbortError" ? "Tempo limite de conexão esgotado (timeout 3.5s)" : (err.message || "Erro de rede"),
-        url: cleanUrl,
-      });
+        if (healthRes.ok || healthRes.status < 500) {
+          return res.json({
+            online: true,
+            status: healthRes.status,
+            latency,
+            url: testUrl,
+            hostDirect: testUrl === targetSupabase
+          });
+        }
+      } catch (err: any) {
+        lastError = err.name === "AbortError" ? "Tempo limite esgotado (timeout 3s)" : (err.message || "Erro de rede");
+      }
     }
+
+    return res.json({
+      online: false,
+      error: lastError,
+      url: targetSupabase,
+    });
   });
 
   // Campaign characters persistence store (failsafe across restarts and network disruptions)

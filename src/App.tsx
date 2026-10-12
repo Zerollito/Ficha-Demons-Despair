@@ -1047,7 +1047,24 @@ function App() {
     };
     window.addEventListener('supabase_connection_mixed_content_error', handleMixedContentError);
 
+    // Auto-teste inicial da conexão com o Supabase ao carregar
+    testSupabaseConnection().then(res => {
+      if (res.success) {
+        setIsSupabaseConnected(true);
+      }
+    }).catch(() => {});
+
+    // Retentativas automáticas periódicas a cada 15 segundos se o app estiver offline ou em CACHE_ONLY
+    const retryInterval = setInterval(() => {
+      testSupabaseConnection().then(res => {
+        if (res.success) {
+          setIsSupabaseConnected(true);
+        }
+      }).catch(() => {});
+    }, 15000);
+
     return () => {
+      clearInterval(retryInterval);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('supabase_connection_status_changed', handleStatusChange);
@@ -3670,7 +3687,7 @@ function App() {
 
       const fullBackup = {
         app: "Demons Despair RPG",
-        version: "1.14.0",
+        version: "1.14.1",
         exportDate: new Date().toISOString(),
         user: {
           uid: user?.uid || null,
@@ -4178,7 +4195,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.13.39</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.1</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4288,14 +4305,14 @@ function App() {
           <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
             <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
             <div className="w-[1px] h-3 bg-zinc-800" />
-            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.0</span>
+            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.1</span>
           </div>
 
           {/* Quick Active Page Status - desktop only */}
           <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
               <div className="flex flex-col">
                 <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.0</span>
+                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.1</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -4511,6 +4528,29 @@ function App() {
               className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-zinc-300 cursor-pointer"
             >
               <RefreshCwIcon size={18} className="text-blue-500" /> Forçar Sincronização
+            </motion.button>
+
+            {/* Testar / Reconectar Supabase */}
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={async () => {
+                showToast("Testando conexão com o Supabase...", "info");
+                try {
+                  const res = await testSupabaseConnection();
+                  if (res.success) {
+                    setIsSupabaseConnected(true);
+                    showToast(`Supabase Conectado com sucesso! (${res.latency || 0}ms)`, "success");
+                  } else {
+                    showToast(`Supabase Inacessível: ${res.message}`, "error");
+                  }
+                } catch (e: any) {
+                  showToast(`Erro ao testar Supabase: ${e.message}`, "error");
+                }
+                setIsMenuOpen(false);
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-emerald-400 cursor-pointer"
+            >
+              <Database size={18} className="text-emerald-400" /> Testar Conexão Supabase
             </motion.button>
 
             {/* Exportar Tudo (Backup Completo) */}

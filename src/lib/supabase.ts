@@ -78,8 +78,8 @@ export const getDeterministicUuid = (input: string): string => {
   return `${parts[0]}-${parts[1]}-${parts[2]}-${parts[3]}-${parts[4]}`;
 };
 
-export const DEFAULT_LOCAL_ANON_KEY = "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH";
 export const STANDARD_LOCAL_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNRebZhBc_4bXn6U";
+export const DEFAULT_LOCAL_ANON_KEY = STANDARD_LOCAL_ANON_KEY;
 export const STANDARD_LOCAL_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM7JyUXp7fZ83VvlN-BRwsPIgtcqbyUTR21s-TqF4";
 export const LOCAL_SERVICE_ROLE_KEY = STANDARD_LOCAL_SERVICE_ROLE_KEY;
 
@@ -106,7 +106,16 @@ export const getSupabaseConfig = () => {
     currentUrl = window.location.origin;
   }
 
-  const currentKey = (savedKey || DEFAULT_LOCAL_ANON_KEY).trim();
+  let currentKey = (savedKey || DEFAULT_LOCAL_ANON_KEY).trim();
+  // Se a chave no storage for a antiga chave 'sb_publishable_' ou estiver vazia, substitui pela chave oficial do Supabase local
+  if (!currentKey || currentKey.startsWith('sb_publishable_')) {
+    currentKey = STANDARD_LOCAL_ANON_KEY;
+    if (isBrowser) {
+      try {
+        localStorage.setItem('supabase_custom_anon_key', currentKey);
+      } catch (e) {}
+    }
+  }
 
   return {
     url: normalizeSupabaseUrl(currentUrl),
@@ -117,7 +126,21 @@ export const getSupabaseConfig = () => {
 
 export const isLocalUrl = (url: string) => {
   const u = (url || '').toLowerCase();
-  return u.includes('127.0.0.1') || u.includes('localhost') || u.includes('::1') || u.includes('0.0.0.0') || u.includes('192.168.') || u.includes('10.') || u.includes('ngrok') || u.includes('cloudflare');
+  const isBrowser = typeof window !== 'undefined';
+  const origin = isBrowser ? (window.location.origin || '').toLowerCase() : '';
+  const hostname = isBrowser ? (window.location.hostname || '').toLowerCase() : '';
+  return u.includes('127.0.0.1') || 
+         u.includes('localhost') || 
+         u.includes('::1') || 
+         u.includes('0.0.0.0') || 
+         u.includes('192.168.') || 
+         u.includes('10.') || 
+         u.includes('ngrok') || 
+         u.includes('cloudflare') ||
+         u.includes('.app.br') ||
+         u.includes('.run.app') ||
+         (origin && u.startsWith(origin)) ||
+         (hostname && u.includes(hostname));
 };
 
 let currentConfig = getSupabaseConfig();
