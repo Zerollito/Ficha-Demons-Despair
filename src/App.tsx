@@ -4089,7 +4089,7 @@ function App() {
     }
     try {
       const backupData = {
-        version: "1.16.0",
+        version: "1.14.3",
         type: "demons_despair_campaign_backup",
         exportedAt: new Date().toISOString(),
         campaign: camp,
@@ -4475,14 +4475,14 @@ function App() {
           <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
             <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
             <div className="w-[1px] h-3 bg-zinc-800" />
-            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.16.0</span>
+            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.3</span>
           </div>
 
           {/* Quick Active Page Status - desktop only */}
           <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
               <div className="flex flex-col">
                 <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.16.0</span>
+                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.3</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -4573,8 +4573,8 @@ function App() {
             className={cn(
               "flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer",
               user 
-                ? ((isSupabaseConnected || (state.dirtyCharacterIds?.length || 0) > 0)
-                    ? ((state.dirtyCharacterIds?.length || 0) > 0 
+                ? (isSupabaseConnected 
+                    ? (state.dirtyCharacterIds?.length > 0 
                         ? "bg-green-500/20 border-green-500/50" 
                         : "bg-green-500/10 border-green-500/30")
                     : "bg-blue-500/10 border-blue-500/30")
@@ -4588,7 +4588,7 @@ function App() {
               <div className={cn(
                 "w-2.5 h-2.5 rounded-full",
                 user 
-                  ? ((isSupabaseConnected || (state.dirtyCharacterIds?.length || 0) > 0) ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]")
+                  ? (isSupabaseConnected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]")
                   : "bg-amber-500 animate-pulse"
               )} />
             )}
