@@ -1709,17 +1709,8 @@ if (typeof window !== 'undefined') {
     });
   }, 2000);
 
-  // Monitor continuous connection to local Supabase periodically
-  setInterval(async () => {
-    if (currentAuthUser && !currentAuthUser.uid.startsWith('guest_')) {
-      try {
-        const check = await testSupabaseConnection();
-        setSupabaseConnectionState(check.success);
-      } catch (e) {
-        setSupabaseConnectionState(false);
-      }
-    }
-  }, 10000);
+  // Connection monitoring steady
+
 }
 
 if (realSupabaseClient) {

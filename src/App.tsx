@@ -4077,6 +4077,114 @@ function App() {
     reader.readAsText(file);
   };
 
+  const exportActiveCampaign = () => {
+    if (!activeCampaignId) {
+      showToast("Selecione uma campanha para exportar.", "error");
+      return;
+    }
+    const camp = campaigns.find(c => c.id === activeCampaignId) || masterCampaigns.find(c => c.id === activeCampaignId);
+    if (!camp) {
+      showToast("Campanha ativa não encontrada.", "error");
+      return;
+    }
+    try {
+      const backupData = {
+        version: "1.16.0",
+        type: "demons_despair_campaign_backup",
+        exportedAt: new Date().toISOString(),
+        campaign: camp,
+        tableConfig: tableConfig,
+        tokens: tokens,
+        characters: campaignCharacters
+      };
+
+      const jsonString = JSON.stringify(backupData, null, 2);
+      const blob = new Blob([jsonString], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const safeName = (camp.name || "campanha").replace(/[^a-z0-9]/gi, "_").toLowerCase();
+      link.download = `${safeName}_backup.json`;
+      link.style.display = "none";
+      document.body.appendChild(link);
+      setTimeout(() => {
+        link.click();
+        setTimeout(() => {
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }, 100);
+      }, 0);
+      showToast(`Campanha "${camp.name}" exportada com sucesso!`, "success");
+    } catch (err: any) {
+      console.error("Erro ao exportar campanha:", err);
+      showToast("Falha ao exportar campanha.", "error");
+    }
+  };
+
+  const handleImportCampaignFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+        if (!parsed || !parsed.campaign || !parsed.campaign.id) {
+          throw new Error("Arquivo de campanha inválido.");
+        }
+
+        const importedCamp = parsed.campaign;
+        const importedConfig = parsed.tableConfig || {};
+        const importedTokens = parsed.tokens || [];
+        const importedChars = parsed.characters || [];
+
+        if (user && user.email) {
+          importedCamp.masterEmail = user.email;
+          importedCamp.masterId = user.uid;
+        }
+
+        setMasterCampaigns(prev => {
+          if (prev.some(c => c.id === importedCamp.id)) return prev;
+          return [...prev, importedCamp];
+        });
+
+        setActiveCampaignIdWithSync(importedCamp.id);
+
+        if (Object.keys(importedConfig).length > 0) {
+          setTableConfig(importedConfig);
+        }
+
+        if (Array.isArray(importedTokens) && importedTokens.length > 0) {
+          setTokens(importedTokens);
+        }
+
+        if (Array.isArray(importedChars) && importedChars.length > 0) {
+          setState(prev => {
+            const existingMap = new Map(prev.characters.map(c => [c.id, c]));
+            for (const ic of importedChars) {
+              const sanitized = sanitizeCharacter(ic);
+              existingMap.set(sanitized.id, { ...sanitized, campaignId: importedCamp.id });
+            }
+            return {
+              ...prev,
+              characters: Array.from(existingMap.values())
+            };
+          });
+          for (const ic of importedChars) {
+            saveCharacterToFirestore({ ...ic, campaignId: importedCamp.id });
+          }
+        }
+
+        showToast(`Campanha "${importedCamp.name}" importada com sucesso!`, "success");
+      } catch (err: any) {
+        console.error("Erro ao importar campanha:", err);
+        showToast(err.message || "Falha ao importar arquivo de campanha.", "error");
+      }
+      e.target.value = "";
+    };
+    reader.readAsText(file);
+  };
+
   const duplicateChar = () => {
     if (!activeChar) return;
     const newChar = {
@@ -4367,14 +4475,14 @@ function App() {
           <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
             <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
             <div className="w-[1px] h-3 bg-zinc-800" />
-            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.1</span>
+            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.16.0</span>
           </div>
 
           {/* Quick Active Page Status - desktop only */}
           <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
               <div className="flex flex-col">
                 <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.1</span>
+                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.16.0</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -4465,17 +4573,25 @@ function App() {
             className={cn(
               "flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer",
               user 
-                ? (!isSupabaseConnected ? "bg-blue-500/10 border-blue-500/30" : (isOnline ? "bg-amber-500/10 border-amber-500/30" : "bg-red-500/10 border-red-500/30"))
+                ? (isSupabaseConnected 
+                    ? (state.dirtyCharacterIds?.length > 0 
+                        ? "bg-green-500/20 border-green-500/50" 
+                        : "bg-green-500/10 border-green-500/30")
+                    : "bg-blue-500/10 border-blue-500/30")
                 : "bg-amber-500/20 border-amber-500/40 text-amber-500 hover:bg-amber-500/30"
             )}
-            title={user ? (!isSupabaseConnected ? `Salvando no Cache (Supabase Indisponível)` : (isOnline ? `Conectado: ${user.email} (Clique para Sair)` : "Você está offline")) : "Entrar ou Criar Conta"}
+            title={user ? (isSupabaseConnected ? (state.dirtyCharacterIds?.length > 0 ? "Sincronizando..." : `Conectado: ${user.email}`) : "Offline (Local Only)") : "Entrar ou Criar Conta"}
           >
-            <div className={cn(
-              "w-2.5 h-2.5 rounded-full",
-              user 
-                ? (!isSupabaseConnected ? "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)] animate-pulse" : (isOnline ? "bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-red-500"))
-                : "bg-amber-500 animate-pulse"
-            )} />
+            {user && isSupabaseConnected && state.dirtyCharacterIds?.length > 0 ? (
+              <RefreshCwIcon size={16} className="text-green-500 animate-spin" />
+            ) : (
+              <div className={cn(
+                "w-2.5 h-2.5 rounded-full",
+                user 
+                  ? (isSupabaseConnected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]")
+                  : "bg-amber-500 animate-pulse"
+              )} />
+            )}
           </motion.button>
 
           <motion.button
@@ -10441,9 +10557,30 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                   {/* Campanhas List */}
                   <div className="lg:col-span-4 space-y-6">
                     <div>
-                      <h3 className="text-[10px] font-black text-purple-500 uppercase tracking-[0.2em] mb-3 px-1 flex items-center gap-2">
-                        <Shield size={12} /> Campanhas que Mestro
-                      </h3>
+                      <div className="flex items-center justify-between mb-3 px-1">
+                        <h3 className="text-[10px] font-black text-purple-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                          <Shield size={12} /> Campanhas que Mestro
+                        </h3>
+                        <div className="flex items-center gap-1.5">
+                          {activeCampaignId && masterCampaigns.some(c => c.id === activeCampaignId) && (
+                            <button
+                              type="button"
+                              onClick={exportActiveCampaign}
+                              className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-amber-400 rounded-lg text-[10px] font-bold uppercase transition-colors flex items-center gap-1 cursor-pointer"
+                              title="Exportar Campanha Ativa (Grid, VTT Tokens, Data/Hora e Fichas)"
+                            >
+                              <Download size={12} /> Exportar
+                            </button>
+                          )}
+                          <label 
+                            className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-amber-400 rounded-lg text-[10px] font-bold uppercase transition-colors flex items-center gap-1 cursor-pointer"
+                            title="Importar Campanha de arquivo .json"
+                          >
+                            <Upload size={12} /> Importar
+                            <input type="file" accept=".json" className="hidden" onChange={handleImportCampaignFile} />
+                          </label>
+                        </div>
+                      </div>
                       <div className="space-y-2">
                         {masterCampaigns.map(camp => (
                           <div
