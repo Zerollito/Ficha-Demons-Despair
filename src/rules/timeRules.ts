@@ -82,6 +82,40 @@ export const formatDate = (day: number, month: number, year: number) => {
   return `${day.toString().padStart(2, '0')} de ${MONTHS[month - 1]}, ${year}`;
 };
 
-export const getMoonPhase = (day: number, month: number, year: number) => {
-  return "Lua Cheia";
+export interface MoonPhaseInfo {
+  name: string;
+  description: string;
+  icon: string;
+}
+
+export const getMoonPhase = (day: number, month: number = 1, year: number = 2024): MoonPhaseInfo => {
+  const cycleDay = ((Math.abs(day || 1) - 1) % 28) + 1;
+  if (cycleDay <= 3) {
+    return { name: "Lua Nova", description: "Céu escuro, escuridão densa", icon: "🌑" };
+  } else if (cycleDay <= 7) {
+    return { name: "Lua Crescente", description: "A luz lunar começa a retornar", icon: "🌒" };
+  } else if (cycleDay <= 10) {
+    return { name: "Quarto Crescente", description: "Meia face iluminada", icon: "🌓" };
+  } else if (cycleDay <= 14) {
+    return { name: "Gibosa Crescente", description: "Quase cheia, noites claras", icon: "🌔" };
+  } else if (cycleDay <= 17) {
+    return { name: "Lua Cheia", description: "Noite intensamente iluminada", icon: "🌕" };
+  } else if (cycleDay <= 21) {
+    return { name: "Gibosa Minguante", description: "A luz começa a esmaecer", icon: "🌖" };
+  } else if (cycleDay <= 24) {
+    return { name: "Quarto Minguante", description: "Meia face escura", icon: "🌗" };
+  } else {
+    return { name: "Lua Minguante", description: "Último fio de prata antes do breu", icon: "🌘" };
+  }
+};
+
+export const dateToAbsoluteDays = (day: number, month: number, year: number = 0): number => {
+  let totalDays = (year || 0) * 365;
+  totalDays += Math.floor((year || 0) / 4);
+  const m = Math.max(1, Math.min(12, month || 1));
+  for (let i = 0; i < m - 1; i++) {
+    totalDays += DAYS_IN_MONTH[i];
+  }
+  totalDays += (day || 1);
+  return totalDays;
 };

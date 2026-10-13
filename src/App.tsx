@@ -3976,8 +3976,8 @@ function App() {
       const rawItems = parsed.customItems || parsed.items || parsed.itens;
       if (Array.isArray(rawItems) && rawItems.length > 0) {
         for (const item of rawItems) {
-          if (item && item.nome && user?.uid) {
-            saveItemToLibrary(user.uid, item).catch(() => {});
+          if (item && item.nome) {
+            saveItemToLibrary(item).catch(() => {});
             itemsImported++;
           }
         }
@@ -3987,8 +3987,8 @@ function App() {
       const rawSpells = parsed.customSpells || parsed.spells || parsed.magias;
       if (Array.isArray(rawSpells) && rawSpells.length > 0) {
         for (const spell of rawSpells) {
-          if (spell && spell.nome && user?.uid) {
-            saveSpellToLibrary(user.uid, spell).catch(() => {});
+          if (spell && spell.nome) {
+            saveSpellToLibrary(spell).catch(() => {});
             spellsImported++;
           }
         }
