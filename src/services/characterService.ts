@@ -279,3 +279,143 @@ export const subscribeToUserCharacters = (
     unsubscribe();
   };
 };
+
+export const getMaxCapacity = (weapon: any) => {
+  if (weapon.magazineAmmo?.length > 0) return weapon.magazineAmmo.length;
+  return weapon.municaoTotal || 10;
+};
+
+export const handleReload = async (
+  char: Character,
+  weaponId: string,
+  ammoId: string,
+  updateCharacterState: (charId: string, updates: any) => Promise<void>,
+  addCombatLog: (campaignId: string, log: any) => Promise<void>,
+  campaignId: string
+) => {
+  let weapon = char.armas.find(w => w.id === weaponId);
+  const inventoryItems = char.compartimentos?.flatMap(c => c.itens || []) || [];
+  if (!weapon) {
+    weapon = inventoryItems.find(i => i.id === weaponId) as any;
+  }
+  if (!weapon) return;
+
+  const ammo = inventoryItems.find(i => i.id === ammoId);
+  if (!ammo || (ammo.quantidade || 0) <= 0) {
+    await addCombatLog(campaignId, { msg: "Você não possui munição!", type: 'error' });
+    return;
+  }
+
+  const currentMagazine = (weapon as any).magazineAmmo || [];
+  const maxCapacity = getMaxCapacity(weapon);
+  
+  if (currentMagazine.length >= maxCapacity) {
+    await addCombatLog(campaignId, { msg: "O pente já está cheio!", type: 'error' });
+    return;
+  }
+
+  const amountToLoad = 1;
+  const charUpdates: any = {};
+  const { generateId } = await import('../lib/random');
+  const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...ammo as any, id: generateId(), quantidade: 1 }));
+  const newMagazine = [...currentMagazine, ...ammoToAdd];
+
+  charUpdates.armas = char.armas.map(w => w.id === weaponId ? { ...w, municaoCarregada: newMagazine.length, magazineAmmo: newMagazine } : w);
+  charUpdates.compartimentos = char.compartimentos.map(comp => ({
+    ...comp,
+    itens: comp.itens.map(it => it.id === ammoId ? { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) } : it)
+  }));
+
+  const weaponInComp = char.compartimentos.some(c => c.itens.some(i => i.id === weaponId));
+  if (weaponInComp) {
+    charUpdates.compartimentos = charUpdates.compartimentos.map((comp: any) => ({
+      ...comp,
+      itens: comp.itens.map((it: any) => it.id === weaponId ? { ...it, municaoCarregada: newMagazine.length, magazineAmmo: newMagazine } : it)
+    }));
+  }
+
+  await updateCharacterState(char.id, charUpdates);
+  await addCombatLog(campaignId, { msg: `${char.nome} recarregou 1 munição (${ammo.nome}) em ${weapon.nome}.`, type: 'info' });
+};
+
+export const handleReloadAll = async (
+  char: Character,
+  weaponId: string,
+  ammoId: string,
+  updateCharacterState: (charId: string, updates: any) => Promise<void>,
+  addCombatLog: (campaignId: string, log: any) => Promise<void>,
+  campaignId: string
+) => {
+  let weapon = char.armas.find(w => w.id === weaponId);
+  const inventoryItems = char.compartimentos?.flatMap(c => c.itens || []) || [];
+  if (!weapon) {
+    weapon = inventoryItems.find(i => i.id === weaponId) as any;
+  }
+  if (!weapon) return;
+
+  const ammo = inventoryItems.find(i => i.id === ammoId);
+  if (!ammo || (ammo.quantidade || 0) <= 0) {
+    await addCombatLog(campaignId, { msg: "Você não possui munição!", type: 'error' });
+    return;
+  }
+
+  const currentMagazine = (weapon as any).magazineAmmo || [];
+  const maxCapacity = getMaxCapacity(weapon);
+  
+  if (currentMagazine.length >= maxCapacity) {
+    await addCombatLog(campaignId, { msg: "O pente já está cheio!", type: 'error' });
+    return;
+  }
+
+  const needed = maxCapacity - currentMagazine.length;
+  const amountToLoad = Math.min(ammo.quantidade || 0, needed);
+  
+  const charUpdates: any = {};
+  const { generateId } = await import('../lib/random');
+  const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...ammo as any, id: generateId(), quantidade: 1 }));
+  const newMagazine = [...currentMagazine, ...ammoToAdd];
+
+  charUpdates.armas = char.armas.map(w => w.id === weaponId ? { ...w, municaoCarregada: newMagazine.length, magazineAmmo: newMagazine } : w);
+  charUpdates.compartimentos = char.compartimentos.map(comp => ({
+    ...comp,
+    itens: comp.itens.map(it => it.id === ammoId ? { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) } : it)
+  }));
+
+  const weaponInComp = char.compartimentos.some(c => c.itens.some(i => i.id === weaponId));
+  if (weaponInComp) {
+    charUpdates.compartimentos = charUpdates.compartimentos.map((comp: any) => ({
+      ...comp,
+      itens: comp.itens.map((it: any) => it.id === weaponId ? { ...it, municaoCarregada: newMagazine.length, magazineAmmo: newMagazine } : it)
+    }));
+  }
+
+  await updateCharacterState(char.id, charUpdates);
+  await addCombatLog(campaignId, { msg: `${char.nome} recarregou ${amountToLoad} munições (${ammo.nome}) em ${weapon.nome}.`, type: 'info' });
+};
+
+export const handleMaintenance = async (
+  char: Character,
+  weaponId: string,
+  updateCharacterState: (charId: string, updates: any) => Promise<void>,
+  addCombatLog: (campaignId: string, log: any) => Promise<void>,
+  campaignId: string
+) => {
+  let weapon = char.armas.find(w => w.id === weaponId);
+  const inventoryItems = char.compartimentos?.flatMap(c => c.itens || []) || [];
+  if (!weapon) {
+    weapon = inventoryItems.find(i => i.id === weaponId) as any;
+  }
+  if (!weapon) return;
+
+  const charUpdates: any = {};
+  const maxDur = (weapon as any).durabilidadeMaxUtil || weapon.maxDurabilidade || 10;
+
+  charUpdates.armas = char.armas.map(w => w.id === weaponId ? { ...w, durabilidade: maxDur } : w);
+  charUpdates.compartimentos = char.compartimentos.map(comp => ({
+    ...comp,
+    itens: comp.itens.map((it: any) => it.id === weaponId ? { ...it, durabilidade: maxDur } : it)
+  }));
+
+  await updateCharacterState(char.id, charUpdates);
+  await addCombatLog(campaignId, { msg: `${char.nome} realizou a manutenção de "${weapon.nome}". Durabilidade útil restaurada para ${maxDur}!`, type: 'success' });
+};
