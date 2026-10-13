@@ -115,7 +115,7 @@ import {
   isSupabaseConnected as initialSupabaseConnected
 } from "./lib/supabase";
 import type { FirebaseUserLike as User } from "./lib/supabase";
-import { subscribeToUserCharacters, saveCharacterToFirestore, deleteCharacterFromFirestore } from "./services/characterService";
+import { subscribeToUserCharacters, saveCharacterToFirestore, deleteCharacterFromFirestore, getMaxCapacity } from "./services/characterService";
 import { 
   createCampaign, 
   saveCampaign,
@@ -2519,6 +2519,52 @@ function App() {
     item: any
   ) => {
     setPendingCutAction({ type, charId, sourceId, item });
+  };
+
+  const handleReloadChar = (char: Character, weaponId: string, ammoId: string, all: boolean = false) => {
+    updateChar((c) => {
+      const weaponIndex = c.armas.findIndex(w => w.id === weaponId);
+      if (weaponIndex === -1) return c;
+      const weapon = c.armas[weaponIndex];
+      
+      const ammo = c.compartimentos?.flatMap(comp => comp.itens || []).find(it => it.id === ammoId);
+      if (!ammo || (ammo.quantidade || 0) <= 0) return c;
+      
+      const currentMagazine = (weapon as any).magazineAmmo || [];
+      const maxCapacity = getMaxCapacity(weapon);
+      if (currentMagazine.length >= maxCapacity) return c;
+      
+      const needed = all ? (maxCapacity - currentMagazine.length) : 1;
+      const amountToLoad = Math.min(ammo.quantidade || 0, needed);
+      if (amountToLoad <= 0) return c;
+
+      const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...ammo as any, id: generateId(), quantidade: 1 }));
+      const newMagazine = [...currentMagazine, ...ammoToAdd];
+
+      const newArmas = [...c.armas];
+      newArmas[weaponIndex] = { ...weapon, municaoCarregada: newMagazine.length, magazineAmmo: newMagazine };
+
+      const newCompartimentos = (c.compartimentos || []).map(comp => ({
+        ...comp,
+        itens: comp.itens.map(it => it.id === ammoId ? { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) } : it)
+      }));
+
+      return { ...c, armas: newArmas, compartimentos: newCompartimentos };
+    });
+  };
+
+  const handleMaintenanceChar = (char: Character, weaponId: string) => {
+    updateChar((c) => {
+      const weaponIndex = c.armas.findIndex(w => w.id === weaponId);
+      if (weaponIndex === -1) return c;
+      const weapon = c.armas[weaponIndex];
+      const maxDur = (weapon as any).durabilidadeMaxUtil || weapon.maxDurabilidade || 10;
+      
+      const newArmas = [...c.armas];
+      newArmas[weaponIndex] = { ...weapon, durabilidade: maxDur };
+      
+      return { ...c, armas: newArmas };
+    });
   };
 
   const getCreaturePesoTotal = (creature: any) => {
@@ -5867,6 +5913,8 @@ function App() {
                             item={w}
                             character={activeChar}
                             updateCharacter={updateChar}
+                            onReload={(ammoId, all) => handleReloadChar(activeChar, w.id, ammoId || "", all)}
+                            onMaintenance={() => handleMaintenanceChar(activeChar, w.id)}
                             onChange={(updates) => {
                               updateChar(c => {
                                 const na = [...c.armas];
