@@ -833,6 +833,7 @@ function App() {
     message: string;
     type: "error" | "success" | "info";
   } | null>(null);
+  const [weaponMenuCompIdx, setWeaponMenuCompIdx] = useState<number | null>(null);
 
   const showToast = useCallback(
     (message: string, type: "error" | "success" | "info" = "info") => {
@@ -2343,14 +2344,14 @@ function App() {
     const isBow = arma.categoria === 'Arco';
     if (isFirearm || isBow) {
       if (arma.magazineAmmo && arma.magazineAmmo.length > 0) {
-        bulletDano = arma.magazineAmmo[0].dano || (isBow ? "1d6" : "2d6");
+        bulletDano = arma.magazineAmmo[0].dano || arma.dano || (isBow ? "1d6" : "2d6");
       } else {
-        const loadedBullet = (activeChar.compartimentos || [])
-          .filter((c: any) => !c.externo)
+        const ammoId = isBow ? (arma.arrowId || arma.bulletId) : (arma.bulletId || arma.arrowId);
+        const loadedAmmo = (activeChar.compartimentos || [])
           .flatMap((c: any) => (c.itens || []))
-          .find((i: any) => i.id === arma.bulletId);
-        if (loadedBullet && loadedBullet.dano) {
-          bulletDano = loadedBullet.dano;
+          .find((i: any) => i.id === ammoId);
+        if (loadedAmmo && loadedAmmo.dano) {
+          bulletDano = loadedAmmo.dano;
         } else {
           bulletDano = arma.dano || (isBow ? "1d6" : "2d6");
         }
@@ -2438,6 +2439,18 @@ function App() {
           itens: (comp.itens || []).map(updateWeaponProps)
         }));
       }
+
+      if (isBow && arma.arrowId) {
+        newCompartimentos = newCompartimentos.map((comp: any) => ({
+          ...comp,
+          itens: (comp.itens || []).map((it: any) => {
+            if (it.id === arma.arrowId) {
+              return { ...it, quantidade: Math.max(0, (it.quantidade || 0) - 1) };
+            }
+            return it;
+          })
+        }));
+      }
       
       return { armas: newArmas, compartimentos: newCompartimentos };
     });
@@ -2523,9 +2536,12 @@ function App() {
 
   const handleReloadChar = (char: Character, weaponId: string, ammoId: string, all: boolean = false) => {
     updateChar((c) => {
-      const weaponIndex = c.armas.findIndex(w => w.id === weaponId);
-      if (weaponIndex === -1) return c;
-      const weapon = c.armas[weaponIndex];
+      let weapon = c.armas.find(w => w.id === weaponId);
+      let inArmas = !!weapon;
+      if (!weapon) {
+        weapon = (c.compartimentos || []).flatMap(comp => comp.itens || []).find(it => it.id === weaponId) as any;
+      }
+      if (!weapon) return c;
       
       const ammo = c.compartimentos?.flatMap(comp => comp.itens || []).find(it => it.id === ammoId);
       if (!ammo || (ammo.quantidade || 0) <= 0) return c;
@@ -2541,12 +2557,33 @@ function App() {
       const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...ammo as any, id: generateId(), quantidade: 1 }));
       const newMagazine = [...currentMagazine, ...ammoToAdd];
 
-      const newArmas = [...c.armas];
-      newArmas[weaponIndex] = { ...weapon, municaoCarregada: newMagazine.length, magazineAmmo: newMagazine };
+      const isBow = (weapon.categoria || "").toLowerCase() === "arco" || ((weapon as any).tipo || "").toLowerCase().includes("arco");
+      const updatedWeaponProps = {
+        ...weapon,
+        municaoCarregada: newMagazine.length,
+        magazineAmmo: newMagazine,
+        bulletId: !isBow ? ammo.id : undefined,
+        arrowId: isBow ? ammo.id : undefined,
+        corte: Number(ammo.corte) || 0,
+        perfuracao: Number(ammo.perfuracao) || 0,
+        impacto: Number(ammo.impacto) || 0,
+        resistencia: Number(ammo.resistencia) || 0,
+        ...(ammo.dano ? { municaoDano: ammo.dano } : {})
+      };
+
+      const newArmas = (c.armas || []).map(w => w.id === weaponId ? updatedWeaponProps : w);
 
       const newCompartimentos = (c.compartimentos || []).map(comp => ({
         ...comp,
-        itens: comp.itens.map(it => it.id === ammoId ? { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) } : it)
+        itens: comp.itens.map(it => {
+          if (it.id === ammoId) {
+            return { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) };
+          }
+          if (!inArmas && it.id === weaponId) {
+            return updatedWeaponProps;
+          }
+          return it;
+        })
       }));
 
       return { ...c, armas: newArmas, compartimentos: newCompartimentos };
@@ -2555,15 +2592,22 @@ function App() {
 
   const handleMaintenanceChar = (char: Character, weaponId: string) => {
     updateChar((c) => {
-      const weaponIndex = c.armas.findIndex(w => w.id === weaponId);
-      if (weaponIndex === -1) return c;
-      const weapon = c.armas[weaponIndex];
+      let weapon = c.armas.find(w => w.id === weaponId);
+      let inArmas = !!weapon;
+      if (!weapon) {
+        weapon = (c.compartimentos || []).flatMap(comp => comp.itens || []).find(it => it.id === weaponId) as any;
+      }
+      if (!weapon) return c;
       const maxDur = (weapon as any).durabilidadeMaxUtil || weapon.maxDurabilidade || 10;
       
-      const newArmas = [...c.armas];
-      newArmas[weaponIndex] = { ...weapon, durabilidade: maxDur };
+      const updatedWeapon = { ...weapon, durabilidade: maxDur };
+      const newArmas = (c.armas || []).map(w => w.id === weaponId ? updatedWeapon : w);
+      const newCompartimentos = (c.compartimentos || []).map(comp => ({
+        ...comp,
+        itens: comp.itens.map(it => it.id === weaponId ? updatedWeapon : it)
+      }));
       
-      return { ...c, armas: newArmas };
+      return { ...c, armas: newArmas, compartimentos: newCompartimentos };
     });
   };
 
@@ -4411,7 +4455,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.5</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.7</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4503,32 +4547,32 @@ function App() {
 
                       {activeCampaignId && (
                         <MenuButton 
-                          active={activePage === "table"} 
-                          onClick={() => { setActivePage("table"); setIsSideMenuOpen(false); }}
-                          icon={<Maximize size={20} />}
-                          label="Mesa de Jogo"
-                          color="blue"
-                        />
-                      )}
-                    </div>
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
-          </div>
+                           active={activePage === "table"} 
+                           onClick={() => { setActivePage("table"); setIsSideMenuOpen(false); }}
+                           icon={<Maximize size={20} />}
+                           label="Mesa de Jogo"
+                           color="blue"
+                         />
+                       )}
+                     </div>
+                   </motion.div>
+                 </>
+               )}
+             </AnimatePresence>
+           </div>
 
-          {/* Version Badge - Always visible on top bar */}
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
-            <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
-            <div className="w-[1px] h-3 bg-zinc-800" />
-            <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.5</span>
-          </div>
+           {/* Version Badge - Always visible on top bar */}
+           <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
+             <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
+             <div className="w-[1px] h-3 bg-zinc-800" />
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.7</span>
+           </div>
 
-          {/* Quick Active Page Status - desktop only */}
-          <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
-              <div className="flex flex-col">
-                <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.5</span>
+           {/* Quick Active Page Status - desktop only */}
+           <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
+               <div className="flex flex-col">
+                 <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.7</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -6961,7 +7005,89 @@ function App() {
                                 }}
                                 className="flex-1 py-1.5 border border-dashed border-zinc-700 rounded text-[9px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all px-1"
                               >
-                                + Arma
+                               <div className="relative flex-1">
+                                 <button
+                                   onClick={() => setWeaponMenuCompIdx(weaponMenuCompIdx === cIdx ? null : cIdx)}
+                                   className="w-full py-1.5 border border-dashed border-zinc-700 rounded text-[9px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all px-1 flex items-center justify-center gap-1"
+                                 >
+                                   <span>+ Arma</span>
+                                   <span className="text-[7px]">▾</span>
+                                 </button>
+                                 {weaponMenuCompIdx === cIdx && (
+                                   <div className="absolute bottom-full left-0 mb-1 w-32 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl z-50 p-1 flex flex-col gap-1 text-[9px]">
+                                     <button
+                                       type="button"
+                                       onClick={() => {
+                                         updateChar(char => {
+                                           const comps = char.compartimentos || [];
+                                           const targetComp = comps[cIdx];
+                                           const newItem = {
+                                             id: generateId(),
+                                             nome: "Nova Arma Branca",
+                                             peso: 0, volume: 0, quantidade: 1,
+                                             tipo: "Arma", categoria: "Arma Branca",
+                                             durabilidade: 0, maxDurabilidade: 0,
+                                             descricao: "", dano: "0", acerto: 0, escala: "0",
+                                             atributoBase: "Força", corte: 0, impacto: 0, perfuracao: 0, resistencia: 0
+                                           };
+                                           return { compartimentos: comps.map((c, i) => i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c) };
+                                         });
+                                         setWeaponMenuCompIdx(null);
+                                       }}
+                                       className="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 font-bold rounded transition-colors"
+                                     >
+                                       Arma Branca
+                                     </button>
+                                     <button
+                                       type="button"
+                                       onClick={() => {
+                                         updateChar(char => {
+                                           const comps = char.compartimentos || [];
+                                           const targetComp = comps[cIdx];
+                                           const newItem = {
+                                             id: generateId(),
+                                             nome: "Nova Arma de Fogo",
+                                             peso: 0, volume: 0, quantidade: 1,
+                                             tipo: "Arma", categoria: "Arma de Fogo",
+                                             durabilidade: 0, maxDurabilidade: 0,
+                                             descricao: "", dano: "0", acerto: 0, escala: "0",
+                                             atributoBase: "Destreza", corte: 0, impacto: 0, perfuracao: 0, resistencia: 0,
+                                             municaoTotal: 0, municaoCarregada: 0
+                                           };
+                                           return { compartimentos: comps.map((c, i) => i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c) };
+                                         });
+                                         setWeaponMenuCompIdx(null);
+                                       }}
+                                       className="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 font-bold rounded transition-colors"
+                                     >
+                                       Arma de Fogo
+                                     </button>
+                                     <button
+                                       type="button"
+                                       onClick={() => {
+                                         updateChar(char => {
+                                           const comps = char.compartimentos || [];
+                                           const targetComp = comps[cIdx];
+                                           const newItem = {
+                                             id: generateId(),
+                                             nome: "Novo Arco",
+                                             peso: 0, volume: 0, quantidade: 1,
+                                             tipo: "Arma", categoria: "Arco",
+                                             durabilidade: 0, maxDurabilidade: 0,
+                                             descricao: "", dano: "0", acerto: 0, escala: "0",
+                                             atributoBase: "Destreza", corte: 0, impacto: 0, perfuracao: 0, resistencia: 0
+                                           };
+                                           return { compartimentos: comps.map((c, i) => i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c) };
+                                         });
+                                         setWeaponMenuCompIdx(null);
+                                       }}
+                                       className="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 font-bold rounded transition-colors"
+                                     >
+                                       Arco
+                                     </button>
+                                   </div>
+                                 )}
+                               </div>
                               </motion.button>
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
@@ -7034,7 +7160,89 @@ function App() {
                                 }}
                                 className="flex-1 py-1.5 border border-dashed border-zinc-700 rounded text-[9px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all px-1"
                               >
-                                + Armad
+                               <div className="relative flex-1">
+                                 <button
+                                   onClick={() => setWeaponMenuCompIdx(weaponMenuCompIdx === cIdx ? null : cIdx)}
+                                   className="w-full py-1.5 border border-dashed border-zinc-700 rounded text-[9px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all px-1 flex items-center justify-center gap-1"
+                                 >
+                                   <span>+ Arma</span>
+                                   <span className="text-[7px]">▾</span>
+                                 </button>
+                                 {weaponMenuCompIdx === cIdx && (
+                                   <div className="absolute bottom-full left-0 mb-1 w-32 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl z-50 p-1 flex flex-col gap-1 text-[9px]">
+                                     <button
+                                       type="button"
+                                       onClick={() => {
+                                         updateChar(char => {
+                                           const comps = char.compartimentos || [];
+                                           const targetComp = comps[cIdx];
+                                           const newItem = {
+                                             id: generateId(),
+                                             nome: "Nova Arma Branca",
+                                             peso: 0, volume: 0, quantidade: 1,
+                                             tipo: "Arma", categoria: "Arma Branca",
+                                             durabilidade: 0, maxDurabilidade: 0,
+                                             descricao: "", dano: "0", acerto: 0, escala: "0",
+                                             atributoBase: "Força", corte: 0, impacto: 0, perfuracao: 0, resistencia: 0
+                                           };
+                                           return { compartimentos: comps.map((c, i) => i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c) };
+                                         });
+                                         setWeaponMenuCompIdx(null);
+                                       }}
+                                       className="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 font-bold rounded transition-colors"
+                                     >
+                                       Arma Branca
+                                     </button>
+                                     <button
+                                       type="button"
+                                       onClick={() => {
+                                         updateChar(char => {
+                                           const comps = char.compartimentos || [];
+                                           const targetComp = comps[cIdx];
+                                           const newItem = {
+                                             id: generateId(),
+                                             nome: "Nova Arma de Fogo",
+                                             peso: 0, volume: 0, quantidade: 1,
+                                             tipo: "Arma", categoria: "Arma de Fogo",
+                                             durabilidade: 0, maxDurabilidade: 0,
+                                             descricao: "", dano: "0", acerto: 0, escala: "0",
+                                             atributoBase: "Destreza", corte: 0, impacto: 0, perfuracao: 0, resistencia: 0,
+                                             municaoTotal: 0, municaoCarregada: 0
+                                           };
+                                           return { compartimentos: comps.map((c, i) => i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c) };
+                                         });
+                                         setWeaponMenuCompIdx(null);
+                                       }}
+                                       className="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 font-bold rounded transition-colors"
+                                     >
+                                       Arma de Fogo
+                                     </button>
+                                     <button
+                                       type="button"
+                                       onClick={() => {
+                                         updateChar(char => {
+                                           const comps = char.compartimentos || [];
+                                           const targetComp = comps[cIdx];
+                                           const newItem = {
+                                             id: generateId(),
+                                             nome: "Novo Arco",
+                                             peso: 0, volume: 0, quantidade: 1,
+                                             tipo: "Arma", categoria: "Arco",
+                                             durabilidade: 0, maxDurabilidade: 0,
+                                             descricao: "", dano: "0", acerto: 0, escala: "0",
+                                             atributoBase: "Destreza", corte: 0, impacto: 0, perfuracao: 0, resistencia: 0
+                                           };
+                                           return { compartimentos: comps.map((c, i) => i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c) };
+                                         });
+                                         setWeaponMenuCompIdx(null);
+                                       }}
+                                       className="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 font-bold rounded transition-colors"
+                                     >
+                                       Arco
+                                     </button>
+                                   </div>
+                                 )}
+                               </div>
                               </motion.button>
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
@@ -7215,6 +7423,8 @@ function App() {
                                         item={item}
                                         character={activeChar}
                                         updateCharacter={updateChar}
+                                        onReload={(ammoId, all) => handleReloadChar(activeChar, item.id, ammoId || "", all)}
+                                        onMaintenance={() => handleMaintenanceChar(activeChar, item.id)}
                                         onChange={(updates) => {
                                           updateChar(char => ({
                                             compartimentos: (char.compartimentos || []).map(c => 
@@ -8965,18 +9175,22 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                         const totalHit = (acuraciaBonus || 0);
                         const weaponAcerto = (arma.acerto || 0);
                         let displayDano = arma.dano || "1d6";
-                        if (arma.categoria === 'Arma de Fogo') {
+                        const isBow = arma.categoria === 'Arco';
+                        const isFirearm = arma.categoria === 'Arma de Fogo';
+                        if (isFirearm || isBow) {
                           if (arma.magazineAmmo && arma.magazineAmmo.length > 0) {
-                            displayDano = arma.magazineAmmo[0].dano || "1d6";
+                            displayDano = arma.magazineAmmo[0].dano || arma.dano || (isBow ? "1d6" : "2d6");
                           } else {
-                            const loadedBullet = (activeChar.compartimentos || [])
-                              .filter((c: any) => !c.externo)
+                            const ammoId = isBow ? (arma.arrowId || arma.bulletId) : (arma.bulletId || arma.arrowId);
+                            const loadedAmmo = (activeChar.compartimentos || [])
                               .flatMap((c: any) => (c.itens || []))
-                              .find((i: any) => i.id === arma.bulletId);
-                            if (loadedBullet && loadedBullet.dano) {
-                              displayDano = loadedBullet.dano;
+                              .find((i: any) => i.id === ammoId);
+                            if (loadedAmmo && loadedAmmo.dano) {
+                              displayDano = loadedAmmo.dano;
+                            } else if ((arma.municaoCarregada || 0) <= 0) {
+                              displayDano = isBow ? "Falta Flecha" : "Falta Bala";
                             } else {
-                              displayDano = "Falta Bala";
+                              displayDano = arma.dano || (isBow ? "1d6" : "2d6");
                             }
                           }
                         }

@@ -280,9 +280,15 @@ export const subscribeToUserCharacters = (
   };
 };
 
-export const getMaxCapacity = (weapon: any) => {
-  if (weapon.magazineAmmo?.length > 0) return weapon.magazineAmmo.length;
-  return weapon.municaoTotal || 10;
+export const getMaxCapacity = (weapon: any): number => {
+  if (!weapon) return 6;
+  const isBow = (weapon.categoria || "").toLowerCase() === "arco" || (weapon.tipo || "").toLowerCase().includes("arco");
+  const total = weapon.municaoTotal !== undefined && weapon.municaoTotal !== null && weapon.municaoTotal !== 0 ? Number(weapon.municaoTotal) : null;
+  const pente = weapon.capacidadePente !== undefined && weapon.capacidadePente !== null && weapon.capacidadePente !== 0 ? Number(weapon.capacidadePente) : null;
+  
+  if (total !== null && !isNaN(total)) return total;
+  if (pente !== null && !isNaN(pente)) return pente;
+  return isBow ? 20 : 6;
 };
 
 export const handleReload = async (
@@ -300,9 +306,10 @@ export const handleReload = async (
   }
   if (!weapon) return;
 
+  const isBow = (weapon.categoria || "").toLowerCase() === "arco" || (weapon.tipo || "").toLowerCase().includes("arco");
   const ammo = inventoryItems.find(i => i.id === ammoId);
   if (!ammo || (ammo.quantidade || 0) <= 0) {
-    await addCombatLog(campaignId, { msg: "Você não possui munição!", type: 'error' });
+    await addCombatLog(campaignId, { msg: isBow ? "Você não possui flechas!" : "Você não possui munição!", type: 'error' });
     return;
   }
 
@@ -310,7 +317,7 @@ export const handleReload = async (
   const maxCapacity = getMaxCapacity(weapon);
   
   if (currentMagazine.length >= maxCapacity) {
-    await addCombatLog(campaignId, { msg: "O pente já está cheio!", type: 'error' });
+    await addCombatLog(campaignId, { msg: isBow ? "A aljava/arco já está com capacidade máxima!" : "O pente já está cheio!", type: 'error' });
     return;
   }
 
@@ -320,22 +327,35 @@ export const handleReload = async (
   const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...ammo as any, id: generateId(), quantidade: 1 }));
   const newMagazine = [...currentMagazine, ...ammoToAdd];
 
-  charUpdates.armas = char.armas.map(w => w.id === weaponId ? { ...w, municaoCarregada: newMagazine.length, magazineAmmo: newMagazine } : w);
+  const updatedWeaponProps = {
+    ...weapon,
+    municaoCarregada: newMagazine.length,
+    magazineAmmo: newMagazine,
+    bulletId: !isBow ? ammo.id : undefined,
+    arrowId: isBow ? ammo.id : undefined,
+    corte: Number(ammo.corte) || 0,
+    perfuracao: Number(ammo.perfuracao) || 0,
+    impacto: Number(ammo.impacto) || 0,
+    resistencia: Number(ammo.resistencia) || 0,
+    ...(ammo.dano ? { municaoDano: ammo.dano } : {})
+  };
+
+  charUpdates.armas = char.armas.map(w => w.id === weaponId ? updatedWeaponProps : w);
   charUpdates.compartimentos = char.compartimentos.map(comp => ({
     ...comp,
-    itens: comp.itens.map(it => it.id === ammoId ? { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) } : it)
+    itens: comp.itens.map(it => {
+      if (it.id === ammoId) {
+        return { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) };
+      }
+      if (it.id === weaponId) {
+        return updatedWeaponProps;
+      }
+      return it;
+    })
   }));
 
-  const weaponInComp = char.compartimentos.some(c => c.itens.some(i => i.id === weaponId));
-  if (weaponInComp) {
-    charUpdates.compartimentos = charUpdates.compartimentos.map((comp: any) => ({
-      ...comp,
-      itens: comp.itens.map((it: any) => it.id === weaponId ? { ...it, municaoCarregada: newMagazine.length, magazineAmmo: newMagazine } : it)
-    }));
-  }
-
   await updateCharacterState(char.id, charUpdates);
-  await addCombatLog(campaignId, { msg: `${char.nome} recarregou 1 munição (${ammo.nome}) em ${weapon.nome}.`, type: 'info' });
+  await addCombatLog(campaignId, { msg: `${char.nome} recarregou 1 ${isBow ? 'flecha' : 'munição'} (${ammo.nome}) em ${weapon.nome}.`, type: 'info' });
 };
 
 export const handleReloadAll = async (
@@ -353,9 +373,10 @@ export const handleReloadAll = async (
   }
   if (!weapon) return;
 
+  const isBow = (weapon.categoria || "").toLowerCase() === "arco" || (weapon.tipo || "").toLowerCase().includes("arco");
   const ammo = inventoryItems.find(i => i.id === ammoId);
   if (!ammo || (ammo.quantidade || 0) <= 0) {
-    await addCombatLog(campaignId, { msg: "Você não possui munição!", type: 'error' });
+    await addCombatLog(campaignId, { msg: isBow ? "Você não possui flechas!" : "Você não possui munição!", type: 'error' });
     return;
   }
 
@@ -363,7 +384,7 @@ export const handleReloadAll = async (
   const maxCapacity = getMaxCapacity(weapon);
   
   if (currentMagazine.length >= maxCapacity) {
-    await addCombatLog(campaignId, { msg: "O pente já está cheio!", type: 'error' });
+    await addCombatLog(campaignId, { msg: isBow ? "A aljava/arco já está com capacidade máxima!" : "O pente já está cheio!", type: 'error' });
     return;
   }
 
@@ -375,22 +396,35 @@ export const handleReloadAll = async (
   const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...ammo as any, id: generateId(), quantidade: 1 }));
   const newMagazine = [...currentMagazine, ...ammoToAdd];
 
-  charUpdates.armas = char.armas.map(w => w.id === weaponId ? { ...w, municaoCarregada: newMagazine.length, magazineAmmo: newMagazine } : w);
+  const updatedWeaponProps = {
+    ...weapon,
+    municaoCarregada: newMagazine.length,
+    magazineAmmo: newMagazine,
+    bulletId: !isBow ? ammo.id : undefined,
+    arrowId: isBow ? ammo.id : undefined,
+    corte: Number(ammo.corte) || 0,
+    perfuracao: Number(ammo.perfuracao) || 0,
+    impacto: Number(ammo.impacto) || 0,
+    resistencia: Number(ammo.resistencia) || 0,
+    ...(ammo.dano ? { municaoDano: ammo.dano } : {})
+  };
+
+  charUpdates.armas = char.armas.map(w => w.id === weaponId ? updatedWeaponProps : w);
   charUpdates.compartimentos = char.compartimentos.map(comp => ({
     ...comp,
-    itens: comp.itens.map(it => it.id === ammoId ? { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) } : it)
+    itens: comp.itens.map(it => {
+      if (it.id === ammoId) {
+        return { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) };
+      }
+      if (it.id === weaponId) {
+        return updatedWeaponProps;
+      }
+      return it;
+    })
   }));
 
-  const weaponInComp = char.compartimentos.some(c => c.itens.some(i => i.id === weaponId));
-  if (weaponInComp) {
-    charUpdates.compartimentos = charUpdates.compartimentos.map((comp: any) => ({
-      ...comp,
-      itens: comp.itens.map((it: any) => it.id === weaponId ? { ...it, municaoCarregada: newMagazine.length, magazineAmmo: newMagazine } : it)
-    }));
-  }
-
   await updateCharacterState(char.id, charUpdates);
-  await addCombatLog(campaignId, { msg: `${char.nome} recarregou ${amountToLoad} munições (${ammo.nome}) em ${weapon.nome}.`, type: 'info' });
+  await addCombatLog(campaignId, { msg: `${char.nome} recarregou ${amountToLoad} ${isBow ? 'flechas' : 'munições'} (${ammo.nome}) em ${weapon.nome}.`, type: 'info' });
 };
 
 export const handleMaintenance = async (

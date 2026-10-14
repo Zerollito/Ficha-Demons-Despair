@@ -24,6 +24,7 @@ export interface Weapon {
   municaoTotal?: number;
   municaoCarregada?: number;
   bulletId?: string;
+  arrowId?: string;
   magazineAmmo?: any[];
   durabilidadeMaxUtil?: number;
 }

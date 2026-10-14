@@ -206,9 +206,15 @@ Certos materiais possuem propriedades que, embora úteis para jogadores em conte
 
 ---
 
-## 8. Munições
+## 8. Munições e Níveis de Dano/Resistência (Arcos e Armas de Fogo)
 
-Munições são consumíveis necessários para o uso de armas à distância (arcos, bestas, armas de fogo). Elas possuem propriedades específicas de dano (Perfuração, Impacto) e resistência que podem ser somadas ou substituir as da arma conforme a regra específica.
+Munições são consumíveis necessários para o uso de armas à distância (arcos, bestas, armas de fogo). 
+
+### Derivação de Níveis de Dano e Resistência
+- **Arcos (`categoria: 'Arco'`)**: Possuem um sistema de escolha de flechas. Os níveis de **Corte**, **Perfuração**, **Impacto** e **Resistência** são determinados exclusivamente pela **flecha selecionada/carregada**, e **não pelo próprio arco**.
+- **Armas de Fogo (`categoria: 'Arma de Fogo'`)**: Os níveis de **Corte**, **Perfuração**, **Impacto** e **Resistência** são determinados exclusivamente pelas **balas selecionadas/carregadas**, e **não pela própria arma de fogo**.
+- **Armas Brancas (`categoria: 'Arma Branca'`)**: Mantêm seus próprios níveis de Corte, Perfuração, Impacto e Resistência configurados na própria arma, já que não utilizam projéteis.
+- **Caso sem Munição Selecionada/Carregada**: Caso nenhuma flecha ou bala esteja selecionada/carregada, os níveis de ataque físico e resistência derivados da munição são considerados 0.
 
 ### Propriedades Base de Munição
 | Tipo de Munição | Peso (Un) | Volume (Un) |
@@ -217,24 +223,24 @@ Munições são consumíveis necessários para o uso de armas à distância (arc
 | **Flechas (Arco Curto)** | 0.5 | 0.9 |
 | **Flechas (Arco Longo)** | 0.6 | 1.3 |
 
-### Integração VTT
-- O sistema de VTT permite selecionar a munição carregada para cada arma compatível.
-- A quantidade de munição é reduzida automaticamente a cada disparo realizado no VTT.
+### Integração VTT e Ficha Técnica
+- Tanto a Ficha Técnica quanto o VTT permitem selecionar a munição (flecha ou bala) a partir dos compartimentos do personagem.
+- Ao selecionar ou recarregar a munição, os níveis de Corte, Perfuração, Impacto e Resistência são atualizados para refletir a munição ativa.
+- A cada disparo no VTT ou rolagem com consumo, a munição carregada é reduzida.
 
 ---
 
+## 9. Manutenção e Recarga
 
-## 9. Manutenção e Recarga (Armas de Fogo)
+### Recarga (Armas de Fogo e Arcos)
+- **Armas de Fogo**: Capacidade definida por `municaoTotal`. Permite recarregar 1 ou o pente completo a partir das balas do inventário.
+- **Arcos**: Possuem sistema de seleção e carregamento de flechas a partir dos compartimentos (aljava/bolsa).
+- **Lógica**: Reduz a quantidade de munição no compartimento e armazena as instâncias de munição em `magazineAmmo` e `municaoCarregada` na arma.
 
-### Recarga
-- **Capacidade**: Definida por `municaoTotal` ou `capacidadePente`.
-- **Lógica**: Reduz a quantidade de munição no compartimento (mochila) e aumenta o valor de `municaoCarregada` e o array `magazineAmmo` na arma.
-- **Integração VTT**: A ação de recarga processa a transferência de munição do inventário para a arma e sincroniza o estado via Firestore.
-
-### Manutenção
-- **Durabilidade**: O uso reduz a durabilidade.
-- **Manutenção**: Restaura a `durabilidade` da arma para o valor de `durabilidadeMaxUtil` (ou `maxDurabilidade`).
-- **Integração VTT**: A ação de manutenção redefine o valor de `durabilidade` no documento do personagem e sincroniza via Firestore.
+### Manutenção (Exclusiva para Armas de Fogo)
+- **Exclusividade**: A manutenção é aplicada **apenas a Armas de Fogo**. Armas brancas e arcos não possuem ação de manutenção.
+- **Restauração**: Restaura a `durabilidade` da arma de fogo para `durabilidadeMaxUtil` (ou `maxDurabilidade`).
+- **Integração VTT e Ficha**: A ação de manutenção redefine a durabilidade útil e sincroniza com a ficha.
 
 ---
 

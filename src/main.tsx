@@ -4,9 +4,15 @@ import App from './App.tsx';
 import './index.css';
 import { registerSW } from 'virtual:pwa-register';
 
-registerSW({ immediate: true });
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  try {
+    registerSW({ immediate: true });
+  } catch (err) {
+    console.warn("PWA SW registration skipped:", err);
+  }
+}
 
-console.log("%c RPG DEMONS DESPAIR - V5.0 (v1.14.3) LOADED ", "background: #10b981; color: #000; font-weight: bold; padding: 4px; border-radius: 4px;");
+console.log("%c RPG DEMONS DESPAIR - V5.0 (v1.14.7) LOADED ", "background: #10b981; color: #000; font-weight: bold; padding: 4px; border-radius: 4px;");
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
