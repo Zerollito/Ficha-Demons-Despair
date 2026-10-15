@@ -148,6 +148,8 @@ import { MaterialManagement } from "./components/MaterialManagement";
 import { ItemLibrary } from "./components/ItemLibrary";
 import { SpellLibrary } from "./components/SpellLibrary";
 import { PrintSheetModal } from "./components/PrintSheetModal";
+import { EthnicitySelector } from "./components/EthnicitySelector";
+import { applyEthnicityToCharacter, getEthnicityById } from "./rules/ethnicityRules";
 import { Section } from "./components/ui/Section";
 import { SubSection } from "./components/ui/SubSection";
 import { Input, TextArea } from "./components/ui/Input";
@@ -4463,7 +4465,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.11</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.15</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4573,14 +4575,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.11</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.15</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.11</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.15</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -5102,11 +5104,24 @@ function App() {
                     value={activeChar?.nome || ""}
                     onChange={(v) => updateChar({ nome: v })}
                   />
-                  <Input
-                    label={isCreatureMode ? "Localização" : "Etnia/Cultura"}
-                    value={activeChar?.etnia || ""}
-                    onChange={(v) => updateChar({ etnia: v })}
-                  />
+                  {isCreatureMode ? (
+                    <Input
+                      label="Localização"
+                      value={activeChar?.etnia || ""}
+                      onChange={(v) => updateChar({ etnia: v })}
+                    />
+                  ) : (
+                    <EthnicitySelector
+                      value={activeChar?.etnia || ""}
+                      onChangeEthnicity={(ethId, customName) => {
+                        updateChar((currentChar) => {
+                          return applyEthnicityToCharacter(currentChar, ethId, customName);
+                        });
+                      }}
+                      onCustomNameChange={(name) => updateChar({ etnia: name })}
+                      isCreatureMode={false}
+                    />
+                  )}
 
                   <div className="space-y-2">
                     <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
@@ -5717,6 +5732,19 @@ function App() {
               >
                 <div className="grid grid-cols-1 gap-1">
                   {PROFICIENCIES.map((prof) => {
+                    const currentEth = getEthnicityById(activeChar.etnia);
+                    // FIX: Use permanent etniaModifiers instead of proficienciasModifiers
+                    const ethMod = (activeChar.etniaModifiers && activeChar.etniaModifiers[prof.name]) || 0;
+                    
+                    let knowledgeLvl: number | undefined = undefined;
+                    if (prof.name === 'Forja manual') {
+                      const foundK = (activeChar.conhecimentos || []).find(k => k.name.toLowerCase() === 'forja manual');
+                      knowledgeLvl = foundK ? (foundK.nivel + (foundK.bonus || 0)) : 0;
+                    } else if (prof.name === 'Forja rústica') {
+                      const foundK = (activeChar.conhecimentos || []).find(k => k.name.toLowerCase() === 'forja rústica');
+                      knowledgeLvl = foundK ? (foundK.nivel + (foundK.bonus || 0)) : 0;
+                    }
+
                     const bonus = calculateProficiencyBonus(
                       stats,
                       prof.name,
@@ -5729,7 +5757,9 @@ function App() {
                       activeChar.bonusProficiencias?.[prof.name] || 0,
                       activeChar.efeitosNegativos || [],
                       activeChar.sanidadeAtual,
-                      sanidadeMax
+                      sanidadeMax,
+                      ethMod,
+                      knowledgeLvl
                     );
                     const manualBonus =
                       activeChar.bonusProficiencias?.[prof.name] || 0;
@@ -5745,10 +5775,27 @@ function App() {
                             {prof.name}
                           </span>
                           <span className="text-[10px] text-zinc-500 uppercase truncate">
-                            {prof.stats.join(" + ")}
+                            {prof.stats.length > 0 ? prof.stats.join(" + ") : "Conhecimentos"}
                           </span>
                         </div>
                         <div className="flex items-center gap-3">
+                          {(() => {
+                            const ethMod = (activeChar.etniaModifiers && activeChar.etniaModifiers[prof.name]) || 0;
+                            if (ethMod === 0) return null;
+                            return (
+                              <span
+                                className={cn(
+                                  "text-[10px] font-mono px-2 py-1 rounded font-bold border self-center",
+                                  ethMod > 0
+                                    ? "bg-emerald-950/40 text-emerald-400 border-emerald-800/40"
+                                    : "bg-red-950/40 text-red-400 border-red-800/40"
+                                )}
+                                title={`Modificador de Etnia`}
+                              >
+                                {ethMod > 0 ? `+${ethMod}` : ethMod}
+                              </span>
+                            );
+                          })()}
                           <div className="flex flex-col items-center">
                             <span className="text-[8px] font-bold text-zinc-600 uppercase mb-0.5">
                               Bônus
@@ -8689,30 +8736,53 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                             <span className="text-sm font-bold uppercase tracking-widest text-zinc-300 truncate safe-lock">
                               {k.name}
                             </span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] text-zinc-500 font-bold">
-                                NÍVEL
-                              </span>
-                              <NumericInput
-                                value={k.nivel}
-                                onChange={(v) => {
-                                  const newLevel = Math.max(0, Math.min(5, v));
-                                  const newMaxXp = getXpToNextLevel(newLevel);
-                                  const newKs = (activeChar?.conhecimentos || []).map((item, i) =>
-                                    i === idx
-                                      ? {
-                                          ...item,
-                                          nivel: newLevel,
-                                          limite: newMaxXp,
-                                          xp: Math.min(item.xp, Math.max(0, newMaxXp - 1)),
-                                        }
-                                      : item
-                                  );
-                                  updateChar({ conhecimentos: newKs });
-                                }}
-                                className="w-20"
-                                size="sm"
-                              />
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] text-zinc-500 font-bold">
+                                  BÔNUS
+                                </span>
+                                <NumericInput
+                                  value={k.bonus || 0}
+                                  onChange={(v) => {
+                                    const newKs = (activeChar?.conhecimentos || []).map((item, i) =>
+                                      i === idx
+                                        ? {
+                                            ...item,
+                                            bonus: v,
+                                          }
+                                        : item
+                                    );
+                                    updateChar({ conhecimentos: newKs });
+                                  }}
+                                  className="w-10 !px-1 !py-0.5"
+                                  size="sm"
+                                />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-zinc-500 font-bold">
+                                  NÍVEL
+                                </span>
+                                <NumericInput
+                                  value={k.nivel}
+                                  onChange={(v) => {
+                                    const newLevel = Math.max(0, Math.min(5, v));
+                                    const newMaxXp = getXpToNextLevel(newLevel);
+                                    const newKs = (activeChar?.conhecimentos || []).map((item, i) =>
+                                      i === idx
+                                        ? {
+                                            ...item,
+                                            nivel: newLevel,
+                                            limite: newMaxXp,
+                                            xp: Math.min(item.xp, Math.max(0, newMaxXp - 1)),
+                                          }
+                                        : item
+                                    );
+                                    updateChar({ conhecimentos: newKs });
+                                  }}
+                                  className="w-10 !py-0.5"
+                                  size="sm"
+                                />
+                              </div>
                             </div>
                           </div>
                           <div className="flex items-center gap-3">

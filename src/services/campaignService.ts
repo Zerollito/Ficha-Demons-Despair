@@ -749,7 +749,7 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
       const rawLocalCached = getLocalCampaignCharacters(campaignId);
       const validLocalCached = rawLocalCached.filter(lc => {
         if (!lc || !lc.id || blacklist.has(lc.id)) return false;
-        const lcCampId = lc.campaignId || lc.campaign_id || '';
+        const lcCampId = lc.campaignId || (lc as any).campaign_id || '';
         if (lcCampId && lcCampId !== campaignId) return false;
         return true;
       });
@@ -759,7 +759,7 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
       for (const lc of validLocalCached) {
         if (!seenIds.has(lc.id)) {
           seenIds.add(lc.id);
-          const lcCampId = lc.campaignId || lc.campaign_id || '';
+          const lcCampId = lc.campaignId || (lc as any).campaign_id || '';
           if (!lcCampId || lcCampId === campaignId) {
             matchedCharacters.push({ ...lc, campaignId: lcCampId || campaignId });
           }

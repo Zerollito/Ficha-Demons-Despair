@@ -84,5 +84,14 @@
       "masterFog": false,
       "mapUrl": ""
     }
+  },
+  "camp_gjg9xdodv": {
+    "tokens": [],
+    "config": {
+      "gridSize": 50,
+      "showGrid": true,
+      "masterFog": false,
+      "mapUrl": ""
+    }
   }
 }

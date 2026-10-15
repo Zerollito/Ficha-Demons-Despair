@@ -26,7 +26,9 @@ export const calculateProficiencyBonus = (
   manualBonus: number = 0,
   effects: NegativeEffect[] = [],
   sanity?: number,
-  maxSanity?: number
+  maxSanity?: number,
+  etniaModifier: number = 0,
+  knowledgeLevel?: number
 ) => {
   let penalty = 0;
   
@@ -44,9 +46,20 @@ export const calculateProficiencyBonus = (
   } else if (name === 'Mentalidade') {
     // Every 2 points in MEN = +1
     baseBonus = Math.floor(stats.MEN / 2);
-  } else if (name === 'Clima') {
+  } else if (name === 'Clima Quente' || name === 'Clima Frio') {
     // 10 points = 1
     baseBonus = Math.floor(stats.ADP / 10);
+  } else if (name === 'Forja manual' || name === 'Forja rústica') {
+    // -1 se nível 0, 0 se nível 1, a partir do nível 2 ganha +1 por nível (máx +4)
+    const lvl = knowledgeLevel !== undefined ? knowledgeLevel : 0;
+    if (lvl <= 0) {
+      baseBonus = -1;
+    } else if (lvl === 1) {
+      baseBonus = 0;
+    } else {
+      // Nível 2 = +1, Nível 3 = +2, Nível 4 = +3, Nível 5 = +4 (máximo +4)
+      baseBonus = Math.min(4, lvl - 1);
+    }
   } else if (statKeys.length === 1) {
     // Scaling: 10 points = +1
     baseBonus = Math.floor(stats[statKeys[0]] / (CONFIG.bonuses.proficiencySingleThreshold || 10));
@@ -117,7 +130,7 @@ export const calculateProficiencyBonus = (
     }
   }
 
-  return baseBonus + penalty + manualBonus;
+  return baseBonus + penalty + manualBonus + etniaModifier;
 };
 
 export const PROFICIENCIES = [
@@ -134,7 +147,10 @@ export const PROFICIENCIES = [
   { name: 'Mentalidade', stats: ['MEN'] },
   { name: 'Ritualismo', stats: ['RIT'] },
   { name: 'Fome', stats: ['RES', 'ADP'] },
-  { name: 'Clima', stats: ['ADP'] },
+  { name: 'Clima Quente', stats: ['ADP'] },
+  { name: 'Clima Frio', stats: ['ADP'] },
   { name: 'Resistência', stats: ['RES'] },
   { name: 'Adaptabilidade', stats: ['ADP'] },
+  { name: 'Forja manual', stats: [] },
+  { name: 'Forja rústica', stats: [] },
 ];

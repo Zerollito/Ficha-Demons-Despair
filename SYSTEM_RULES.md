@@ -18,7 +18,7 @@ Este documento contém todas as regras lógicas e mecânicas do sistema para gar
 ### Cálculos de Vitais
 - **Vida Máxima**: `CON * 2` (Base 0 + 2 por ponto de CON).
 - **Mana Máxima**: `APR * 2` (Base 0 + 2 por ponto de APR).
-- **Carga Máxima**: `200 + (RES * 5)`.
+- **Carga Máxima**: `200 + (RES * 5)` (Base de 200 de carga = 20kg; no sistema, 1 carga equivale a 100g, logo 10 cargas = 1kg).
 - **Deslocamento Base**: `3 + floor(DEX / 3)`.
 
 ---
@@ -241,6 +241,64 @@ Munições são consumíveis necessários para o uso de armas à distância (arc
 - **Exclusividade**: A manutenção é aplicada **apenas a Armas de Fogo**. Armas brancas e arcos não possuem ação de manutenção.
 - **Restauração**: Restaura a `durabilidade` da arma de fogo para `durabilidadeMaxUtil` (ou `maxDurabilidade`).
 - **Integração VTT e Ficha**: A ação de manutenção redefine a durabilidade útil e sincroniza com a ficha.
+
+---
+
+## 10. Etnias e Culturas
+
+A Ficha do Personagem conta com um seletor nativo de Etnia/Cultura com aplicação automática de modificadores de atributos/proficiências, habilidades contextuais e equipamento de vestimenta inicial.
+
+### Tabela de Etnias e Efeitos
+1. **Customizado (Padrão)**: Sem bônus ou debuffs automáticos. Permite escrita livre.
+2. **Nativos de Goundospauh**:
+   - **Bônus**: +1 no primeiro d8 de cansaço; +1 ao tentar criar armas artesanais.
+   - **Debuff**: -1 em Comunicação em cidades grandes.
+   - **Vestimenta Inicial**: Veste de guerra de peles e madeira (Corte 1, Impacto 2, Perfuração 1, Durabilidade 2, Peso 48, Volume 32, Redução de Dano 2).
+3. **Nativos de Lochcliff**:
+   - **Bônus**: +5 no primeiro d100 para fome; +2 bônus de dano de Força (não entra na escala); +1 nível para climas quentes.
+   - **Debuff**: -1 em Comunicação em cidades grandes.
+   - **Vestimenta Inicial**: Armadura de couro (Corte 1, Impacto 1, Perfuração 1, Durabilidade 1, Peso 47, Volume 30, Redução de Dano 1).
+4. **Anões de Marble Edge**:
+   - **Bônus**: +1 para identificar peças de uma arma; +1 para criar peças manualmente; +1 em Comunicação em grandes cidades.
+   - **Debuff**: Alimentos têm metade do bônus no próximo dado para fome e redução de -5 nos dados seguintes contra fome.
+   - **Vestimenta Inicial**: Armadura de ferro completa (Corte 3, Impacto 3, Perfuração 3, Durabilidade 4, Peso 165, Volume 36.5, Redução de Dano 5, Efeito: -2 em furtividade).
+5. **Cidadãos da cidade central (Shentil)**:
+   - **Bônus**: +2 em Comunicação (aplicado às proficiências).
+   - **Vestimenta Inicial**: Armadura de ferro simples (Corte 3, Impacto 3, Perfuração 3, Durabilidade 3, Peso 115, Volume 27, Redução de Dano 3, Efeito: -1 em furtividade).
+6. **Cidadãos de Dellmont**:
+   - **Bônus**: +1 em Conhecimento (proficiência); +1 para identificar peças de uma arma.
+   - **Vestimenta Inicial**: Armadura de placas de bambu (Corte 3, Impacto 2, Perfuração 2, Durabilidade 2, Peso 63, Volume 30, Redução de Dano 2).
+7. **Sacerdotes do monte Tabatos**:
+   - **Bônus**: +1 nível de clima para frio; +1 em Religião (conhecimento); +1 em Medicina (conhecimento).
+   - **Debuff**: -2 em todas as proficiências de Força e Destreza (Intimidação, Vigor, Furtividade, Atletismo, Acurácia, Esquiva); -3 em Comunicação em locais com cultos a demônios.
+   - **Vestimenta Inicial**: Manto de sacerdote (Corte 0, Impacto 0, Perfuração 0, Durabilidade 1, Peso 20, Volume 5, Redução de Dano 0, Efeito: Religião +1).
+8. **Nativos da vila Icefield**:
+   - **Bônus**: +2 nível de clima frio; +1 em Percepção; +1 em Intuição; +1 em Acurácia.
+   - **Debuff**: -2 nível de calor; -2 em Comunicação.
+   - **Vestimenta Inicial**: Manto de couro grosso (Corte 2, Impacto 2, Perfuração 2, Durabilidade 2, Peso 30, Volume 6, Redução de Dano 2, Efeito: Clima +2 (frio)).
+9. **Guerreiros de Stonebarrow**:
+   - **Bônus**: +2 em Intimidação; +2 no bônus de dano de Força; +5 no dado contra Resistência.
+   - **Debuff**: -1 no dado contra cansaço; -1 no bônus de bem descansado (teto máximo reduzido para +2).
+   - **Vestimenta Inicial**: Armadura de guerra de Vayekhel (Corte 4, Impacto 4, Perfuração 4, Durabilidade 3, Peso 147, Volume 36.5, Redução de Dano 5).
+10. **Atiradores da escola de Daedra**:
+    - **Bônus**: +2 em Acurácia.
+    - **Debuff**: -1 no nível de clima geral; -2 em Comunicação em cidades onde são considerados assassinos/mentirosos.
+    - **Vestimenta Inicial**: Roupas elegantes (Corte 0, Impacto 0, Perfuração 0, Durabilidade 1, Peso 2.7, Volume 10.5, Redução de Dano 0, Efeito: Comunicação +1).
+11. **Monges do pico enevoado**:
+    - **Bônus**: +5 no dado de Mentalidade; +1 em Intuição.
+    - **Vestimenta Inicial**: Panos sagrados (Corte 0, Impacto 0, Perfuração 0, Durabilidade 1, Peso 7, Volume 4, Redução de Dano 0, Efeito: Conhecimento +1).
+12. **Povos subterrâneos**:
+    - **Bônus**: +2 em Percepção; +5 no d100 de Adaptabilidade; +2 em Comunicação com povos das copas.
+    - **Debuff**: -3 em Comunicação em locais hostis aos povos subterrâneos.
+    - **Vestimenta Inicial**: Armadura de carapaça de Chaurus (Corte 3, Impacto 3, Perfuração 3, Durabilidade 3, Peso 29, Volume 27, Redução de Dano 3).
+13. **Povos das copas**:
+    - **Bônus**: +2 em Atletismo; +5 no d100 contra Resistência.
+    - **Debuff**: -2 em Comunicação em locais com aversão a povos nativos.
+    - **Vestimenta Inicial**: Manto de pele de Tobi Kadachi (Corte 2, Impacto 2, Perfuração 2, Durabilidade 3, Peso 40, Volume 26, Redução de Dano 3, Efeito: Elemental: 3).
+14. **Híbridos**:
+    - **Debuff**: -5 permanente em Comunicação geral (odiado por todos os povos e criaturas).
+    - **Bônus**: Personalizados conforme o animal escolhido pelo jogador via Habilidade de Herança Bestial.
+    - **Vestimenta Inicial**: Trapos velhos (Corte 0, Impacto 0, Perfuração 0, Durabilidade 1, Peso 5, Volume 3, Redução de Dano 0).
 
 ---
 

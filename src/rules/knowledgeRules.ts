@@ -5,6 +5,7 @@ export interface Knowledge {
   nivel: number;
   xp: number;
   limite: number;
+  bonus?: number;
 }
 
 export const getXpToNextLevel = (currentLevel: number) => {
@@ -14,7 +15,7 @@ export const getXpToNextLevel = (currentLevel: number) => {
 };
 
 export const INITIAL_KNOWLEDGES = [
-  'Flora', 'Minerais', 'Magia', 'Forja artesanal', 'Forja comum', 
+  'Flora', 'Minerais', 'Magia', 'Forja rústica', 'Forja manual', 
   'Geografia', 'Navegação', 'Mecânica', 'história', 'Religião', 
   'Medicina', 'Fauna', 'Alquimia', 'Armas de fogo', 'Arqueologia', 
   'Sobrevivência', 'Demônios', 'Culinária', 'Clima'
