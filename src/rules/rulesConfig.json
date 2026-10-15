@@ -6,7 +6,7 @@
     "manaPerApr": 2,
     "baseSanidade": 0,
     "sanidadePerMen": 2,
-    "baseCarga": 300,
+    "baseCarga": 200,
     "cargaPerRes": 5,
     "baseDeslocamento": 3,
     "dexPerDeslocamento": 3

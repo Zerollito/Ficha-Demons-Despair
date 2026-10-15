@@ -295,6 +295,7 @@ export interface Character {
   statsXP: Stats; // XP for each stat
   
   bonusProficiencias?: { [key: string]: number }; // Manual bonuses for each proficiency
+  etniaModifiers?: { [key: string]: number }; // Permanent modifiers from ethnicity (cannot be edited manually)
   
   joias: string[];
   imagem?: string;
