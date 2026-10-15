@@ -22,33 +22,33 @@ export function WeaponProperties({ item, onChange, character, updateCharacter, o
   }, [character]);
 
   const ammoItems = React.useMemo(() => {
-    const specific = allCompartmentItems.filter((i: any) => {
-      const lowerTipo = (i.tipo || "").toLowerCase();
-      const lowerNome = (i.nome || "").toLowerCase();
-      if (lowerTipo === 'arma' || lowerTipo === 'escudo' || lowerTipo === 'catalisador' || lowerTipo === 'armadura' || lowerTipo === 'acessório' || lowerTipo === 'acessorio') {
-        return false;
-      }
-      if (isBow) {
-        if (lowerNome.includes('flecha') || lowerNome.includes('virote') || lowerNome.includes('arco')) return true;
-        if (lowerTipo === 'munição' || lowerTipo === 'municao') {
-          return !lowerNome.includes('bala') && !lowerNome.includes('projet') && !lowerNome.includes('cartucho');
-        }
-        return false;
-      }
-      // Firearms
-      if (lowerNome.includes('bala') || lowerNome.includes('projet') || lowerNome.includes('cartucho') || lowerNome.includes('fogo')) return true;
-      if (lowerTipo === 'munição' || lowerTipo === 'municao') {
-        return !lowerNome.includes('flecha') && !lowerNome.includes('virote');
-      }
-      return false;
-    });
-
-    if (specific.length > 0) return specific;
     return allCompartmentItems.filter((i: any) => {
       const lowerTipo = (i.tipo || "").toLowerCase();
-      return lowerTipo === 'munição' || lowerTipo === 'municao';
+      const lowerNome = (i.nome || "").toLowerCase();
+
+      // Apenas itens classificados como munição
+      const isAmmoType = lowerTipo === 'munição' || lowerTipo === 'municao';
+      if (!isAmmoType) return false;
+
+      if (isBow) {
+        // Exclui balas e cartuchos de armas de fogo
+        if (lowerNome.includes('bala') || lowerNome.includes('cartucho') || lowerNome.includes('chumbo')) {
+          return false;
+        }
+        return true;
+      }
+
+      if (isFirearm) {
+        // Exclui flechas e virotes de arcos
+        if (lowerNome.includes('flecha') || lowerNome.includes('virote') || lowerNome.includes('arco')) {
+          return false;
+        }
+        return true;
+      }
+
+      return true;
     });
-  }, [allCompartmentItems, isBow]);
+  }, [allCompartmentItems, isBow, isFirearm]);
 
   // Find active ammo (from arrowId/bulletId or from magazineAmmo)
   const currentAmmoId = (isBow ? (item.arrowId || item.bulletId) : (item.bulletId || item.arrowId)) || (item.magazineAmmo && item.magazineAmmo.length > 0 ? item.magazineAmmo[0].id : "");

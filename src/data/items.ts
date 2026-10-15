@@ -22,8 +22,8 @@ export const ITEMS_LIBRARY: Item[] = [
   {
     nome: "Balas de metal",
     quantidade: 10,
-    peso: 5,
-    volume: 5,
+    peso: 0,
+    volume: 0,
     descricao: "Projéteis de metal fundido, pesados e letais, capazes de causar grandes estragos por impacto ou perfuração.",
     efeito: "Munição para armas de fogo. Causa dano perfurante ou impacto.",
     tipo: 'municao'

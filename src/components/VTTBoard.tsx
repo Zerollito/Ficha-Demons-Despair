@@ -6116,14 +6116,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                                 .filter(i => {
                                   const lowerTipo = ((i as any).tipo || "").toLowerCase();
                                   const lowerNome = (i.nome || "").toLowerCase();
-                                  if (lowerTipo === 'munição' || lowerTipo === 'municao') return true;
-                                  if (lowerTipo === 'arma' || lowerTipo === 'escudo' || lowerTipo === 'catalisador') return false;
+                                  const isAmmo = lowerTipo === 'munição' || lowerTipo === 'municao';
+                                  if (!isAmmo) return false;
                                   
                                   const isBow = isBowItem(ammoSelectWeapon);
                                   if (isBow) {
-                                    return lowerNome.includes('flecha') || lowerNome.includes('virote') || lowerNome.includes('munição') || lowerNome.includes('muniç');
+                                    return !lowerNome.includes('bala') && !lowerNome.includes('cartucho') && !lowerNome.includes('chumbo');
                                   }
-                                  return lowerNome.includes('bala') || lowerNome.includes('projet') || lowerNome.includes('cartucho') || lowerNome.includes('muniç');
+                                  return !lowerNome.includes('flecha') && !lowerNome.includes('virote') && !lowerNome.includes('arco');
                                 }).map(ammo => (
                                 <button
                                   key={ammo.id}
@@ -6199,15 +6199,23 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                              <div className="space-y-2">
                                {(attackerChar?.compartimentos?.filter(comp => !comp.externo).flatMap(comp => comp.itens || [])
                                  .filter(i => {
-                                   const isBow = ammoSelectWeapon.nome.toLowerCase().includes('arco') || ammoSelectWeapon.nome.toLowerCase().includes('besta') || ammoSelectWeapon.categoria === 'Arco';
-                                   if (isBow) return i.nome.toLowerCase().includes('flecha') || i.tipo === 'Munição' || i.tipo === 'municao';
-                                   return i.tipo === 'Munição' || i.tipo === 'municao';
+                                   const lowerTipo = ((i as any).tipo || "").toLowerCase();
+                                   const lowerNome = (i.nome || "").toLowerCase();
+                                   const isAmmo = lowerTipo === 'munição' || lowerTipo === 'municao';
+                                   if (!isAmmo) return false;
+                                   const isBow = ammoSelectWeapon.nome.toLowerCase().includes('arco') || ammoSelectWeapon.nome.toLowerCase().includes('besta') || ammoSelectWeapon.categoria === 'Arco' || isBowItem(ammoSelectWeapon);
+                                   if (isBow) return !lowerNome.includes('bala') && !lowerNome.includes('cartucho') && !lowerNome.includes('chumbo');
+                                   return !lowerNome.includes('flecha') && !lowerNome.includes('virote') && !lowerNome.includes('arco');
                                  }).length || 0) > 0 ? (
                                    attackerChar?.compartimentos?.filter(comp => !comp.externo).flatMap(comp => comp.itens || [])
                                    .filter(i => {
-                                     const isBow = ammoSelectWeapon.nome.toLowerCase().includes('arco') || ammoSelectWeapon.nome.toLowerCase().includes('besta') || ammoSelectWeapon.categoria === 'Arco';
-                                     if (isBow) return i.nome.toLowerCase().includes('flecha') || i.tipo === 'Munição' || i.tipo === 'municao';
-                                     return i.tipo === 'Munição' || i.tipo === 'municao';
+                                     const lowerTipo = ((i as any).tipo || "").toLowerCase();
+                                     const lowerNome = (i.nome || "").toLowerCase();
+                                     const isAmmo = lowerTipo === 'munição' || lowerTipo === 'municao';
+                                     if (!isAmmo) return false;
+                                     const isBow = ammoSelectWeapon.nome.toLowerCase().includes('arco') || ammoSelectWeapon.nome.toLowerCase().includes('besta') || ammoSelectWeapon.categoria === 'Arco' || isBowItem(ammoSelectWeapon);
+                                     if (isBow) return !lowerNome.includes('bala') && !lowerNome.includes('cartucho') && !lowerNome.includes('chumbo');
+                                     return !lowerNome.includes('flecha') && !lowerNome.includes('virote') && !lowerNome.includes('arco');
                                    }).map((ammo, idx) => {
                                      const ammoAvailTypes = [
                                        { type: 'Perfuração', val: ammo.perfuracao || 0 },
@@ -6851,12 +6859,26 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             </div>
             
             <div className="p-4 bg-zinc-950/50 border-t border-zinc-800 flex flex-col gap-2">
+               {clipBoardItem && (
+                 <div className="flex items-center justify-between p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs">
+                   <span className="text-amber-400 font-bold truncate mr-2">
+                     Item em espera: "{clipBoardItem.item?.nome || "Item"}"
+                   </span>
+                   <button
+                     type="button"
+                     onClick={() => setClipBoardItem(null)}
+                     className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-red-500/20 text-zinc-300 hover:text-red-400 text-[10px] font-bold border border-zinc-700 hover:border-red-500/40 shrink-0 cursor-pointer"
+                   >
+                     Cancelar
+                   </button>
+                 </div>
+               )}
                <div className="text-[9px] text-zinc-500 text-center italic mb-1">
                  Selecione os itens para "Recortar". Eles sumirão da ficha original ao serem colados em outra.
                </div>
                <button 
                 onClick={() => setLootingCharId(null)}
-                className="w-full py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all"
+                className="w-full py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all cursor-pointer"
                >
                  Fechar Inventário
                </button>

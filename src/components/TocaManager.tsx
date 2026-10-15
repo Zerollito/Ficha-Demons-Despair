@@ -126,8 +126,8 @@ const MiniInput = React.memo(({
   }, [value]);
 
   return (
-    <div className={cn("bg-zinc-950 p-1.5 rounded border border-zinc-800 flex flex-col min-w-0 flex-1", className)}>
-      <span className="text-[8px] text-zinc-500 font-bold uppercase tracking-tighter block truncate mb-0.5 select-none">{label}</span>
+    <div className={cn("bg-zinc-950 px-1.5 py-1 rounded border border-zinc-800/80 flex flex-col min-w-0 flex-1", className)}>
+      <span className="text-[7.5px] text-zinc-500 font-bold uppercase tracking-tighter block truncate mb-0.5 select-none">{label}</span>
       <input
         ref={inputRef}
         type={type}
@@ -236,14 +236,15 @@ const WeaponProperties = React.memo(({
   const isBow = item.categoria === 'Arco';
   const isMelee = item.categoria === 'Arma Branca' || !item.categoria;
 
-  // Find available bullets in internal compartments
   const internalBullets = (character?.compartimentos || [])
     .filter((c: any) => !c.externo)
     .flatMap((c: any) => (c.itens || []))
     .filter((i: any) => {
       const n = (i.nome || "").toLowerCase();
       const t = (i.tipo || "").toLowerCase();
-      return n.includes("bala") || n.includes("munição") || n.includes("projetil") || n.includes("flecha") || t === "munição";
+      const isAmmo = t === "munição" || t === "municao";
+      if (!isAmmo) return false;
+      return !n.includes("flecha") && !n.includes("virote") && !n.includes("arco");
     });
 
   const handleConvertType = (newCategory: 'Arma Branca' | 'Arma de Fogo' | 'Arco') => {
@@ -275,49 +276,12 @@ const WeaponProperties = React.memo(({
 
   return (
     <div className="space-y-2 pt-1 border-t border-zinc-805">
-      {/* Mini Seletor de Tipo de Arma */}
+      {/* Mini Tipo de Arma (fixo) */}
       <div className="flex items-center justify-between bg-zinc-950/20 px-2 py-1 rounded border border-zinc-800/20 relative">
-        <span className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">Tipo/Propriedades</span>
-        <div className="relative font-sans">
-          <button
-            type="button"
-            onClick={() => setShowTypeSelector(!showTypeSelector)}
-            className="flex items-center gap-1 px-2 py-0.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-amber-500 text-[8px] font-black uppercase rounded shadow-sm transition-colors cursor-pointer select-none"
-          >
-            <RotateCw size={8} />
-            <span>{item.categoria || 'Arma Branca'} ▾</span>
-          </button>
-          
-          {showTypeSelector && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowTypeSelector(false)} />
-              <div className="absolute right-0 mt-1 w-28 bg-zinc-950 border border-zinc-800 rounded shadow-xl z-50 py-0.5 font-mono overflow-hidden">
-                {[
-                  { cat: "Arma Branca", icon: <Sword size={10} /> },
-                  { cat: "Arma de Fogo", icon: <Zap size={10} /> },
-                  { cat: "Arco", icon: <Target size={10} /> }
-                ].map((opt) => (
-                  <button
-                    key={opt.cat}
-                    type="button"
-                    onClick={() => {
-                      handleConvertType(opt.cat as any);
-                      setShowTypeSelector(false);
-                    }}
-                    className={cn(
-                      "w-full flex items-center gap-1.5 px-2 py-1 text-[9px] font-bold uppercase transition-colors text-left",
-                      (item.categoria === opt.cat || (opt.cat === 'Arma Branca' && !item.categoria))
-                        ? "bg-amber-500 text-zinc-950 hover:bg-amber-400"
-                        : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
-                    )}
-                  >
-                    {opt.icon}
-                    <span>{opt.cat}</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+        <span className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">Tipo</span>
+        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-zinc-900 border border-zinc-800 text-amber-500 text-[8px] font-black uppercase rounded shadow-sm select-none">
+          {item.categoria === 'Arco' ? <Target size={10} /> : item.categoria === 'Arma de Fogo' ? <Zap size={10} /> : <Sword size={10} />}
+          <span>{item.categoria || 'Arma Branca'}</span>
         </div>
       </div>
 
@@ -657,14 +621,15 @@ export const AmmunitionProperties = React.memo(({
   onChange: (updates: any) => void;
 }) => {
   const templates = [
-    { name: 'Bala', weight: 0.1, vol: 0.3 },
+    { name: 'Bala', weight: 0, vol: 0 },
     { name: 'Flecha (A. Curto)', weight: 0.5, vol: 0.9 },
     { name: 'Flecha (A. Longo)', weight: 0.6, vol: 1.3 },
   ];
 
   return (
-    <div className="space-y-2 pt-1 border-t border-zinc-800/30">
-      <div className="flex flex-wrap gap-1">
+    <div className="space-y-1.5 pt-1 border-t border-zinc-800/40">
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="text-[7.5px] text-zinc-500 font-bold uppercase tracking-wider mr-0.5">Presets:</span>
         {templates.map(tmp => (
           <motion.button
             key={tmp.name}
@@ -675,14 +640,14 @@ export const AmmunitionProperties = React.memo(({
               peso: tmp.weight, 
               volume: tmp.vol 
             })}
-            className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-[7px] font-black uppercase text-zinc-400 border border-zinc-700 transition-colors cursor-pointer"
+            className="px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-zinc-700 text-[7.5px] font-bold text-zinc-300 border border-zinc-700/60 transition-colors cursor-pointer"
           >
             {tmp.name}
           </motion.button>
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-2 col-span-2">
+      <div className="grid grid-cols-5 gap-1">
         <MiniInput 
           label="Perf." 
           value={item.perfuracao ?? ""} 
@@ -713,13 +678,14 @@ export const AmmunitionProperties = React.memo(({
           type="number" 
           onChange={(v) => onChange({ volume: safeParseFloat(v) })} 
         />
-        <div className="col-span-2">
-          <TextArea
-            label="Efeito / Descrição"
-            value={item.efeito || item.descricao || ""}
-            onChange={(v) => onChange({ efeito: v, descricao: v })}
-          />
-        </div>
+      </div>
+
+      <div>
+        <TextArea
+          label="Efeito / Descrição"
+          value={item.efeito || item.descricao || ""}
+          onChange={(v) => onChange({ efeito: v, descricao: v })}
+        />
       </div>
     </div>
   );
@@ -831,6 +797,7 @@ export const TocaManager: React.FC<TocaManagerProps> = React.memo(({
 
   // New action form state
   const [showAddAction, setShowAddAction] = useState(false);
+  const [tocaWeaponMenuCompIdx, setTocaWeaponMenuCompIdx] = useState<number | null>(null);
   
   // For custom native dialogs to replace window.confirm, window.alert, and window.prompt
   const [appConfirm, setAppConfirm] = useState<{
@@ -2515,37 +2482,17 @@ export const TocaManager: React.FC<TocaManagerProps> = React.memo(({
                                   </motion.button>
                                   <motion.button
                                     whileTap={{ scale: 0.95 }}
-                                    onClick={() => {
-                                      const newItens = [
-                                        ...(comp.itens || []),
-                                        {
-                                          id: generateId(),
-                                          nome: "Nova Arma de Bagagem",
-                                          peso: 10,
-                                          volume: 2,
-                                          quantidade: 1,
-                                          tipo: "Arma",
-                                          durabilidade: 10,
-                                          maxDurabilidade: 10,
-                                          descricao: "",
-                                          dano: "1d6",
-                                          acerto: 0,
-                                          escala: "0",
-                                          atributoBase: "Força",
-                                          corte: 0,
-                                          impacto: 0,
-                                          perfuracao: 0,
-                                          resistencia: 0,
-                                        }
-                                      ];
-                                      setEditingCreature({
-                                        ...editingCreature,
-                                        compartimentos: (editingCreature.compartimentos || []).map((c, idx) => idx === cIdx ? { ...c, itens: newItens } : c)
-                                      });
-                                    }}
-                                    className="px-2 py-1 bg-zinc-950 border border-zinc-800/80 rounded text-[8px] font-black uppercase text-zinc-400 hover:border-amber-500/50 hover:text-amber-500 transition-all cursor-pointer"
+                                    type="button"
+                                    onClick={() => setTocaWeaponMenuCompIdx(tocaWeaponMenuCompIdx === cIdx ? null : cIdx)}
+                                    className={cn(
+                                      "px-2 py-1 border rounded text-[8px] font-black uppercase transition-all cursor-pointer flex items-center gap-1",
+                                      tocaWeaponMenuCompIdx === cIdx
+                                        ? "bg-amber-500/20 border-amber-500 text-amber-400"
+                                        : "bg-zinc-950 border-zinc-800/80 text-zinc-400 hover:border-amber-500/50 hover:text-amber-500"
+                                    )}
                                   >
-                                    + Arma
+                                    <span>+ Arma</span>
+                                    <span className="text-[7px]">▾</span>
                                   </motion.button>
                                   <motion.button
                                     whileTap={{ scale: 0.95 }}
@@ -2618,9 +2565,9 @@ export const TocaManager: React.FC<TocaManagerProps> = React.memo(({
                                         {
                                           id: generateId(),
                                           nome: "Projéteis de Munição",
-                                          peso: 0.1,
-                                          volume: 0.2,
-                                          quantidade: 20,
+                                          peso: 0,
+                                          volume: 0,
+                                          quantidade: 1,
                                           tipo: "Munição",
                                           durabilidade: 0,
                                           maxDurabilidade: 0,
@@ -2641,6 +2588,126 @@ export const TocaManager: React.FC<TocaManagerProps> = React.memo(({
                                     + Mun
                                   </motion.button>
                                 </div>
+
+                                {tocaWeaponMenuCompIdx === cIdx && (
+                                  <div className="flex items-center gap-1 p-1 bg-zinc-950 border border-amber-500/50 rounded shadow-md my-1">
+                                    <span className="text-[8px] font-black uppercase text-amber-500 shrink-0 px-1">
+                                      Arma:
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const newItem = {
+                                          id: generateId(),
+                                          nome: "Nova Arma Branca",
+                                          peso: 10,
+                                          volume: 2,
+                                          quantidade: 1,
+                                          tipo: "Arma",
+                                          categoria: "Arma Branca" as const,
+                                          durabilidade: 10,
+                                          maxDurabilidade: 10,
+                                          descricao: "",
+                                          dano: "1d6",
+                                          acerto: 0,
+                                          escala: "0",
+                                          atributoBase: "Força",
+                                          corte: 0,
+                                          impacto: 0,
+                                          perfuracao: 0,
+                                          resistencia: 0,
+                                        };
+                                        setEditingCreature({
+                                          ...editingCreature,
+                                          compartimentos: (editingCreature.compartimentos || []).map((c, idx) => idx === cIdx ? { ...c, itens: [...(comp.itens || []), newItem] } : c)
+                                        });
+                                        setTocaWeaponMenuCompIdx(null);
+                                      }}
+                                      className="flex-1 py-0.5 px-1 bg-zinc-900 hover:bg-amber-500/20 text-zinc-300 hover:text-amber-400 border border-zinc-800 rounded text-[8px] font-bold flex items-center justify-center gap-1 transition-all"
+                                    >
+                                      <Sword size={9} className="text-amber-500 shrink-0" />
+                                      <span>Branca</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const newItem = {
+                                          id: generateId(),
+                                          nome: "Nova Arma de Fogo",
+                                          peso: 10,
+                                          volume: 2,
+                                          quantidade: 1,
+                                          tipo: "Arma",
+                                          categoria: "Arma de Fogo" as const,
+                                          durabilidade: 10,
+                                          maxDurabilidade: 10,
+                                          descricao: "",
+                                          dano: "1d6",
+                                          acerto: 0,
+                                          escala: "0",
+                                          atributoBase: "Destreza",
+                                          corte: 0,
+                                          impacto: 0,
+                                          perfuracao: 0,
+                                          resistencia: 0,
+                                          municaoTotal: 6,
+                                          municaoCarregada: 6
+                                        };
+                                        setEditingCreature({
+                                          ...editingCreature,
+                                          compartimentos: (editingCreature.compartimentos || []).map((c, idx) => idx === cIdx ? { ...c, itens: [...(comp.itens || []), newItem] } : c)
+                                        });
+                                        setTocaWeaponMenuCompIdx(null);
+                                      }}
+                                      className="flex-1 py-0.5 px-1 bg-zinc-900 hover:bg-amber-500/20 text-zinc-300 hover:text-amber-400 border border-zinc-800 rounded text-[8px] font-bold flex items-center justify-center gap-1 transition-all"
+                                    >
+                                      <Zap size={9} className="text-amber-500 shrink-0" />
+                                      <span>Fogo</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const newItem = {
+                                          id: generateId(),
+                                          nome: "Novo Arco",
+                                          peso: 10,
+                                          volume: 2,
+                                          quantidade: 1,
+                                          tipo: "Arma",
+                                          categoria: "Arco" as const,
+                                          durabilidade: 10,
+                                          maxDurabilidade: 10,
+                                          descricao: "",
+                                          dano: "1d6",
+                                          acerto: 0,
+                                          escala: "0",
+                                          atributoBase: "Destreza",
+                                          corte: 0,
+                                          impacto: 0,
+                                          perfuracao: 0,
+                                          resistencia: 0,
+                                        };
+                                        setEditingCreature({
+                                          ...editingCreature,
+                                          compartimentos: (editingCreature.compartimentos || []).map((c, idx) => idx === cIdx ? { ...c, itens: [...(comp.itens || []), newItem] } : c)
+                                        });
+                                        setTocaWeaponMenuCompIdx(null);
+                                      }}
+                                      className="flex-1 py-0.5 px-1 bg-zinc-900 hover:bg-amber-500/20 text-zinc-300 hover:text-amber-400 border border-zinc-800 rounded text-[8px] font-bold flex items-center justify-center gap-1 transition-all"
+                                    >
+                                      <Target size={9} className="text-amber-500 shrink-0" />
+                                      <span>Arco</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setTocaWeaponMenuCompIdx(null)}
+                                      className="p-1 text-zinc-500 hover:text-zinc-300 rounded hover:bg-zinc-800 transition-colors shrink-0"
+                                      title="Fechar"
+                                    >
+                                      <X size={10} />
+                                    </button>
+                                  </div>
+                                )}
 
                                 {/* Seções de Itens (SubSections Accordions) */}
                                 <div className="px-3 pb-3 pt-1 space-y-2">

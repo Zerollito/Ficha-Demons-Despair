@@ -457,7 +457,16 @@ const campaignCharListeners = new Map<string, Set<(characters: Character[]) => v
 export const getLocalCampaignCharacters = (campaignId: string): Character[] => {
   try {
     const stored = safeLocalStorageGetItem(`campaign_characters_${campaignId}`) || localStorage.getItem(`campaign_characters_${campaignId}`);
-    if (stored) return JSON.parse(stored);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        const filtered = parsed.filter((c: any) => c && (c.campaignId === campaignId || c.campaign_id === campaignId));
+        if (filtered.length !== parsed.length) {
+          saveLocalCampaignCharacters(campaignId, filtered);
+        }
+        return filtered;
+      }
+    }
   } catch (e) {
     console.warn("Warning reading local campaign characters:", e);
   }
@@ -671,10 +680,12 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
         if (sRes.ok) {
           const sData = await sRes.json();
           if (sData && Array.isArray(sData.characters)) {
-            for (const c of sData.characters) {
+             for (const c of sData.characters) {
               if (c && c.id && !blacklist.has(c.id) && !seenIds.has(c.id)) {
+                const charCampId = c.campaignId || c.campaign_id || '';
+                if (charCampId && charCampId !== campaignId) continue;
                 seenIds.add(c.id);
-                matchedCharacters.push({ ...c, campaignId });
+                matchedCharacters.push({ ...c, campaignId: charCampId || campaignId });
               }
             }
           }
@@ -697,30 +708,20 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
           const masterEmail = (campaign.masterEmail || "").toLowerCase();
           masterId = campaign.masterId || '';
           allowedEmails = Array.from(new Set([masterEmail, ...playerEmails.map(e => (e || "").toLowerCase())].filter(Boolean)));
-
-          // Processar também fichas embutidas em campRow.data.playerCharacters
-          const embedded = (campRow.data && (campRow.data.playerCharacters || campRow.data.characters)) || [];
-          if (Array.isArray(embedded)) {
-            for (const ec of embedded) {
-              if (ec && ec.id && !blacklist.has(ec.id) && !seenIds.has(ec.id)) {
-                seenIds.add(ec.id);
-                matchedCharacters.push({ ...ec, campaignId });
-              }
-            }
-          }
         }
       } catch (err) {
         console.warn("[subscribeToCampaignCharacters] Camp row fetch warning:", err);
       }
 
-      // 3. Buscar fichas do banco de dados (seja por campaign_id ou pertencentes a membros da campanha)
+      // 3. Buscar fichas do banco de dados estritamente pelo campaign_id
       try {
-        const { data: allCharRows } = await supabase
+        const { data: charRows } = await supabase
           .from(CHARACTERS_TABLE)
-          .select('*');
+          .select('*')
+          .eq('campaign_id', campaignId);
 
-        if (allCharRows && Array.isArray(allCharRows)) {
-          for (const docData of allCharRows) {
+        if (charRows && Array.isArray(charRows)) {
+          for (const docData of charRows) {
             if (!docData) continue;
             let charData: any = docData.data;
             if (typeof charData === 'string') {
@@ -735,26 +736,33 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
 
             if (!char.id || blacklist.has(char.id) || seenIds.has(char.id)) continue;
 
-            const charEmailLower = (char.userEmail || "").trim().toLowerCase();
-            const matchesCampaignId = char.campaignId === campaignId || docData.campaign_id === campaignId;
-            const matchesEmail = allowedEmails.length > 0 && charEmailLower && allowedEmails.includes(charEmailLower);
-            const matchesMaster = masterId && char.userId === masterId;
+            const charCampId = char.campaignId || docData.campaign_id || '';
+            if (charCampId && charCampId !== campaignId) continue;
 
-            // Se a ficha pertence à campanha ou a um dos jogadores/mestre
-            if (matchesCampaignId || matchesEmail || matchesMaster) {
-              seenIds.add(char.id);
-              matchedCharacters.push({ ...char, campaignId });
-            }
+            seenIds.add(char.id);
+            matchedCharacters.push({ ...char, campaignId: charCampId || campaignId });
           }
         }
       } catch (charFetchErr) {}
 
-      // 4. Incluir fichas salvas localmente no navegador que pertencem a esta campanha
-      const localCached = getLocalCampaignCharacters(campaignId);
-      for (const lc of localCached) {
-        if (lc && lc.id && !blacklist.has(lc.id) && !seenIds.has(lc.id)) {
+      // 4. Incluir fichas salvas localmente no navegador que pertencem estritamente a esta campanha
+      const rawLocalCached = getLocalCampaignCharacters(campaignId);
+      const validLocalCached = rawLocalCached.filter(lc => {
+        if (!lc || !lc.id || blacklist.has(lc.id)) return false;
+        const lcCampId = lc.campaignId || lc.campaign_id || '';
+        if (lcCampId && lcCampId !== campaignId) return false;
+        return true;
+      });
+      if (rawLocalCached.length !== validLocalCached.length) {
+        saveLocalCampaignCharacters(campaignId, validLocalCached);
+      }
+      for (const lc of validLocalCached) {
+        if (!seenIds.has(lc.id)) {
           seenIds.add(lc.id);
-          matchedCharacters.push({ ...lc, campaignId });
+          const lcCampId = lc.campaignId || lc.campaign_id || '';
+          if (!lcCampId || lcCampId === campaignId) {
+            matchedCharacters.push({ ...lc, campaignId: lcCampId || campaignId });
+          }
         }
       }
 

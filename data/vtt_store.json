@@ -66,5 +66,23 @@
         "timestamp": 1791833555399
       }
     }
+  },
+  "camp_tvhtwcf8f": {
+    "tokens": [],
+    "config": {
+      "gridSize": 50,
+      "showGrid": true,
+      "masterFog": false,
+      "mapUrl": ""
+    }
+  },
+  "test-campaign": {
+    "tokens": [],
+    "config": {
+      "gridSize": 50,
+      "showGrid": true,
+      "masterFog": false,
+      "mapUrl": ""
+    }
   }
 }

@@ -82,6 +82,7 @@ import {
   Terminal,
   ShieldAlert,
   Archive,
+  Folder,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
@@ -880,6 +881,7 @@ function App() {
   const [inviteCodeInput, setInviteCodeInput] = useState("");
   const [newCampaignName, setNewCampaignName] = useState("");
   const [charToLinkCampaignId, setCharToLinkCampaignId] = useState("");
+  const [libraryFolderId, setLibraryFolderId] = useState<string>("all");
   const [campaignToDelete, setCampaignToDelete] = useState<string | null>(null);
   const [charIdToDelete, setCharIdToDelete] = useState<string | null>(null);
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<{ id: string; url: string; titulo: string } | null>(null);
@@ -2497,6 +2499,12 @@ function App() {
     setMultiClipboard([{ type: resolvedType, data: dataWithTipo }]);
     setCutItem(null);
     showToast(`${resolvedType} copiado(a)!`, "success");
+  };
+
+  const clearClipboard = () => {
+    setMultiClipboard([]);
+    setCutItem(null);
+    showToast("Operação de cópia/recorte cancelada.", "info");
   };
 
   const executeClipboardCut = (
@@ -4455,7 +4463,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.7</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.11</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4565,14 +4573,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.7</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.11</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.7</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.11</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -5864,13 +5872,23 @@ function App() {
                           item.type === "Arma" ||
                           (item.type === "Item" && item.data.tipo === "Arma"),
                       ) && (
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
-                          onClick={handlePasteSelected}
-                          className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
-                        >
-                          Colar Armas ({multiClipboard.filter(it => it.type === "Arma" || (it.type === "Item" && it.data.tipo === "Arma")).length})
-                        </motion.button>
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={handlePasteSelected}
+                            className="flex-1 py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all cursor-pointer"
+                          >
+                            Colar Armas ({multiClipboard.filter(it => it.type === "Arma" || (it.type === "Item" && it.data.tipo === "Arma")).length})
+                          </motion.button>
+                          <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={clearClipboard}
+                            className="p-2 bg-zinc-800/80 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-700 hover:border-red-500/50 rounded transition-all shrink-0 cursor-pointer"
+                            title="Cancelar cópia"
+                          >
+                            <X size={14} />
+                          </motion.button>
+                        </div>
                       )}
                     <div className="space-y-1.5">
                       {armas.map((w, idx) => (
@@ -6037,13 +6055,23 @@ function App() {
                           (item.type === "Item" &&
                             item.data.tipo === "Catalisador"),
                       ) && (
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
-                          onClick={handlePasteSelected}
-                          className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all"
-                        >
-                          Colar Catalisadores ({multiClipboard.filter(it => it.type === "Catalisador" || (it.type === "Item" && it.data.tipo === "Catalisador")).length})
-                        </motion.button>
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={handlePasteSelected}
+                            className="flex-1 py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all cursor-pointer"
+                          >
+                            Colar Catalisadores ({multiClipboard.filter(it => it.type === "Catalisador" || (it.type === "Item" && it.data.tipo === "Catalisador")).length})
+                          </motion.button>
+                          <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={clearClipboard}
+                            className="p-2 bg-zinc-800/80 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-700 hover:border-red-500/50 rounded transition-all shrink-0 cursor-pointer"
+                            title="Cancelar cópia"
+                          >
+                            <X size={14} />
+                          </motion.button>
+                        </div>
                       )}
                     <div className="space-y-3">
                       {catalisadores.map((c, idx) => (
@@ -6200,13 +6228,23 @@ function App() {
                           (item.type === "Item" &&
                             item.data.tipo === "Armadura"),
                       ) && (
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
-                          onClick={handlePasteSelected}
-                          className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all font-sans"
-                        >
-                          Colar Armaduras ({multiClipboard.filter(it => it.type === "Armadura" || (it.type === "Item" && it.data.tipo === "Armadura")).length})
-                        </motion.button>
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={handlePasteSelected}
+                            className="flex-1 py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all font-sans cursor-pointer"
+                          >
+                            Colar Armaduras ({multiClipboard.filter(it => it.type === "Armadura" || (it.type === "Item" && it.data.tipo === "Armadura")).length})
+                          </motion.button>
+                          <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={clearClipboard}
+                            className="p-2 bg-zinc-800/80 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-700 hover:border-red-500/50 rounded transition-all shrink-0 cursor-pointer"
+                            title="Cancelar cópia"
+                          >
+                            <X size={14} />
+                          </motion.button>
+                        </div>
                       )}
                     <div className="space-y-3">
                       {(activeChar?.armaduras || []).map((a, idx) => (
@@ -6362,13 +6400,23 @@ function App() {
                           (item.type === "Item" &&
                             (item.data.tipo === "Armadura" || item.data.tipo === "Acessório" || item.data.tipo === "Acessórios")),
                       ) && (
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
-                          onClick={handlePasteSelected}
-                          className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all font-sans"
-                        >
-                          Colar Acessórios ({multiClipboard.filter(it => it.type === "Acessório" || it.type === "Armadura" || (it.type === "Item" && (it.data.tipo === "Armadura" || it.data.tipo === "Acessório" || it.data.tipo === "Acessórios"))).length})
-                        </motion.button>
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={handlePasteSelected}
+                            className="flex-1 py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all font-sans cursor-pointer"
+                          >
+                            Colar Acessórios ({multiClipboard.filter(it => it.type === "Acessório" || it.type === "Armadura" || (it.type === "Item" && (it.data.tipo === "Armadura" || it.data.tipo === "Acessório" || it.data.tipo === "Acessórios"))).length})
+                          </motion.button>
+                          <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={clearClipboard}
+                            className="p-2 bg-zinc-800/80 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-700 hover:border-red-500/50 rounded transition-all shrink-0 cursor-pointer"
+                            title="Cancelar cópia"
+                          >
+                            <X size={14} />
+                          </motion.button>
+                        </div>
                       )}
                     <div className="space-y-3">
                       {(activeChar?.acessorios || []).map((a, idx) => (
@@ -6970,124 +7018,17 @@ function App() {
                               </motion.button>
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
-                                onClick={() => {
-                                  updateChar(char => {
-                                    const comps = char.compartimentos || [];
-                                    const targetComp = comps[cIdx];
-                                    const newItens = [
-                                      ...(targetComp.itens || []),
-                                      {
-                                        id: generateId(),
-                                        nome: "Nova Arma",
-                                        peso: 0,
-                                        volume: 0,
-                                        quantidade: 1,
-                                        tipo: "Arma",
-                                        durabilidade: 0,
-                                        maxDurabilidade: 0,
-                                        descricao: "",
-                                        dano: "0",
-                                        acerto: 0,
-                                        escala: "0",
-                                        atributoBase: "Força",
-                                        corte: 0,
-                                        impacto: 0,
-                                        perfuracao: 0,
-                                        resistencia: 0,
-                                      }
-                                    ];
-                                    return {
-                                      compartimentos: comps.map((c, i) => 
-                                        i === cIdx ? { ...c, itens: newItens } : c
-                                      )
-                                    };
-                                  });
-                                }}
-                                className="flex-1 py-1.5 border border-dashed border-zinc-700 rounded text-[9px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all px-1"
+                                type="button"
+                                onClick={() => setWeaponMenuCompIdx(weaponMenuCompIdx === cIdx ? null : cIdx)}
+                                className={cn(
+                                  "flex-1 py-1.5 border border-dashed rounded text-[9px] font-bold uppercase transition-all px-1 flex items-center justify-center gap-1",
+                                  weaponMenuCompIdx === cIdx
+                                    ? "border-amber-500 bg-amber-500/20 text-amber-400 shadow-sm"
+                                    : "border-zinc-700 text-zinc-500 hover:border-amber-500/50 hover:text-amber-500"
+                                )}
                               >
-                               <div className="relative flex-1">
-                                 <button
-                                   onClick={() => setWeaponMenuCompIdx(weaponMenuCompIdx === cIdx ? null : cIdx)}
-                                   className="w-full py-1.5 border border-dashed border-zinc-700 rounded text-[9px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all px-1 flex items-center justify-center gap-1"
-                                 >
-                                   <span>+ Arma</span>
-                                   <span className="text-[7px]">▾</span>
-                                 </button>
-                                 {weaponMenuCompIdx === cIdx && (
-                                   <div className="absolute bottom-full left-0 mb-1 w-32 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl z-50 p-1 flex flex-col gap-1 text-[9px]">
-                                     <button
-                                       type="button"
-                                       onClick={() => {
-                                         updateChar(char => {
-                                           const comps = char.compartimentos || [];
-                                           const targetComp = comps[cIdx];
-                                           const newItem = {
-                                             id: generateId(),
-                                             nome: "Nova Arma Branca",
-                                             peso: 0, volume: 0, quantidade: 1,
-                                             tipo: "Arma", categoria: "Arma Branca",
-                                             durabilidade: 0, maxDurabilidade: 0,
-                                             descricao: "", dano: "0", acerto: 0, escala: "0",
-                                             atributoBase: "Força", corte: 0, impacto: 0, perfuracao: 0, resistencia: 0
-                                           };
-                                           return { compartimentos: comps.map((c, i) => i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c) };
-                                         });
-                                         setWeaponMenuCompIdx(null);
-                                       }}
-                                       className="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 font-bold rounded transition-colors"
-                                     >
-                                       Arma Branca
-                                     </button>
-                                     <button
-                                       type="button"
-                                       onClick={() => {
-                                         updateChar(char => {
-                                           const comps = char.compartimentos || [];
-                                           const targetComp = comps[cIdx];
-                                           const newItem = {
-                                             id: generateId(),
-                                             nome: "Nova Arma de Fogo",
-                                             peso: 0, volume: 0, quantidade: 1,
-                                             tipo: "Arma", categoria: "Arma de Fogo",
-                                             durabilidade: 0, maxDurabilidade: 0,
-                                             descricao: "", dano: "0", acerto: 0, escala: "0",
-                                             atributoBase: "Destreza", corte: 0, impacto: 0, perfuracao: 0, resistencia: 0,
-                                             municaoTotal: 0, municaoCarregada: 0
-                                           };
-                                           return { compartimentos: comps.map((c, i) => i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c) };
-                                         });
-                                         setWeaponMenuCompIdx(null);
-                                       }}
-                                       className="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 font-bold rounded transition-colors"
-                                     >
-                                       Arma de Fogo
-                                     </button>
-                                     <button
-                                       type="button"
-                                       onClick={() => {
-                                         updateChar(char => {
-                                           const comps = char.compartimentos || [];
-                                           const targetComp = comps[cIdx];
-                                           const newItem = {
-                                             id: generateId(),
-                                             nome: "Novo Arco",
-                                             peso: 0, volume: 0, quantidade: 1,
-                                             tipo: "Arma", categoria: "Arco",
-                                             durabilidade: 0, maxDurabilidade: 0,
-                                             descricao: "", dano: "0", acerto: 0, escala: "0",
-                                             atributoBase: "Destreza", corte: 0, impacto: 0, perfuracao: 0, resistencia: 0
-                                           };
-                                           return { compartimentos: comps.map((c, i) => i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c) };
-                                         });
-                                         setWeaponMenuCompIdx(null);
-                                       }}
-                                       className="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 font-bold rounded transition-colors"
-                                     >
-                                       Arco
-                                     </button>
-                                   </div>
-                                 )}
-                               </div>
+                                <span>+ Arma</span>
+                                <span className="text-[7px]">▾</span>
                               </motion.button>
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
@@ -7160,89 +7101,7 @@ function App() {
                                 }}
                                 className="flex-1 py-1.5 border border-dashed border-zinc-700 rounded text-[9px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all px-1"
                               >
-                               <div className="relative flex-1">
-                                 <button
-                                   onClick={() => setWeaponMenuCompIdx(weaponMenuCompIdx === cIdx ? null : cIdx)}
-                                   className="w-full py-1.5 border border-dashed border-zinc-700 rounded text-[9px] font-bold uppercase text-zinc-500 hover:border-amber-500/50 hover:text-amber-500 transition-all px-1 flex items-center justify-center gap-1"
-                                 >
-                                   <span>+ Arma</span>
-                                   <span className="text-[7px]">▾</span>
-                                 </button>
-                                 {weaponMenuCompIdx === cIdx && (
-                                   <div className="absolute bottom-full left-0 mb-1 w-32 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl z-50 p-1 flex flex-col gap-1 text-[9px]">
-                                     <button
-                                       type="button"
-                                       onClick={() => {
-                                         updateChar(char => {
-                                           const comps = char.compartimentos || [];
-                                           const targetComp = comps[cIdx];
-                                           const newItem = {
-                                             id: generateId(),
-                                             nome: "Nova Arma Branca",
-                                             peso: 0, volume: 0, quantidade: 1,
-                                             tipo: "Arma", categoria: "Arma Branca",
-                                             durabilidade: 0, maxDurabilidade: 0,
-                                             descricao: "", dano: "0", acerto: 0, escala: "0",
-                                             atributoBase: "Força", corte: 0, impacto: 0, perfuracao: 0, resistencia: 0
-                                           };
-                                           return { compartimentos: comps.map((c, i) => i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c) };
-                                         });
-                                         setWeaponMenuCompIdx(null);
-                                       }}
-                                       className="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 font-bold rounded transition-colors"
-                                     >
-                                       Arma Branca
-                                     </button>
-                                     <button
-                                       type="button"
-                                       onClick={() => {
-                                         updateChar(char => {
-                                           const comps = char.compartimentos || [];
-                                           const targetComp = comps[cIdx];
-                                           const newItem = {
-                                             id: generateId(),
-                                             nome: "Nova Arma de Fogo",
-                                             peso: 0, volume: 0, quantidade: 1,
-                                             tipo: "Arma", categoria: "Arma de Fogo",
-                                             durabilidade: 0, maxDurabilidade: 0,
-                                             descricao: "", dano: "0", acerto: 0, escala: "0",
-                                             atributoBase: "Destreza", corte: 0, impacto: 0, perfuracao: 0, resistencia: 0,
-                                             municaoTotal: 0, municaoCarregada: 0
-                                           };
-                                           return { compartimentos: comps.map((c, i) => i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c) };
-                                         });
-                                         setWeaponMenuCompIdx(null);
-                                       }}
-                                       className="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 font-bold rounded transition-colors"
-                                     >
-                                       Arma de Fogo
-                                     </button>
-                                     <button
-                                       type="button"
-                                       onClick={() => {
-                                         updateChar(char => {
-                                           const comps = char.compartimentos || [];
-                                           const targetComp = comps[cIdx];
-                                           const newItem = {
-                                             id: generateId(),
-                                             nome: "Novo Arco",
-                                             peso: 0, volume: 0, quantidade: 1,
-                                             tipo: "Arma", categoria: "Arco",
-                                             durabilidade: 0, maxDurabilidade: 0,
-                                             descricao: "", dano: "0", acerto: 0, escala: "0",
-                                             atributoBase: "Destreza", corte: 0, impacto: 0, perfuracao: 0, resistencia: 0
-                                           };
-                                           return { compartimentos: comps.map((c, i) => i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c) };
-                                         });
-                                         setWeaponMenuCompIdx(null);
-                                       }}
-                                       className="text-left px-2 py-1.5 hover:bg-zinc-800 text-zinc-300 font-bold rounded transition-colors"
-                                     >
-                                       Arco
-                                     </button>
-                                   </div>
-                                 )}
-                               </div>
+                                + Armad
                               </motion.button>
                               <motion.button
                                 whileTap={{ scale: 0.95 }}
@@ -7257,7 +7116,7 @@ function App() {
                                         nome: "Nova Munição",
                                         peso: 0,
                                         volume: 0,
-                                        quantidade: 20,
+                                        quantidade: 1,
                                         tipo: "Munição",
                                         durabilidade: 0,
                                         maxDurabilidade: 0,
@@ -7281,38 +7140,183 @@ function App() {
                               </motion.button>
                             </div>
 
-                            {(multiClipboard.length > 0 || cutItem) && (
-                              <motion.button
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => {
-                                  if (cutItem) {
-                                    handlePasteItemToCompartment(activeChar.id, comp.id);
-                                  } else {
+                            {weaponMenuCompIdx === cIdx && (
+                              <div className="flex items-center gap-1.5 p-1.5 bg-zinc-950 border border-amber-500/50 rounded-lg shadow-xl animate-in fade-in slide-in-from-top-1 duration-150">
+                                <span className="text-[9px] font-black uppercase text-amber-500 shrink-0 px-1">
+                                  Arma:
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
                                     updateChar(char => {
                                       const comps = char.compartimentos || [];
                                       const targetComp = comps[cIdx];
-                                      const pastedItens = multiClipboard.map(item => ({
-                                        ...item.data,
+                                      const newItem = {
                                         id: generateId(),
-                                      }));
-                                      const newItens = [
-                                        ...(targetComp.itens || []),
-                                        ...pastedItens,
-                                      ];
+                                        nome: "Nova Arma Branca",
+                                        peso: 0,
+                                        volume: 0,
+                                        quantidade: 1,
+                                        tipo: "Arma",
+                                        categoria: "Arma Branca" as const,
+                                        durabilidade: 0,
+                                        maxDurabilidade: 0,
+                                        descricao: "",
+                                        dano: "0",
+                                        acerto: 0,
+                                        escala: "0",
+                                        atributoBase: "Força",
+                                        corte: 0,
+                                        impacto: 0,
+                                        perfuracao: 0,
+                                        resistencia: 0
+                                      };
                                       return {
                                         compartimentos: comps.map((c, i) => 
-                                          i === cIdx ? { ...c, itens: newItens } : c
+                                          i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c
                                         )
                                       };
                                     });
-                                    setMultiClipboard([]);
-                                    showToast(`${multiClipboard.length} itens colados no compartimento!`, "success");
-                                  }
-                                }}
-                                className="w-full py-1.5 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[9px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all font-sans"
-                              >
-                                {cutItem ? `Colar Item Recortado` : `Colar Itens (${multiClipboard.length})`}
-                              </motion.button>
+                                    setWeaponMenuCompIdx(null);
+                                  }}
+                                  className="flex-1 py-1 px-1.5 bg-zinc-900 hover:bg-amber-500/20 text-zinc-200 hover:text-amber-400 border border-zinc-800 hover:border-amber-500/40 rounded text-[9px] font-bold flex items-center justify-center gap-1 transition-all"
+                                >
+                                  <Sword size={11} className="text-amber-500 shrink-0" />
+                                  <span>Branca</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    updateChar(char => {
+                                      const comps = char.compartimentos || [];
+                                      const targetComp = comps[cIdx];
+                                      const newItem = {
+                                        id: generateId(),
+                                        nome: "Nova Arma de Fogo",
+                                        peso: 0,
+                                        volume: 0,
+                                        quantidade: 1,
+                                        tipo: "Arma",
+                                        categoria: "Arma de Fogo" as const,
+                                        durabilidade: 0,
+                                        maxDurabilidade: 0,
+                                        descricao: "",
+                                        dano: "0",
+                                        acerto: 0,
+                                        escala: "0",
+                                        atributoBase: "Destreza",
+                                        corte: 0,
+                                        impacto: 0,
+                                        perfuracao: 0,
+                                        resistencia: 0,
+                                        municaoTotal: 0,
+                                        municaoCarregada: 0
+                                      };
+                                      return {
+                                        compartimentos: comps.map((c, i) => 
+                                          i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c
+                                        )
+                                      };
+                                    });
+                                    setWeaponMenuCompIdx(null);
+                                  }}
+                                  className="flex-1 py-1 px-1.5 bg-zinc-900 hover:bg-amber-500/20 text-zinc-200 hover:text-amber-400 border border-zinc-800 hover:border-amber-500/40 rounded text-[9px] font-bold flex items-center justify-center gap-1 transition-all"
+                                >
+                                  <Zap size={11} className="text-amber-500 shrink-0" />
+                                  <span>Fogo</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    updateChar(char => {
+                                      const comps = char.compartimentos || [];
+                                      const targetComp = comps[cIdx];
+                                      const newItem = {
+                                        id: generateId(),
+                                        nome: "Novo Arco",
+                                        peso: 0,
+                                        volume: 0,
+                                        quantidade: 1,
+                                        tipo: "Arma",
+                                        categoria: "Arco" as const,
+                                        durabilidade: 0,
+                                        maxDurabilidade: 0,
+                                        descricao: "",
+                                        dano: "0",
+                                        acerto: 0,
+                                        escala: "0",
+                                        atributoBase: "Destreza",
+                                        corte: 0,
+                                        impacto: 0,
+                                        perfuracao: 0,
+                                        resistencia: 0
+                                      };
+                                      return {
+                                        compartimentos: comps.map((c, i) => 
+                                          i === cIdx ? { ...c, itens: [...(targetComp.itens || []), newItem] } : c
+                                        )
+                                      };
+                                    });
+                                    setWeaponMenuCompIdx(null);
+                                  }}
+                                  className="flex-1 py-1 px-1.5 bg-zinc-900 hover:bg-amber-500/20 text-zinc-200 hover:text-amber-400 border border-zinc-800 hover:border-amber-500/40 rounded text-[9px] font-bold flex items-center justify-center gap-1 transition-all"
+                                >
+                                  <Target size={11} className="text-amber-500 shrink-0" />
+                                  <span>Arco</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setWeaponMenuCompIdx(null)}
+                                  className="p-1 text-zinc-500 hover:text-zinc-300 rounded hover:bg-zinc-800 transition-colors shrink-0"
+                                  title="Cancelar"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            )}
+
+                            {(multiClipboard.length > 0 || cutItem) && (
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <motion.button
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={() => {
+                                    if (cutItem) {
+                                      handlePasteItemToCompartment(activeChar.id, comp.id);
+                                    } else {
+                                      updateChar(char => {
+                                        const comps = char.compartimentos || [];
+                                        const targetComp = comps[cIdx];
+                                        const pastedItens = multiClipboard.map(item => ({
+                                          ...item.data,
+                                          id: generateId(),
+                                        }));
+                                        const newItens = [
+                                          ...(targetComp.itens || []),
+                                          ...pastedItens,
+                                        ];
+                                        return {
+                                          compartimentos: comps.map((c, i) => 
+                                            i === cIdx ? { ...c, itens: newItens } : c
+                                          )
+                                        };
+                                      });
+                                      setMultiClipboard([]);
+                                      showToast(`${multiClipboard.length} itens colados no compartimento!`, "success");
+                                    }
+                                  }}
+                                  className="flex-1 py-1.5 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[9px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all font-sans cursor-pointer"
+                                >
+                                  {cutItem ? `Colar Item Recortado` : `Colar Itens (${multiClipboard.length})`}
+                                </motion.button>
+                                <motion.button
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={clearClipboard}
+                                  className="p-1.5 bg-zinc-800/80 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-700 hover:border-red-500/50 rounded transition-all shrink-0 cursor-pointer"
+                                  title="Cancelar cópia/recorte"
+                                >
+                                  <X size={12} />
+                                </motion.button>
+                              </div>
                             )}
 
                             <div className="space-y-2">
@@ -7397,18 +7401,20 @@ function App() {
                                         </div>
                                       </div>
 
-                                      <div className="grid grid-cols-4 gap-2">
-                                        <MiniInput
-                                          label="Qtd"
-                                          type="number"
-                                          value={item.quantidade}
-                                          onChange={(v) => {
-                                            const val = parseInt(v) || 1; updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).map((it, j) => j === iIdx ? { ...it, quantidade: val } : it) } : c) }));
-                                          }}
-                                        />
-                                        <div className="flex flex-col">
-                                          <span className="text-[10px] text-zinc-600 uppercase tracking-tighter font-bold">
-                                            Total
+                                      <div className="flex items-center gap-2 max-w-[200px]">
+                                        <div className="w-20">
+                                          <MiniInput
+                                            label="Qtd"
+                                            type="number"
+                                            value={item.quantidade}
+                                            onChange={(v) => {
+                                              const val = parseInt(v) || 1; updateChar(char => ({ compartimentos: (char.compartimentos || []).map((c, i) => i === cIdx ? { ...c, itens: (c.itens || []).map((it, j) => j === iIdx ? { ...it, quantidade: val } : it) } : c) }));
+                                            }}
+                                          />
+                                        </div>
+                                        <div className="flex flex-col justify-center">
+                                          <span className="text-[8px] text-zinc-500 uppercase tracking-tight font-bold">
+                                            Peso Total
                                           </span>
                                           <span className="text-xs font-bold text-zinc-400">
                                             {(
@@ -8155,33 +8161,43 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                               </SubSection>
                             </div>
                             {multiClipboard.length > 0 && (
-                              <motion.button
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => {
-                                  updateChar(char => {
-                                    const comps = char.compartimentos || [];
-                                    const targetComp = comps[cIdx];
-                                    const pastedItens = multiClipboard.map(item => ({
-                                      ...item.data,
-                                      id: generateId(),
-                                    }));
-                                    const newItens = [
-                                      ...(targetComp.itens || []),
-                                      ...pastedItens,
-                                    ];
-                                    return {
-                                      compartimentos: comps.map((c, i) => 
-                                        i === cIdx ? { ...c, itens: newItens } : c
-                                      )
-                                    };
-                                  });
-                                  setMultiClipboard([]);
-                                  showToast(`${multiClipboard.length} itens colados no compartimento!`, "success");
-                                }}
-                                className="w-full py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all font-sans"
-                              >
-                                Colar Itens ({multiClipboard.length})
-                              </motion.button>
+                              <div className="flex items-center gap-1.5 mt-2">
+                                <motion.button
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={() => {
+                                    updateChar(char => {
+                                      const comps = char.compartimentos || [];
+                                      const targetComp = comps[cIdx];
+                                      const pastedItens = multiClipboard.map(item => ({
+                                        ...item.data,
+                                        id: generateId(),
+                                      }));
+                                      const newItens = [
+                                        ...(targetComp.itens || []),
+                                        ...pastedItens,
+                                      ];
+                                      return {
+                                        compartimentos: comps.map((c, i) => 
+                                          i === cIdx ? { ...c, itens: newItens } : c
+                                        )
+                                      };
+                                    });
+                                    setMultiClipboard([]);
+                                    showToast(`${multiClipboard.length} itens colados no compartimento!`, "success");
+                                  }}
+                                  className="flex-1 py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all font-sans cursor-pointer"
+                                >
+                                  Colar Itens ({multiClipboard.length})
+                                </motion.button>
+                                <motion.button
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={clearClipboard}
+                                  className="p-2 bg-zinc-800/80 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-700 hover:border-red-500/50 rounded transition-all shrink-0 cursor-pointer"
+                                  title="Cancelar cópia"
+                                >
+                                  <X size={14} />
+                                </motion.button>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -8208,13 +8224,23 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                       {multiClipboard.length > 0 &&
                         !selectionMode &&
                         multiClipboard.some((it) => it.type === "Magia") && (
-                          <motion.button
-                            whileTap={{ scale: 0.95 }}
-                            onClick={handlePasteSelected}
-                            className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all"
-                          >
-                            Colar Magias ({multiClipboard.filter(it => it.type === "Magia").length})
-                          </motion.button>
+                          <div className="flex items-center gap-1.5">
+                            <motion.button
+                              whileTap={{ scale: 0.95 }}
+                              onClick={handlePasteSelected}
+                              className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all cursor-pointer"
+                            >
+                              Colar Magias ({multiClipboard.filter(it => it.type === "Magia").length})
+                            </motion.button>
+                            <motion.button
+                              whileTap={{ scale: 0.95 }}
+                              onClick={clearClipboard}
+                              className="p-1.5 bg-zinc-800/80 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-700 hover:border-red-500/50 rounded transition-all shrink-0 cursor-pointer"
+                              title="Cancelar cópia"
+                            >
+                              <X size={12} />
+                            </motion.button>
+                          </div>
                         )}
                       <motion.button
                         whileTap={{ scale: 0.95 }}
@@ -8575,13 +8601,23 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                     {multiClipboard.length > 0 &&
                       !selectionMode &&
                       multiClipboard.some((it) => it.type === "Habilidade") && (
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
-                          onClick={handlePasteSelected}
-                          className="w-full py-2 mb-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all font-sans"
-                        >
-                          Colar Habilidades ({multiClipboard.filter(it => it.type === "Habilidade").length})
-                        </motion.button>
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={handlePasteSelected}
+                            className="flex-1 py-2 bg-emerald-500/10 border border-dashed border-emerald-500/50 rounded text-[10px] font-bold uppercase text-emerald-500 hover:bg-emerald-500/20 transition-all font-sans cursor-pointer"
+                          >
+                            Colar Habilidades ({multiClipboard.filter(it => it.type === "Habilidade").length})
+                          </motion.button>
+                          <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={clearClipboard}
+                            className="p-2 bg-zinc-800/80 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-700 hover:border-red-500/50 rounded transition-all shrink-0 cursor-pointer"
+                            title="Cancelar cópia"
+                          >
+                            <X size={14} />
+                          </motion.button>
+                        </div>
                       )}
                     <div className="space-y-3">
                       {(activeChar?.habilidades || []).map((h, idx) => (
@@ -10023,8 +10059,58 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                 </div>
               )}
 
+              {/* Pastas de Campanhas na Biblioteca */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                <button
+                  onClick={() => setLibraryFolderId("all")}
+                  className={cn(
+                    "px-4 py-2 rounded-xl text-xs font-bold uppercase transition-all whitespace-nowrap flex items-center gap-2 cursor-pointer border",
+                    libraryFolderId === "all"
+                      ? "bg-amber-500 text-zinc-950 border-amber-400 shadow-lg shadow-amber-500/20"
+                      : "bg-zinc-900 text-zinc-400 border-zinc-800 hover:bg-zinc-800 hover:text-white"
+                  )}
+                >
+                  <Folder size={14} />
+                  <span>Todas ({visibleCharacters.length})</span>
+                </button>
+                <button
+                  onClick={() => setLibraryFolderId("")}
+                  className={cn(
+                    "px-4 py-2 rounded-xl text-xs font-bold uppercase transition-all whitespace-nowrap flex items-center gap-2 cursor-pointer border",
+                    libraryFolderId === ""
+                      ? "bg-amber-500 text-zinc-950 border-amber-400 shadow-lg shadow-amber-500/20"
+                      : "bg-zinc-900 text-zinc-400 border-zinc-800 hover:bg-zinc-800 hover:text-white"
+                  )}
+                >
+                  <Folder size={14} />
+                  <span>Geral / Sem Campanha ({visibleCharacters.filter(c => !c.campaignId || c.campaignId === "").length})</span>
+                </button>
+                {campaigns.map(camp => {
+                  const count = visibleCharacters.filter(c => c.campaignId === camp.id).length;
+                  return (
+                    <button
+                      key={camp.id}
+                      onClick={() => setLibraryFolderId(camp.id)}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-xs font-bold uppercase transition-all whitespace-nowrap flex items-center gap-2 cursor-pointer border",
+                        libraryFolderId === camp.id
+                          ? "bg-purple-600 text-white border-purple-500 shadow-lg shadow-purple-500/20"
+                          : "bg-zinc-900 text-zinc-400 border-zinc-800 hover:bg-zinc-800 hover:text-white"
+                      )}
+                    >
+                      <Folder size={14} className="text-purple-400" />
+                      <span>{camp.name} ({count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {visibleCharacters.map((char) => (
+                {visibleCharacters.filter(c => {
+                  if (libraryFolderId === "all") return true;
+                  if (libraryFolderId === "") return !c.campaignId || c.campaignId === "";
+                  return c.campaignId === libraryFolderId;
+                }).map((char) => (
                   <motion.div
                     key={char.id}
                     layoutId={char.id}
@@ -10076,6 +10162,40 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                             {char.manaAtual} / {getManaMaxima(char.stats.APR)}
                           </span>
                         </div>
+                      </div>
+
+                      <div className="flex items-center justify-between bg-black/30 px-3 py-2 rounded-xl border border-zinc-800 text-xs" onClick={(e) => e.stopPropagation()}>
+                        <span className="text-zinc-400 font-bold flex items-center gap-1.5"><Folder size={12} className="text-amber-500" /> Campanha:</span>
+                        <select
+                          value={char.campaignId || ""}
+                          onChange={async (e) => {
+                            const newCId = e.target.value;
+                            const oldCId = char.campaignId || "";
+                            if (oldCId === newCId) return;
+                            try {
+                              if (oldCId) {
+                                await unlinkCharacterFromCampaign(oldCId, char.id);
+                              }
+                              const updatedChar = { ...char, campaignId: newCId };
+                              if (newCId) {
+                                await linkCharacterToCampaign(newCId, updatedChar);
+                              } else if (oldCId) {
+                                await unlinkCharacterFromCampaign(oldCId, char.id);
+                              }
+                              updateChar({ campaignId: newCId }, char.id);
+                              await saveCharacterToFirestore(updatedChar);
+                              showToast(`Ficha "${char.nome}" movida para a campanha com sucesso!`, "success");
+                            } catch (err: any) {
+                              showToast(err.message || "Erro ao mover ficha.", "error");
+                            }
+                          }}
+                          className="bg-zinc-900 border border-zinc-700 text-white rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-amber-500 cursor-pointer"
+                        >
+                          <option value="">Geral (Nenhuma)</option>
+                          {campaigns.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
                       </div>
 
                       <div className="flex items-center justify-between gap-2 pt-2">
@@ -10993,51 +11113,6 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
 
                     {activeCampaignId && campaigns.some(c => c.id === activeCampaignId) ? (
                       <div className="space-y-4">
-                        {/* Barra para vincular ficha pessoal à mesa */}
-                        {visibleCharacters.length > 0 && (
-                          <div className="bg-zinc-950 p-3.5 rounded-2xl border border-zinc-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-inner">
-                            <div className="flex items-center gap-2">
-                              <UserPlus size={16} className="text-blue-500 shrink-0" />
-                              <span className="text-xs font-bold text-zinc-200">Vincular ficha a esta mesa:</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <select
-                                value={charToLinkCampaignId}
-                                onChange={(e) => setCharToLinkCampaignId(e.target.value)}
-                                className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
-                              >
-                                <option value="">Selecione uma das suas fichas...</option>
-                                {visibleCharacters.map(c => (
-                                  <option key={c.id} value={c.id}>
-                                    {c.nome} {campaignCharacters.some(cc => cc.id === c.id) ? "(Já na mesa)" : ""}
-                                  </option>
-                                ))}
-                              </select>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  const char = state.characters.find(c => c.id === charToLinkCampaignId);
-                                  if (!char) {
-                                    showToast("Selecione um personagem para vincular.", "error");
-                                    return;
-                                  }
-                                  try {
-                                    await linkCharacterToCampaign(activeCampaignId, char);
-                                    updateChar({ campaignId: activeCampaignId }, char.id);
-                                    showToast(`Ficha "${char.nome}" vinculada à campanha com sucesso!`, "success");
-                                    setCharToLinkCampaignId("");
-                                  } catch (err: any) {
-                                    showToast(err.message || "Erro ao vincular ficha.", "error");
-                                  }
-                                }}
-                                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold uppercase transition-all whitespace-nowrap cursor-pointer shadow-md"
-                              >
-                                Vincular
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {campaignCharacters.map(char => (
                             <div 
@@ -11863,6 +11938,59 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
       </div>
     )}
   </AnimatePresence>
+
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 30, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            className={cn(
+              "fixed bottom-6 right-6 z-[9999] px-4 py-2.5 rounded-xl border text-xs font-bold shadow-2xl flex items-center gap-2.5 backdrop-blur-md pointer-events-none",
+              toast.type === "error"
+                ? "bg-red-950/90 text-red-200 border-red-500/50 shadow-red-950/50"
+                : toast.type === "success"
+                ? "bg-emerald-950/90 text-emerald-200 border-emerald-500/50 shadow-emerald-950/50"
+                : "bg-zinc-900/90 text-zinc-200 border-zinc-700/60 shadow-black/60"
+            )}
+          >
+            {toast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Clipboard Bar when items are copied or cut */}
+      <AnimatePresence>
+        {(multiClipboard.length > 0 || cutItem) && (
+          <motion.div
+            initial={{ opacity: 0, y: 40, x: "-50%" }}
+            animate={{ opacity: 1, y: 0, x: "-50%" }}
+            exit={{ opacity: 0, y: 40, x: "-50%" }}
+            className="fixed bottom-6 left-1/2 z-[9990] bg-zinc-950/95 border border-emerald-500/50 shadow-2xl shadow-emerald-950/60 rounded-xl px-4 py-2 flex items-center gap-3 backdrop-blur-md"
+          >
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-xs font-semibold text-zinc-200">
+                {cutItem ? (
+                  <>Recortado: <span className="text-emerald-400 font-bold">{cutItem.item?.nome || "Item"}</span></>
+                ) : (
+                  <>Copiado: <span className="text-emerald-400 font-bold">{multiClipboard.length === 1 ? (multiClipboard[0].data?.nome || multiClipboard[0].type) : `${multiClipboard.length} itens`}</span></>
+                )}
+              </span>
+            </div>
+            <div className="h-4 w-px bg-zinc-800" />
+            <button
+              onClick={clearClipboard}
+              className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-700 hover:border-red-500/40 text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer"
+              title="Cancelar operação de cópia/recorte"
+            >
+              <X size={13} />
+              Cancelar
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 </div>
 );
 }

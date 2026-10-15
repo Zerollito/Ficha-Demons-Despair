@@ -285,6 +285,33 @@ async function startServer() {
 
   const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM7JyUXp7fZ83VvlN-BRwsPIgtcqbyUTR21s-TqF4";
 
+  // Circuit breaker for Supabase connectivity: prevents unhandled fetch errors,
+  // request latency/timeouts, and log pollution when Supabase or its tunnel is offline.
+  let isSupabaseOnline = false;
+  let lastSupabaseHealthCheck = 0;
+  const SUPABASE_CHECK_COOLDOWN = 30000; // Check at most once every 30s
+
+  async function isSupabaseReachable(): Promise<boolean> {
+    const now = Date.now();
+    if (now - lastSupabaseHealthCheck < SUPABASE_CHECK_COOLDOWN) {
+      return isSupabaseOnline;
+    }
+    lastSupabaseHealthCheck = now;
+    try {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 800);
+      const res = await fetch(`${targetSupabase}/auth/v1/health`, {
+        headers: { apikey: SERVICE_ROLE_KEY },
+        signal: controller.signal,
+      });
+      clearTimeout(t);
+      isSupabaseOnline = res.ok || res.status < 500;
+    } catch {
+      isSupabaseOnline = false;
+    }
+    return isSupabaseOnline;
+  }
+
   // Dedicated VTT API: Get tokens and table config for a campaign
   app.get("/api/campaigns/:campaignId/vtt", async (req, res) => {
     const { campaignId } = req.params;
@@ -300,60 +327,62 @@ async function startServer() {
 
     let mergedConfig: any = { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", ...(campVtt.config || {}) };
 
-    // Fetch directly from Supabase with SERVICE_ROLE_KEY to bypass RLS
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2000);
+    // Fetch directly from Supabase with SERVICE_ROLE_KEY only if Supabase is reachable
+    if (await isSupabaseReachable()) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2000);
 
-      // Fetch tokens
-      const tokenRes = await fetch(`${targetSupabase}/rest/v1/tokens?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
-        headers: {
-          apikey: SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-          Accept: "application/json"
-        },
-        signal: controller.signal
-      });
+        // Fetch tokens
+        const tokenRes = await fetch(`${targetSupabase}/rest/v1/tokens?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            Accept: "application/json"
+          },
+          signal: controller.signal
+        });
 
-      if (tokenRes.ok) {
-        const rows = await tokenRes.json();
-        if (Array.isArray(rows)) {
-          rows.forEach((row: any) => {
-            const tkData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
-            const tkObj = { ...row, ...tkData, id: row.id };
-            tokenMap.set(row.id, tkObj);
-          });
+        if (tokenRes.ok) {
+          const rows = await tokenRes.json();
+          if (Array.isArray(rows)) {
+            rows.forEach((row: any) => {
+              const tkData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
+              const tkObj = { ...row, ...tkData, id: row.id };
+              tokenMap.set(row.id, tkObj);
+            });
+          }
         }
-      }
 
-      // Fetch config
-      const configRes = await fetch(`${targetSupabase}/rest/v1/campaign_configs?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
-        headers: {
-          apikey: SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-          Accept: "application/json"
-        },
-        signal: controller.signal
-      });
+        // Fetch config
+        const configRes = await fetch(`${targetSupabase}/rest/v1/campaign_configs?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            Accept: "application/json"
+          },
+          signal: controller.signal
+        });
 
-      if (configRes.ok) {
-        const cRows = await configRes.json();
-        if (Array.isArray(cRows)) {
-          cRows.forEach((row: any) => {
-            const cData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
-            const merged = { ...row, ...cData };
-            const { id, campaign_id, campaignId: _, config_id, configId: __, data, updated_at, ...configProps } = merged;
-            Object.assign(mergedConfig, configProps);
-            if (merged.mapUrl || merged.map_url) {
-              mergedConfig.mapUrl = merged.mapUrl || merged.map_url;
-            }
-          });
+        if (configRes.ok) {
+          const cRows = await configRes.json();
+          if (Array.isArray(cRows)) {
+            cRows.forEach((row: any) => {
+              const cData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
+              const merged = { ...row, ...cData };
+              const { id, campaign_id, campaignId: _, config_id, configId: __, data, updated_at, ...configProps } = merged;
+              Object.assign(mergedConfig, configProps);
+              if (merged.mapUrl || merged.map_url) {
+                mergedConfig.mapUrl = merged.mapUrl || merged.map_url;
+              }
+            });
+          }
         }
-      }
 
-      clearTimeout(timeout);
-    } catch (e: any) {
-      console.warn("[API VTT] Supabase read warning:", e.message || e);
+        clearTimeout(timeout);
+      } catch {
+        isSupabaseOnline = false;
+      }
     }
 
     // Retain mapUrl from server memory/file store if query didn't return a non-empty mapUrl
@@ -515,78 +544,16 @@ async function startServer() {
 
     const charMap = new Map<string, any>();
 
-    // 1. Load from persistent disk store
-    try {
-      const store = getCampaignCharactersStore();
-      const storedList = store[campaignId] || [];
-      storedList.forEach((c: any) => {
-        if (c && c.id) charMap.set(c.id, c);
-      });
-    } catch (e) {}
+    // Fetch directly from Supabase using SERVICE_ROLE_KEY
+    if (await isSupabaseReachable()) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2000);
 
-    // 2. Fetch directly from Supabase using SERVICE_ROLE_KEY (bypasses all RLS)
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
+        // Embedded characters fetching removed to strictly enforce campaign folder linking
 
-      // A. Fetch campaign details to get player emails and embedded characters
-      const campRes = await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
-        headers: {
-          apikey: SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-          Accept: "application/json"
-        },
-        signal: controller.signal
-      });
-
-      let allowedEmails: string[] = [];
-      if (campRes.ok) {
-        const campDataList = await campRes.json();
-        if (Array.isArray(campDataList) && campDataList.length > 0) {
-          const campRow = campDataList[0];
-          const cData = campRow.data || {};
-          const pEmails = cData.playerEmails || campRow.player_emails || [];
-          if (Array.isArray(pEmails)) {
-            allowedEmails = pEmails.map((e: string) => (e || "").trim().toLowerCase()).filter(Boolean);
-          }
-          if (campRow.master_email) allowedEmails.push(campRow.master_email.trim().toLowerCase());
-          if (cData.masterEmail) allowedEmails.push(cData.masterEmail.trim().toLowerCase());
-
-          // Embeds inside campaign.data
-          const embedded = cData.playerCharacters || cData.characters || [];
-          if (Array.isArray(embedded)) {
-            embedded.forEach((c: any) => {
-              if (c && c.id) charMap.set(c.id, { ...c, campaignId });
-            });
-          }
-        }
-      }
-
-      // B. Fetch characters where campaign_id = campaignId
-      const charCampRes = await fetch(`${targetSupabase}/rest/v1/characters?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
-        headers: {
-          apikey: SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-          Accept: "application/json"
-        },
-        signal: controller.signal
-      });
-
-      if (charCampRes.ok) {
-        const rows = await charCampRes.json();
-        if (Array.isArray(rows)) {
-          rows.forEach((row: any) => {
-            const cData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
-            const charObj = { ...row, ...cData, id: row.id, campaignId };
-            charMap.set(row.id, charObj);
-          });
-        }
-      }
-
-      // C. Also fetch characters belonging to player emails
-      if (allowedEmails.length > 0) {
-        const emailFilter = allowedEmails.map(e => `"${e}"`).join(',');
-        const charEmailRes = await fetch(`${targetSupabase}/rest/v1/characters?user_email=in.(${encodeURIComponent(allowedEmails.join(','))})&select=*`, {
+        // B. Fetch characters where campaign_id = campaignId strictly
+        const charCampRes = await fetch(`${targetSupabase}/rest/v1/characters?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
           headers: {
             apikey: SERVICE_ROLE_KEY,
             Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
@@ -595,29 +562,48 @@ async function startServer() {
           signal: controller.signal
         });
 
-        if (charEmailRes.ok) {
-          const emailRows = await charEmailRes.json();
-          if (Array.isArray(emailRows)) {
-            emailRows.forEach((row: any) => {
+        if (charCampRes.ok) {
+          const rows = await charCampRes.json();
+          if (Array.isArray(rows)) {
+            rows.forEach((row: any) => {
               const cData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
-              const charObj = { ...row, ...cData, id: row.id };
-              // Include if it's already mapped, or if it has matching campaign_id or email
-              if (charMap.has(row.id) || row.campaign_id === campaignId || !row.campaign_id) {
-                charMap.set(row.id, { ...charObj, campaignId: row.campaign_id || campaignId });
+              const charObj = { ...row, ...cData, id: row.id, campaignId };
+              if (row.campaign_id === campaignId || cData.campaignId === campaignId) {
+                charMap.set(row.id, charObj);
               }
             });
           }
         }
-      }
 
-      clearTimeout(timeout);
-    } catch (e: any) {
-      console.warn("[API campaign characters] Supabase fetch warning:", e.message || e);
+        clearTimeout(timeout);
+      } catch {
+        // Fallback to local store if Supabase unreachable, filtering strictly by campaignId
+        try {
+          const store = getCampaignCharactersStore();
+          const storedList = store[campaignId] || [];
+          storedList.forEach((c: any) => {
+            if (c && c.id && (c.campaignId === campaignId || c.campaign_id === campaignId)) {
+              charMap.set(c.id, c);
+            }
+          });
+        } catch (e) {}
+      }
+    } else {
+      // Supabase offline, use local store filtered strictly by campaignId
+      try {
+        const store = getCampaignCharactersStore();
+        const storedList = store[campaignId] || [];
+        storedList.forEach((c: any) => {
+          if (c && c.id && (c.campaignId === campaignId || c.campaign_id === campaignId)) {
+            charMap.set(c.id, c);
+          }
+        });
+      } catch (e) {}
     }
 
     const characters = Array.from(charMap.values());
     
-    // Update local disk cache with freshest state
+    // Update local disk cache with freshest strictly filtered state
     try {
       const store = getCampaignCharactersStore();
       store[campaignId] = characters;
@@ -649,76 +635,78 @@ async function startServer() {
       console.error("[API link character] Store error:", e);
     }
 
-    // 2. Persist to Supabase using SERVICE_ROLE_KEY
-    try {
-      const targetUserId = cleanChar.userId || cleanChar.userEmail || "anonymous";
-      const userEmail = (cleanChar.userEmail || "").trim().toLowerCase();
+    // 2. Persist to Supabase using SERVICE_ROLE_KEY only if reachable
+    if (await isSupabaseReachable()) {
+      try {
+        const targetUserId = cleanChar.userId || cleanChar.userEmail || "anonymous";
+        const userEmail = (cleanChar.userEmail || "").trim().toLowerCase();
 
-      // Upsert into characters table
-      await fetch(`${targetSupabase}/rest/v1/characters`, {
-        method: "POST",
-        headers: {
-          apikey: SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-          "Content-Type": "application/json",
-          Prefer: "resolution=merge-duplicates"
-        },
-        body: JSON.stringify({
-          id: cleanChar.id,
-          user_id: targetUserId,
-          user_email: userEmail,
-          campaign_id: campaignId,
-          data: cleanChar,
-          updated_at: new Date().toISOString()
-        })
-      });
+        // Upsert into characters table
+        await fetch(`${targetSupabase}/rest/v1/characters`, {
+          method: "POST",
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            "Content-Type": "application/json",
+            Prefer: "resolution=merge-duplicates"
+          },
+          body: JSON.stringify({
+            id: cleanChar.id,
+            user_id: targetUserId,
+            user_email: userEmail,
+            campaign_id: campaignId,
+            data: cleanChar,
+            updated_at: new Date().toISOString()
+          })
+        });
 
-      // Update campaign row data to include this character in playerCharacters list
-      const campGetRes = await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
-        headers: {
-          apikey: SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-          Accept: "application/json"
-        }
-      });
-
-      if (campGetRes.ok) {
-        const campList = await campGetRes.json();
-        if (Array.isArray(campList) && campList.length > 0) {
-          const campRow = campList[0];
-          const campData = campRow.data || {};
-          let playerCharacters = campData.playerCharacters || [];
-          if (!Array.isArray(playerCharacters)) playerCharacters = [];
-          playerCharacters = [...playerCharacters.filter((c: any) => c.id !== cleanChar.id), cleanChar];
-
-          let playerEmails = campData.playerEmails || [];
-          if (!Array.isArray(playerEmails)) playerEmails = [];
-          if (userEmail && !playerEmails.includes(userEmail)) {
-            playerEmails.push(userEmail);
+        // Update campaign row data to include this character in playerCharacters list
+        const campGetRes = await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            Accept: "application/json"
           }
+        });
 
-          const updatedCampData = {
-            ...campData,
-            playerCharacters,
-            playerEmails
-          };
+        if (campGetRes.ok) {
+          const campList = await campGetRes.json();
+          if (Array.isArray(campList) && campList.length > 0) {
+            const campRow = campList[0];
+            const campData = campRow.data || {};
+            let playerCharacters = campData.playerCharacters || [];
+            if (!Array.isArray(playerCharacters)) playerCharacters = [];
+            playerCharacters = [...playerCharacters.filter((c: any) => c.id !== cleanChar.id), cleanChar];
 
-          await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
-            method: "PATCH",
-            headers: {
-              apikey: SERVICE_ROLE_KEY,
-              Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              data: updatedCampData,
-              updated_at: new Date().toISOString()
-            })
-          });
+            let playerEmails = campData.playerEmails || [];
+            if (!Array.isArray(playerEmails)) playerEmails = [];
+            if (userEmail && !playerEmails.includes(userEmail)) {
+              playerEmails.push(userEmail);
+            }
+
+            const updatedCampData = {
+              ...campData,
+              playerCharacters,
+              playerEmails
+            };
+
+            await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
+              method: "PATCH",
+              headers: {
+                apikey: SERVICE_ROLE_KEY,
+                Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                data: updatedCampData,
+                updated_at: new Date().toISOString()
+              })
+            });
+          }
         }
+      } catch {
+        isSupabaseOnline = false;
       }
-    } catch (e: any) {
-      console.warn("[API link character] Supabase write warning:", e.message || e);
     }
 
     return res.json({ success: true, character: cleanChar });
@@ -742,56 +730,58 @@ async function startServer() {
       }
     } catch (e) {}
 
-    // 2. Remove campaign_id in Supabase
-    try {
-      await fetch(`${targetSupabase}/rest/v1/characters?id=eq.${encodeURIComponent(characterId)}`, {
-        method: "PATCH",
-        headers: {
-          apikey: SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          campaign_id: null,
-          updated_at: new Date().toISOString()
-        })
-      });
+    // 2. Remove campaign_id in Supabase only if reachable
+    if (await isSupabaseReachable()) {
+      try {
+        await fetch(`${targetSupabase}/rest/v1/characters?id=eq.${encodeURIComponent(characterId)}`, {
+          method: "PATCH",
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            campaign_id: null,
+            updated_at: new Date().toISOString()
+          })
+        });
 
-      // Update campaign's playerCharacters array
-      const campGetRes = await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
-        headers: {
-          apikey: SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-          Accept: "application/json"
-        }
-      });
+        // Update campaign's playerCharacters array
+        const campGetRes = await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            Accept: "application/json"
+          }
+        });
 
-      if (campGetRes.ok) {
-        const campList = await campGetRes.json();
-        if (Array.isArray(campList) && campList.length > 0) {
-          const campRow = campList[0];
-          const campData = campRow.data || {};
-          let playerCharacters = campData.playerCharacters || [];
-          if (Array.isArray(playerCharacters)) {
-            playerCharacters = playerCharacters.filter((c: any) => c.id !== characterId);
-            const updatedCampData = { ...campData, playerCharacters };
-            await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
-              method: "PATCH",
-              headers: {
-                apikey: SERVICE_ROLE_KEY,
-                Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                data: updatedCampData,
-                updated_at: new Date().toISOString()
-              })
-            });
+        if (campGetRes.ok) {
+          const campList = await campGetRes.json();
+          if (Array.isArray(campList) && campList.length > 0) {
+            const campRow = campList[0];
+            const campData = campRow.data || {};
+            let playerCharacters = campData.playerCharacters || [];
+            if (Array.isArray(playerCharacters)) {
+              playerCharacters = playerCharacters.filter((c: any) => c.id !== characterId);
+              const updatedCampData = { ...campData, playerCharacters };
+              await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
+                method: "PATCH",
+                headers: {
+                  apikey: SERVICE_ROLE_KEY,
+                  Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  data: updatedCampData,
+                  updated_at: new Date().toISOString()
+                })
+              });
+            }
           }
         }
+      } catch {
+        isSupabaseOnline = false;
       }
-    } catch (e: any) {
-      console.warn("[API unlink character] Supabase write warning:", e.message || e);
     }
 
     return res.json({ success: true, characterId });
