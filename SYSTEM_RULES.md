@@ -89,10 +89,10 @@ Este documento contém todas as regras lógicas e mecânicas do sistema para gar
   - **Adaptabilidade**: `floor(ADP / 2)`.
   - **Clima Quente e Clima Frio**: `floor(ADP / 10)`.
   - **Forja Manual e Forja Rústica**: O bônus base é derivado diretamente do nível do conhecimento correspondente (`Forja manual` e `Forja rústica`):
-    - Nível 0 ou inferior: `-1`
-    - Nível 1: `0`
-    - A partir do Nível 2: `+1` por nível adicional, até o teto máximo de `+4` (Nível 2 = +1, Nível 3 = +2, Nível 4 = +3, Nível 5 = +4).
-    - Somam-se modificadores de etnia (como o +1 de Anões de Marble Edge em Forja Manual e Nativos de Goundospauh em Forja Rústica), bônus manuais e penalidades gerais.
+    - Não treinado (Nível -1 ou desconhecido): `-1`
+    - Treinamento básico (Nível 0): `0`
+    - A partir do Nível 1: `+1` por nível de conhecimento (Nível 1 = +1, Nível 2 = +2, Nível 3 = +3, Nível 4 = +4, Nível 5 = +5).
+    - **Total da Proficiência**: É a soma exata de `Bônus Base + Bônus de Etnia (+1 para Anões de Marble Edge em Forja Manual e +1 para Nativos de Goundospauh em Forja Rústica) + Bônus Manual + Penalidades Gerais`. O modificador de etnia é sempre computado e somado ao valor exibido no círculo total da proficiência na ficha.
 
 ---
 
@@ -203,8 +203,8 @@ Este documento contém todas as regras lógicas e mecânicas do sistema para gar
 ## 7. Materiais e Forja
 
 ### Proficiências de Forja (Forja Manual e Forja Rústica)
-- **Forja Manual**: Capacidade de criar, reparar e moldar peças de armas e equipamentos manualmente. Bônus derivado do Conhecimento em Forja Manual (-1 no Nível 0 ou inferior, 0 no Nível 1, +1 por nível a partir do 2, até +4 no Nível 5). Anões de Marble Edge possuem +1 de bônus de etnia.
-- **Forja Rústica**: Criação e adaptação de armas e peças artesanais com materiais brutos ou improvisados. Bônus derivado do Conhecimento em Forja Rústica (-1 no Nível 0 ou inferior, 0 no Nível 1, +1 por nível a partir do 2, até +4 no Nível 5). Nativos de Goundospauh possuem +1 de bônus de etnia.
+- **Forja Manual**: Capacidade de criar, reparar e moldar peças de armas e equipamentos manualmente. Bônus derivado do Conhecimento em Forja Manual (-1 se Não Treinado / Nível -1, 0 no Nível Básico 0, +1 por nível a partir do 1, até +5 no Nível 5). Anões de Marble Edge possuem +1 de bônus de etnia somado ao total.
+- **Forja Rústica**: Criação e adaptação de armas e peças artesanais com materiais brutos ou improvisados. Bônus derivado do Conhecimento em Forja Rústica (-1 se Não Treinado / Nível -1, 0 no Nível Básico 0, +1 por nível a partir do 1, até +5 no Nível 5). Nativos de Goundospauh possuem +1 de bônus de etnia somado ao total.
 
 ### Materiais Ignorados no Gerador de Inimigos
 Certos materiais possuem propriedades que, embora úteis para jogadores em contextos específicos, não são adequadas para a geração automática de equipamentos para inimigos comuns (por serem muito fracos, líquidos ou valiosos/macios demais para combate padrão).

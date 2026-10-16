@@ -31,6 +31,7 @@ import { BestiaryMonster } from '../types';
 import { EnemyGenerator } from './EnemyGenerator';
 import { calculateProficiencyBonus, Stats } from '../rules/proficiencyRules';
 import { calculateWeaponDamageBonus } from '../rules/combatRules';
+import { getEthnicityProficiencyModifier } from '../rules/ethnicityRules';
 import { getNegativeEffectPenalties, getDeslocamentoBase, getVidaMaxima, getSanidadeMaxima } from '../rules/statusRules';
 import { getSurvivalPenalties } from '../rules/survivalRules';
 import { Season, getSeason, getSeasonIcon } from '../rules/timeRules';
@@ -2553,13 +2554,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       let targetEsquiva = 0;
 
       if (attackerChar) {
-        attackerAcuracia = calculateProficiencyBonus(attackerChar.stats, "Acurácia", ["FOR", "DEX"], attackerChar.fome, attackerChar.sede, attackerChar.cansaco, attackerChar.clima, 0, attackerChar.bonusProficiencias?.["Acurácia"], attackerChar.efeitosNegativos, attackerChar.sanidadeAtual, getSanidadeMaxima(attackerChar.stats.MEN));
+        const attackerEthMod = getEthnicityProficiencyModifier(attackerChar.etnia, "Acurácia");
+        attackerAcuracia = calculateProficiencyBonus(attackerChar.stats, "Acurácia", ["FOR", "DEX"], attackerChar.fome, attackerChar.sede, attackerChar.cansaco, attackerChar.clima, 0, attackerChar.bonusProficiencias?.["Acurácia"], attackerChar.efeitosNegativos, attackerChar.sanidadeAtual, getSanidadeMaxima(attackerChar.stats.MEN), attackerEthMod);
       } else if (attacker.type === 'creature' && attacker.stats) {
         attackerAcuracia = attacker.stats.acuracia || 0;
       }
 
       if (targetChar) {
-        targetEsquiva = calculateProficiencyBonus(targetChar.stats, "Esquiva", ["DEX", "ADP"], targetChar.fome, targetChar.sede, targetChar.cansaco, targetChar.clima, 0, targetChar.bonusProficiencias?.["Esquiva"], targetChar.efeitosNegativos, targetChar.sanidadeAtual, getSanidadeMaxima(targetChar.stats.MEN));
+        const targetEthMod = getEthnicityProficiencyModifier(targetChar.etnia, "Esquiva");
+        targetEsquiva = calculateProficiencyBonus(targetChar.stats, "Esquiva", ["DEX", "ADP"], targetChar.fome, targetChar.sede, targetChar.cansaco, targetChar.clima, 0, targetChar.bonusProficiencias?.["Esquiva"], targetChar.efeitosNegativos, targetChar.sanidadeAtual, getSanidadeMaxima(targetChar.stats.MEN), targetEthMod);
       } else if (target.type === 'creature' && target.stats) {
         targetEsquiva = target.stats.esquiva || 0;
       }

@@ -28,6 +28,10 @@ export interface Spell {
   dano: string;
   mana: number;
   acerto: number;
+  aoeShape?: 'circle' | 'square' | 'rectangle' | 'cone' | 'arc';
+  aoeWidth?: number;
+  aoeHeight?: number;
+  aoeColor?: string;
 }
 
 export interface Ability {

@@ -41,7 +41,7 @@ export function MiniBar({ label, value, max = 100, color, onChange, extra }: Min
             setInnerValue(e.target.value);
             onChange(parseInt(e.target.value) || 0);
           }}
-          className="w-full min-w-[3rem] bg-transparent text-base font-bold text-zinc-200 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          className="w-full min-w-[3rem] -mt-[5px] bg-transparent text-base font-bold text-zinc-200 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
       </div>
       <div 

@@ -49,16 +49,22 @@ export const calculateProficiencyBonus = (
   } else if (name === 'Clima Quente' || name === 'Clima Frio') {
     // 10 points = 1
     baseBonus = Math.floor(stats.ADP / 10);
-  } else if (name === 'Forja manual' || name === 'Forja rústica') {
-    // -1 se nível 0, 0 se nível 1, a partir do nível 2 ganha +1 por nível (máx +4)
+  } else if (
+    name.toLowerCase().includes('forja manual') || 
+    name.toLowerCase().includes('forja rústica') || 
+    name.toLowerCase().includes('forja rustica') ||
+    name.toLowerCase().includes('forja comum') ||
+    name.toLowerCase().includes('forja artesanal')
+  ) {
+    // Nível de conhecimento:
+    // Não treinado (lvl < 0): -1
+    // Nível 0 (básico): 0
+    // A partir do Nível 1: +1 por nível (1 = +1, 2 = +2, 3 = +3, 4 = +4, 5 = +5)
     const lvl = knowledgeLevel !== undefined ? knowledgeLevel : 0;
-    if (lvl <= 0) {
+    if (lvl < 0) {
       baseBonus = -1;
-    } else if (lvl === 1) {
-      baseBonus = 0;
     } else {
-      // Nível 2 = +1, Nível 3 = +2, Nível 4 = +3, Nível 5 = +4 (máximo +4)
-      baseBonus = Math.min(4, lvl - 1);
+      baseBonus = lvl;
     }
   } else if (statKeys.length === 1) {
     // Scaling: 10 points = +1
@@ -71,7 +77,8 @@ export const calculateProficiencyBonus = (
     );
   }
 
-  if (name !== 'Fome' && name !== 'Clima') {
+  const isClimateProf = name === 'Clima' || name === 'Clima Quente' || name === 'Clima Frio';
+  if (name !== 'Fome' && !isClimateProf) {
     // Survival penalties (Hunger/Thirst)
     if (hunger !== undefined && thirst !== undefined) {
       const penalties = getSurvivalPenalties(hunger, thirst);

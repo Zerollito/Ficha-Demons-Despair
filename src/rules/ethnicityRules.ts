@@ -43,7 +43,9 @@ export const ETHNICITIES: Ethnicity[] = [
     name: 'Nativos de Goundospauh',
     description: 'Ágeis e habilidosos, os nativos de cor avermelhada se dão bem com armas artesanais, tendo um bônus de +1 ao tentar às criar, assim como um bônus de +1 no primeiro d8 de cansaço. (Nativos não são bem vistos em cidades grandes, nestas, recebem uma penalidade de -1 em comunicação).',
     proficienciasModifiers: {
-      'Forja rústica': 1
+      'Forja rústica': 1,
+      'Forja rustica': 1,
+      'Forja artesanal': 1
     },
     conhecimentosModifiers: {},
     habilidades: [
@@ -104,7 +106,8 @@ export const ETHNICITIES: Ethnicity[] = [
     name: 'Anões de Marble Edge',
     description: 'Os anões são humanos pequenos e robustos, ótimos forjadores manuais e com grande conhecimento de armas, mas comem muito. Tem +1 para identificar as peças de uma arma e para criar peças manualmente, mas alimentos têm metade do bônus no próximo dado para fome e também tem uma redução de -5 nos dados seguintes contra fome. (Anões são famosos como armeiros e bem vistos em grandes cidades, nestas, os anões recebem +1 em comunicação).',
     proficienciasModifiers: {
-      'Forja manual': 1
+      'Forja manual': 1,
+      'Forja comum': 1
     },
     conhecimentosModifiers: {},
     habilidades: [
@@ -376,17 +379,131 @@ export const ETHNICITIES: Ethnicity[] = [
 
 export const getEthnicityById = (idOrName?: string): Ethnicity => {
   if (!idOrName) return ETHNICITIES[0];
-  const found = ETHNICITIES.find(
-    (e) => e.id === idOrName || e.name.toLowerCase() === idOrName.toLowerCase()
+  const query = idOrName.trim();
+  const lowerQuery = query.toLowerCase();
+  const normalizedQuery = lowerQuery.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // 1. Direct match on id or exact name
+  let found = ETHNICITIES.find(
+    (e) => e.id.toLowerCase() === lowerQuery || e.name.toLowerCase() === lowerQuery
   );
-  return found || ETHNICITIES[0];
+  if (found) return found;
+
+  // 2. Normalized match (ignoring accents)
+  found = ETHNICITIES.find(
+    (e) =>
+      e.id.toLowerCase() === normalizedQuery ||
+      e.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') === normalizedQuery
+  );
+  if (found) return found;
+
+  // 3. Keyword / partial matching
+  if (
+    normalizedQuery.includes('anao') ||
+    normalizedQuery.includes('anoes') ||
+    normalizedQuery.includes('marble') ||
+    normalizedQuery.includes('dwarf')
+  ) {
+    return ETHNICITIES.find((e) => e.id === 'marble_edge') || ETHNICITIES[0];
+  }
+  if (normalizedQuery.includes('goundospauh')) {
+    return ETHNICITIES.find((e) => e.id === 'goundospauh') || ETHNICITIES[0];
+  }
+  if (normalizedQuery.includes('lochcliff')) {
+    return ETHNICITIES.find((e) => e.id === 'lochcliff') || ETHNICITIES[0];
+  }
+  if (normalizedQuery.includes('icefield')) {
+    return ETHNICITIES.find((e) => e.id === 'icefield') || ETHNICITIES[0];
+  }
+  if (normalizedQuery.includes('stonebarrow')) {
+    return ETHNICITIES.find((e) => e.id === 'stonebarrow') || ETHNICITIES[0];
+  }
+  if (normalizedQuery.includes('daedra')) {
+    return ETHNICITIES.find((e) => e.id === 'daedra') || ETHNICITIES[0];
+  }
+  if (normalizedQuery.includes('shentil') || normalizedQuery.includes('cidade central')) {
+    return ETHNICITIES.find((e) => e.id === 'shentil') || ETHNICITIES[0];
+  }
+  if (normalizedQuery.includes('dellmont')) {
+    return ETHNICITIES.find((e) => e.id === 'dellmont') || ETHNICITIES[0];
+  }
+  if (normalizedQuery.includes('tabatos')) {
+    return ETHNICITIES.find((e) => e.id === 'tabatos') || ETHNICITIES[0];
+  }
+  if (normalizedQuery.includes('subterraneo')) {
+    return ETHNICITIES.find((e) => e.id === 'subterraneos') || ETHNICITIES[0];
+  }
+  if (normalizedQuery.includes('copas')) {
+    return ETHNICITIES.find((e) => e.id === 'copas') || ETHNICITIES[0];
+  }
+  if (normalizedQuery.includes('hibrid')) {
+    return ETHNICITIES.find((e) => e.id === 'hibridos') || ETHNICITIES[0];
+  }
+  if (normalizedQuery.includes('enevoado') || normalizedQuery.includes('monge')) {
+    return ETHNICITIES.find((e) => e.id === 'pico_enevoado') || ETHNICITIES[0];
+  }
+  if (normalizedQuery.includes('nativo')) {
+    // Default to goundospauh if general "Nativo" or "Nativos"
+    return ETHNICITIES.find((e) => e.id === 'goundospauh') || ETHNICITIES[0];
+  }
+
+  return ETHNICITIES[0];
+};
+
+export const getEthnicityProficiencyModifier = (
+  ethnicityOrId: Ethnicity | string | undefined,
+  proficiencyName: string
+): number => {
+  const eth =
+    typeof ethnicityOrId === 'string' || !ethnicityOrId
+      ? getEthnicityById(ethnicityOrId as string | undefined)
+      : ethnicityOrId;
+
+  if (!eth || !eth.proficienciasModifiers) return 0;
+
+  if (eth.proficienciasModifiers[proficiencyName] !== undefined) {
+    return eth.proficienciasModifiers[proficiencyName];
+  }
+
+  const cleanTarget = proficiencyName
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  for (const [key, val] of Object.entries(eth.proficienciasModifiers)) {
+    const cleanKey = key
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    if (cleanKey === cleanTarget) {
+      return val;
+    }
+  }
+
+  // Aliases for Forja and Clima
+  if (cleanTarget === 'forja manual' || cleanTarget === 'forja comum') {
+    return (
+      eth.proficienciasModifiers['Forja manual'] ??
+      eth.proficienciasModifiers['Forja comum'] ??
+      0
+    );
+  }
+  if (cleanTarget === 'forja rustica' || cleanTarget === 'forja artesanal') {
+    return (
+      eth.proficienciasModifiers['Forja rústica'] ??
+      eth.proficienciasModifiers['Forja rustica'] ??
+      eth.proficienciasModifiers['Forja artesanal'] ??
+      0
+    );
+  }
+
+  return 0;
 };
 
 export const isPredefinedEthnicity = (idOrName?: string): boolean => {
   if (!idOrName) return false;
-  return ETHNICITIES.some(
-    (e) => e.id === idOrName || e.name.toLowerCase() === idOrName.toLowerCase()
-  );
+  const eth = getEthnicityById(idOrName);
+  return eth.id !== 'custom';
 };
 
 export const applyEthnicityToCharacter = (

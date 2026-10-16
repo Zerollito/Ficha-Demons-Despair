@@ -4477,7 +4477,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.18</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.20</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4587,14 +4587,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.18</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.20</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.18</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.20</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -5284,7 +5284,7 @@ function App() {
                           color="bg-orange-500"
                           onChange={(v) => updateChar({ fome: v })}
                           extra={
-                            <div className="flex items-center gap-1 bg-zinc-950/60 px-1 py-0.5 rounded border border-zinc-805/50" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center gap-1 bg-zinc-950/60 px-1 py-0.5 rounded border border-zinc-805/50 w-[60px]" onClick={(e) => e.stopPropagation()}>
                               <span className="text-[8px] text-orange-400 font-bold font-mono">Bônus:</span>
                               <input
                                 type="number"
@@ -5294,7 +5294,7 @@ function App() {
                                   const val = parseInt(e.target.value);
                                   updateChar({ bonusFomeProximaRolagem: isNaN(val) ? undefined : val });
                                 }}
-                                className="w-8 text-[9px] bg-transparent text-center font-bold font-mono text-zinc-100 focus:outline-none focus:ring-0 p-0 border-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                className="w-8 -ml-[7px] text-[9px] bg-transparent text-center font-bold font-mono text-zinc-100 focus:outline-none focus:ring-0 p-0 border-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                               />
                             </div>
                           }
@@ -11332,6 +11332,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
               onAddSpellToCharacter={handleAddSpellToCharacter}
               showToast={showToast}
               user={user}
+              onAddToken={(t) => activeCampaignId && addToken(activeCampaignId, t)}
             />
           </div>
         ) : activePage === "materials" ? (
