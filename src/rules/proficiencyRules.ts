@@ -130,7 +130,9 @@ export const calculateProficiencyBonus = (
     }
   }
 
-  return baseBonus + penalty + manualBonus + etniaModifier;
+  const total = baseBonus + penalty + manualBonus + etniaModifier;
+  console.log(`Proficiency: ${name}, base: ${baseBonus}, penalty: ${penalty}, manual: ${manualBonus}, etnia: ${etniaModifier}, total: ${total}`);
+  return total;
 };
 
 export const PROFICIENCIES = [
@@ -143,7 +145,7 @@ export const PROFICIENCIES = [
   { name: 'Conhecimento', stats: ['INT', 'APR'] },
   { name: 'Percepção', stats: ['INT', 'MEN'] },
   { name: 'Acurácia', stats: ['FOR', 'DEX'] },
-  { name: 'Esquiva', stats: ['DEX'] },
+  { name: 'Esquiva', stats: ['DEX', 'ADP'] },
   { name: 'Mentalidade', stats: ['MEN'] },
   { name: 'Ritualismo', stats: ['RIT'] },
   { name: 'Fome', stats: ['RES', 'ADP'] },

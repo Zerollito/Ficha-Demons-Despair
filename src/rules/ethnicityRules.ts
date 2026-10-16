@@ -396,17 +396,7 @@ export const applyEthnicityToCharacter = (
 ): Character => {
   const currentEtniaObj = getEthnicityById(char.etnia);
   const targetEtniaObj = getEthnicityById(newEthnicityId);
-
-  // Definir modificadores permanentes de etnia
-  const newEtniaModifiers: { [key: string]: number } = {};
-  if (targetEtniaObj && targetEtniaObj.proficienciasModifiers) {
-    Object.entries(targetEtniaObj.proficienciasModifiers).forEach(([prof, val]) => {
-      if (val !== 0) {
-        newEtniaModifiers[prof] = val;
-      }
-    });
-  }
-
+  
   // Conhecimentos
   let newConhecimentos = (char.conhecimentos || []).map((c) => ({ ...c }));
   if (currentEtniaObj && currentEtniaObj.conhecimentosModifiers) {
@@ -482,7 +472,6 @@ export const applyEthnicityToCharacter = (
   return {
     ...char,
     etnia: finalEtniaName,
-    etniaModifiers: newEtniaModifiers,
     conhecimentos: newConhecimentos,
     habilidades: newHabilidades,
     armaduras: newArmaduras

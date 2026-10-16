@@ -100,12 +100,14 @@ const MiniInput = React.memo(({
   onChange,
   type = "text",
   className,
+  style,
 }: {
   label: string;
   value: any;
   onChange: (v: string) => void;
   type?: string;
   className?: string;
+  style?: React.CSSProperties;
 }) => {
   const [innerValue, setInnerValue] = useState(value?.toString() ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -126,7 +128,7 @@ const MiniInput = React.memo(({
   }, [value]);
 
   return (
-    <div className={cn("bg-zinc-950 px-1.5 py-1 rounded border border-zinc-800/80 flex flex-col min-w-0 flex-1", className)}>
+    <div style={style} className={cn("bg-zinc-950 px-1.5 py-1 rounded border border-zinc-800/80 flex flex-col min-w-0 flex-1", className)}>
       <span className="text-[7.5px] text-zinc-500 font-bold uppercase tracking-tighter block truncate mb-0.5 select-none">{label}</span>
       <input
         ref={inputRef}
@@ -456,40 +458,34 @@ export const CatalystProperties = React.memo(({
   onChange: (updates: any) => void;
 }) => {
   return (
-    <div className="space-y-4 pt-1 border-t border-zinc-805">
-      <div className="bg-zinc-950/30 p-2 rounded-lg border border-zinc-800/50 space-y-2">
-        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
-          Escala
-        </span>
-        <div className="grid grid-cols-2 gap-2 font-sans">
-          <div className="flex flex-col gap-1">
-            <span className="text-[9px] text-zinc-650 font-bold uppercase">
-              Nível
-            </span>
-            <select
-              value={item.escala || "0"}
-              onChange={(e) => onChange({ escala: e.target.value })}
-              className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-amber-500 font-bold focus:outline-none"
-            >
-              <option value="0">0</option>
-              <option value="D">D</option>
-              <option value="C">C</option>
-              <option value="B">B</option>
-              <option value="A">A</option>
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-[9px] text-zinc-650 font-bold uppercase">
-              Bônus
-            </span>
-            <div className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-xs text-amber-500 font-bold">
-              Inteligência
-            </div>
-          </div>
+    <div className="space-y-1.5 pt-1 border-t border-zinc-800">
+      <div className="bg-zinc-950/40 px-2 py-1 rounded border border-zinc-800/60 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">
+            Escala:
+          </span>
+          <select
+            value={item.escala || "0"}
+            onChange={(e) => onChange({ escala: e.target.value })}
+            className="bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-xs text-amber-500 font-bold focus:outline-none"
+          >
+            <option value="0">0</option>
+            <option value="D">D</option>
+            <option value="C">C</option>
+            <option value="B">B</option>
+            <option value="A">A</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">
+            Bônus:
+          </span>
+          <span className="text-xs font-bold text-amber-500 font-mono">
+            {item.bonus || 0}
+          </span>
         </div>
       </div>
-
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-4 gap-1.5">
         <MiniInput
           label="Feitiço"
           value={item.feitico ?? ""}
@@ -502,8 +498,6 @@ export const CatalystProperties = React.memo(({
           type="number"
           onChange={(v) => onChange({ elemental: safeParseInt(v) })}
         />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
         <MiniInput
           label="Magia Negra"
           value={item.magiaNegra ?? ""}
@@ -517,7 +511,7 @@ export const CatalystProperties = React.memo(({
           onChange={(v) => onChange({ potencial: safeParseInt(v) })}
         />
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-1.5">
         <MiniInput
           label="Durab."
           value={item.durabilidade ?? ""}

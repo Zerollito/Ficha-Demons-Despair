@@ -5081,7 +5081,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       // But we can still keep them for quick reference if the VTT doesn't find the character
                       stats: {
                         acuracia: calculateProficiencyBonus(enemy.stats, 'Acurácia', ['FOR', 'DEX']),
-                        esquiva: calculateProficiencyBonus(enemy.stats, 'Esquiva', ['DEX']),
+                        esquiva: calculateProficiencyBonus(enemy.stats, 'Esquiva', ['DEX', 'ADP']),
                         ataque: { 
                           corte: enemy.stats.FOR > enemy.stats.DEX ? 4 : 2, 
                           perfuracao: enemy.stats.DEX >= enemy.stats.FOR ? 4 : 2, 
