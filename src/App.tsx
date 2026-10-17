@@ -8333,8 +8333,10 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                             <input
                               value={m.nome || ""}
                               onChange={(e) => {
-                                const newMags = [...(activeChar?.magias || [])];
-                                newMags[idx].nome = e.target.value;
+                                const val = e.target.value;
+                                const newMags = (activeChar?.magias || []).map((mag, i) =>
+                                  i === idx ? { ...mag, nome: val } : mag
+                                );
                                 updateChar({ magias: newMags });
                               }}
                               className="bg-transparent font-bold focus:outline-none flex-1 min-w-0 text-amber-500"
