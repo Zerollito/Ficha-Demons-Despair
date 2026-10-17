@@ -2,15 +2,17 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, Plus, Package, Trash2, X, Sword, Shield, Zap, Target, 
-  ChevronDown, ChevronUp, Apple, Check, Disc
+  ChevronDown, ChevronUp, Utensils, Disc
 } from 'lucide-react';
 import { Character } from '../types';
 import { Item, ITEMS_LIBRARY } from '../data/items';
 import { cn } from '../lib/utils';
 import { MiniInput } from './ui/MiniInput';
+import { TextArea } from './ui/Input';
 import { WeaponProperties } from './ui/WeaponProperties';
 import { ArmorProperties } from './ui/ArmorProperties';
 import { CatalystProperties, AmmunitionProperties } from './TocaManager';
+import { getItemPeso } from '../rules/inventoryRules';
 
 interface ItemLibraryProps {
   characters: Character[];
@@ -149,13 +151,13 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
       peso: 0,
       volume: 0,
       quantidade: 1,
-      durabilidade: 100,
-      maxDurabilidade: 100,
+      durabilidade: 0,
+      maxDurabilidade: 0,
       descricao: '',
       efeito: '',
       isFood: false,
-      validade: 7,
-      saciedade: '30+15',
+      validade: 0,
+      saciedade: '0+0',
       dano: '0',
       acerto: 0,
       escala: '0',
@@ -166,10 +168,12 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
       resistencia: 0,
       categoria: cat || (tipo === 'Arma' ? 'Arma Branca' : 'Corte'),
       reducaoDano: 0,
-      feitico: 1,
+      feitico: 0,
       elemental: 0,
       magiaNegra: 0,
-      potencial: 1,
+      potencial: 0,
+      municaoTotal: 0,
+      municaoCarregada: 0,
     };
     setCustomItems(prev => [created, ...prev]);
     showToast?.("Item criado na biblioteca!", "success");
@@ -392,66 +396,213 @@ export const ItemLibrary: React.FC<ItemLibraryProps> = ({
                               </div>
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-3">
-                              <div className="w-20">
-                                <MiniInput
-                                  label="Qtd"
-                                  type="number"
-                                  value={item.quantidade}
-                                  onChange={(v) => updateCustomItem(item.id, { quantidade: parseInt(v) || 1 })}
-                                />
-                              </div>
-                              <div className="flex flex-col justify-center">
-                                <span className="text-[8px] text-zinc-500 uppercase tracking-tight font-bold">Peso Total</span>
-                                <span className="text-xs font-bold text-zinc-400">{(((item.peso || 0) * (item.quantidade || 1)) / 10).toFixed(2)}kg</span>
-                              </div>
+                            {/* General items layout matching compartment items */}
+                            {item.tipo !== 'Arma' && item.tipo !== 'Catalisador' && item.tipo !== 'Armadura' && item.tipo !== 'Munição' && (
+                              <>
+                                <div className="flex items-end gap-2">
+                                  <div className="grid grid-cols-4 gap-2 flex-1">
+                                    <MiniInput
+                                      label="Qtd"
+                                      type="number"
+                                      value={item.quantidade}
+                                      onChange={(v) => {
+                                        const val = parseInt(v) || 1;
+                                        updateCustomItem(item.id, { quantidade: val });
+                                      }}
+                                    />
+                                    <MiniInput
+                                      label="Kg"
+                                      type="number"
+                                      value={item.peso ?? 0}
+                                      onChange={(v) => {
+                                        const val = parseFloat(v) || 0;
+                                        updateCustomItem(item.id, { peso: val });
+                                      }}
+                                    />
+                                    <MiniInput
+                                      label="Vol"
+                                      type="number"
+                                      value={item.volume ?? 0}
+                                      onChange={(v) => {
+                                        const val = parseFloat(v) || 0;
+                                        updateCustomItem(item.id, { volume: val });
+                                      }}
+                                    />
+                                    <div className="flex flex-col min-w-0">
+                                      <span className="text-[10px] text-zinc-600 uppercase tracking-tighter font-bold truncate">
+                                        Total
+                                      </span>
+                                      <span className="text-xs font-bold text-zinc-400 mt-[3px]">
+                                        {(
+                                          (getItemPeso(item) * (item.quantidade !== undefined ? item.quantidade : 1)) / 10
+                                        ).toFixed(2)}
+                                        kg
+                                      </span>
+                                    </div>
+                                  </div>
 
-                              {/* Food Marker matching character sheet exact styled button */}
-                              <div className="flex items-center gap-1.5 ml-auto">
-                                <span className="text-[9px] text-zinc-400 font-bold uppercase">Alimento</span>
-                                <motion.button
-                                  whileTap={{ scale: 0.95 }}
-                                  type="button"
-                                  onClick={() => updateCustomItem(item.id, { isFood: !item.isFood })}
-                                  className={cn(
-                                    "px-2 py-1 rounded text-[10px] font-bold uppercase flex items-center gap-1 transition-all border cursor-pointer",
-                                    item.isFood
-                                      ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-sm"
-                                      : "bg-zinc-950 border-zinc-800 text-zinc-600 hover:text-zinc-400"
-                                  )}
-                                >
-                                  <Apple size={12} className={item.isFood ? "text-emerald-400" : "text-zinc-600"} />
-                                  {item.isFood ? "Sim" : "Não"}
-                                </motion.button>
-                              </div>
-                            </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const isChecked = !item.isFood;
+                                      updateCustomItem(item.id, {
+                                        isFood: isChecked,
+                                        validade: isChecked ? (item.validade ?? 0) : item.validade,
+                                        saciedade: isChecked ? (item.saciedade ?? "0+0") : item.saciedade
+                                      });
+                                    }}
+                                    className={cn(
+                                      "w-9 h-9 rounded-xl border transition-all cursor-pointer focus:outline-none flex items-center justify-center shrink-0 mb-[1px]",
+                                      item.isFood
+                                        ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-500 hover:bg-yellow-500/30"
+                                        : "bg-zinc-700 border-zinc-600 text-black hover:bg-zinc-600"
+                                    )}
+                                    title={item.isFood ? "Desmarcar como Comida" : "Marcar como Comida"}
+                                  >
+                                    <Utensils 
+                                      className={cn(
+                                        "w-4 h-4 transition-colors duration-200",
+                                        item.isFood ? "fill-yellow-500/20" : ""
+                                      )}
+                                    />
+                                  </button>
+                                </div>
+
+                                {/* Propriedades de Comida */}
+                                {item.isFood && (
+                                  <div className="bg-zinc-950/40 p-2.5 rounded-xl border border-zinc-800/80 space-y-2.5 my-2">
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <MiniInput
+                                        label="Validade (Dias)"
+                                        type="number"
+                                        value={item.validade ?? 0}
+                                        onChange={(v) => {
+                                          const val = parseInt(v) || 0;
+                                          updateCustomItem(item.id, { validade: val });
+                                        }}
+                                      />
+                                      <MiniInput
+                                        label="Saciedade (ex: 30+15)"
+                                        type="text"
+                                        value={item.saciedade ?? "0+0"}
+                                        onChange={(v) => {
+                                          updateCustomItem(item.id, { saciedade: v });
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+
+                                <TextArea
+                                  label="Descrição"
+                                  value={item.descricao || ""}
+                                  onChange={(v) => {
+                                    updateCustomItem(item.id, { descricao: v });
+                                  }}
+                                />
+                              </>
+                            )}
 
                             {/* Specific Properties based on Item Type */}
                             {item.tipo === 'Arma' && (
-                              <WeaponProperties
-                                item={item}
-                                character={selectedChar}
-                                updateCharacter={() => {}}
-                                onChange={(updates) => updateCustomItem(item.id, updates)}
-                              />
+                              <>
+                                <div className="flex items-center gap-2 max-w-[200px]">
+                                  <div className="w-20">
+                                    <MiniInput
+                                      label="Qtd"
+                                      type="number"
+                                      value={item.quantidade}
+                                      onChange={(v) => updateCustomItem(item.id, { quantidade: parseInt(v) || 1 })}
+                                    />
+                                  </div>
+                                  <div className="flex flex-col justify-center">
+                                    <span className="text-[8px] text-zinc-500 uppercase tracking-tight font-bold">
+                                      Peso Total
+                                    </span>
+                                    <span className="text-xs font-bold text-zinc-400">
+                                      {((getItemPeso(item) * (item.quantidade || 1)) / 10).toFixed(2)} kg
+                                    </span>
+                                  </div>
+                                </div>
+                                <WeaponProperties
+                                  item={item}
+                                  character={selectedChar}
+                                  updateCharacter={() => {}}
+                                  onChange={(updates) => updateCustomItem(item.id, updates)}
+                                />
+                              </>
                             )}
                             {item.tipo === 'Catalisador' && (
-                              <CatalystProperties
-                                item={item}
-                                onChange={(updates) => updateCustomItem(item.id, updates)}
-                              />
+                              <>
+                                <div className="grid grid-cols-4 gap-2">
+                                  <MiniInput
+                                    label="Qtd"
+                                    type="number"
+                                    value={item.quantidade}
+                                    onChange={(v) => updateCustomItem(item.id, { quantidade: parseInt(v) || 1 })}
+                                  />
+                                  <div className="flex flex-col">
+                                    <span className="text-[10px] text-zinc-600 uppercase tracking-tighter font-bold">
+                                      Total
+                                    </span>
+                                    <span className="text-xs font-bold text-zinc-400">
+                                      {((getItemPeso(item) * (item.quantidade || 1)) / 10).toFixed(2)} kg
+                                    </span>
+                                  </div>
+                                </div>
+                                <CatalystProperties
+                                  item={item}
+                                  onChange={(updates) => updateCustomItem(item.id, updates)}
+                                />
+                              </>
                             )}
                             {item.tipo === 'Armadura' && (
-                              <ArmorProperties
-                                item={item}
-                                onChange={(updates) => updateCustomItem(item.id, updates)}
-                              />
+                              <>
+                                <div className="grid grid-cols-4 gap-2">
+                                  <MiniInput
+                                    label="Qtd"
+                                    type="number"
+                                    value={item.quantidade}
+                                    onChange={(v) => updateCustomItem(item.id, { quantidade: parseInt(v) || 1 })}
+                                  />
+                                  <div className="flex flex-col">
+                                    <span className="text-[10px] text-zinc-600 uppercase tracking-tighter font-bold">
+                                      Total
+                                    </span>
+                                    <span className="text-xs font-bold text-zinc-400">
+                                      {((getItemPeso(item) * (item.quantidade || 1)) / 10).toFixed(2)} kg
+                                    </span>
+                                  </div>
+                                </div>
+                                <ArmorProperties
+                                  item={item}
+                                  onChange={(updates) => updateCustomItem(item.id, updates)}
+                                />
+                              </>
                             )}
                             {item.tipo === 'Munição' && (
-                              <AmmunitionProperties
-                                item={item}
-                                onChange={(updates) => updateCustomItem(item.id, updates)}
-                              />
+                              <>
+                                <div className="grid grid-cols-4 gap-2">
+                                  <MiniInput
+                                    label="Qtd"
+                                    type="number"
+                                    value={item.quantidade}
+                                    onChange={(v) => updateCustomItem(item.id, { quantidade: parseInt(v) || 1 })}
+                                  />
+                                  <div className="flex flex-col">
+                                    <span className="text-[10px] text-zinc-600 uppercase tracking-tighter font-bold">
+                                      Total
+                                    </span>
+                                    <span className="text-xs font-bold text-zinc-400">
+                                      {((getItemPeso(item) * (item.quantidade || 1)) / 10).toFixed(2)} kg
+                                    </span>
+                                  </div>
+                                </div>
+                                <AmmunitionProperties
+                                  item={item}
+                                  onChange={(updates) => updateCustomItem(item.id, updates)}
+                                />
+                              </>
                             )}
                           </div>
                         );

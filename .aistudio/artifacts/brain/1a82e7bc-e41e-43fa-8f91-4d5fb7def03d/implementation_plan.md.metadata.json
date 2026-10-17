@@ -1,6 +1,6 @@
 {
-  "summary": "Plano detalhado para divisão de Clima em Clima Quente e Clima Frio, separação de armaduras iniciais em peças individuais com pesos e volumes especificados, aplicação correta de bônus/debuffs climáticos e exibição clara dos modificadores de etnia ao lado das proficiências.",
-  "updatedAt": "2026-10-15T19:59:33.637222510Z",
+  "summary": "Confirmação explícita e detalhamento de que o layout da ficha de criatura (tanto na Toca quanto no Bestiário) é rigorosamente o mesmo da ficha de jogador, renderizando os mesmos blocos, inputs e estilos, apenas omitindo com precisão cirúrgica os pontos solicitados (etnia, dinheiro, barra de sanidade, conhecimentos, APR/RIT/MEN nos atributos, RIT no bônus de dano, e as 4 proficiências), mantendo os compartimentos vazios por padrão e integrando as 4 abas/seções especiais (Informações, Ataques, Níveis de Ataque e Níveis de Defesa).",
+  "updatedAt": "2026-10-17T17:06:23.067358995Z",
   "requestFeedback": true,
   "userFacing": true
 }

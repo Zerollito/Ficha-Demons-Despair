@@ -1,3 +1,5 @@
-import { Item } from '../data/items';
+import { Item } from '../rules/inventoryRules';
+
+export type { Item };
 
 export const ITEMS_LIBRARY: Item[] = [];

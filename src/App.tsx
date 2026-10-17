@@ -342,7 +342,10 @@ const createEmptyCharacter = (): Character => ({
   })),
   escalas: [],
   efeitosNegativos: [],
-  anotacoes: [{ id: generateId(), titulo: "Anotações Gerais", conteudo: "" }],
+  anotacoes: [
+    { id: generateId(), titulo: "Traumas", conteudo: "" },
+    { id: generateId(), titulo: "Vícios", conteudo: "" },
+  ],
   dadosCustomizados: [],
   imagens: [],
   itens: [],
@@ -419,6 +422,67 @@ const MenuButton = ({ active, onClick, icon, label, color }: { active: boolean, 
   );
 };
 
+const LongPressDiceButton = ({
+  onClick,
+  onLongPress,
+  className,
+  title,
+  children,
+}: {
+  onClick: () => void;
+  onLongPress?: () => void;
+  className?: string;
+  title?: string;
+  children: React.ReactNode;
+}) => {
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const isLongPressRef = useRef(false);
+
+  const handleStart = () => {
+    isLongPressRef.current = false;
+    if (onLongPress) {
+      timerRef.current = setTimeout(() => {
+        isLongPressRef.current = true;
+        onLongPress();
+      }, 1000);
+    }
+  };
+
+  const handleEnd = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (isLongPressRef.current) {
+      isLongPressRef.current = false;
+      return;
+    }
+    onClick();
+  };
+
+  return (
+    <motion.button
+      type="button"
+      whileTap={{ scale: 0.95 }}
+      onMouseDown={handleStart}
+      onMouseUp={handleEnd}
+      onMouseLeave={handleEnd}
+      onTouchStart={handleStart}
+      onTouchEnd={handleEnd}
+      onTouchCancel={handleEnd}
+      onClick={handleClick}
+      className={className}
+      title={title}
+    >
+      {children}
+    </motion.button>
+  );
+};
+
 const sanitizeCharacter = (char: any): Character => {
   if (!char || typeof char !== "object") return createEmptyCharacter();
   
@@ -447,7 +511,16 @@ const sanitizeCharacter = (char: any): Character => {
       itens: ensureArray(comp.itens || [])
     })),
     conhecimentos: ensureArray(char.conhecimentos || def.conhecimentos),
-    anotacoes: ensureArray(char.anotacoes || []),
+    anotacoes: (() => {
+      const arr = ensureArray(char.anotacoes);
+      if (arr.length === 0 || (arr.length === 1 && arr[0].titulo === "Anotações Gerais" && !arr[0].conteudo)) {
+        return [
+          { id: generateId(), titulo: "Traumas", conteudo: "" },
+          { id: generateId(), titulo: "Vícios", conteudo: "" },
+        ];
+      }
+      return arr.filter((n: any) => n.titulo !== "Anotações Gerais" || (n.conteudo && n.conteudo.trim() !== ""));
+    })(),
     magias: ensureArray(char.magias || []).map((m: any) => ({
       ...m,
       tipo: m.tipo === "ataque" ? "Ataque" : (m.tipo || "Ataque"),
@@ -4477,7 +4550,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.20</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.25</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4587,14 +4660,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.20</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.25</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.20</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.25</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -9255,7 +9328,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                     <SubSection
                       title="Combate (Acerto & Dano)"
                       icon={<Sword size={14} />}
-                      defaultCollapsed={false}
+                      defaultCollapsed={true}
                     >
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
                       {(activeChar.armas || []).map((arma, aIdx) => {
@@ -9580,27 +9653,30 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                         Quantidade
                       </span>
                       <div className="flex items-center gap-3">
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
+                        <LongPressDiceButton
                           onClick={() =>
                             setDiceQuantity(Math.max(1, diceQuantity - 1))
                           }
-                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
+                          onLongPress={() => {
+                            setDiceQuantity(1);
+                          }}
+                          title={diceQuantity > 1 ? "Diminuir (segure 1s para redefinir para 1)" : "Diminuir"}
+                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all cursor-pointer select-none"
                         >
                           <Minus size={16} />
-                        </motion.button>
+                        </LongPressDiceButton>
                         <span className="text-xl font-black text-amber-500 min-w-[2ch] text-center">
                           {diceQuantity}
                         </span>
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
+                        <LongPressDiceButton
                           onClick={() =>
                             setDiceQuantity(Math.min(99, diceQuantity + 1))
                           }
-                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
+                          title="Aumentar"
+                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all cursor-pointer select-none"
                         >
                           <Plus size={16} />
-                        </motion.button>
+                        </LongPressDiceButton>
                       </div>
                     </div>
 
@@ -9611,24 +9687,38 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                         Bônus
                       </span>
                       <div className="flex items-center gap-3">
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
+                        <LongPressDiceButton
                           onClick={() => setDiceBonus(diceBonus - 1)}
-                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
+                          onLongPress={
+                            diceBonus > 0
+                              ? () => {
+                                  setDiceBonus(0);
+                                }
+                              : undefined
+                          }
+                          title={diceBonus > 0 ? "Diminuir (segure 1s para redefinir para 0)" : "Diminuir"}
+                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all cursor-pointer select-none"
                         >
                           <Minus size={16} />
-                        </motion.button>
+                        </LongPressDiceButton>
                         <span className="text-xl font-black text-amber-500 min-w-[3ch] text-center">
                           {diceBonus > 0 ? "+" : ""}
                           {diceBonus}
                         </span>
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
+                        <LongPressDiceButton
                           onClick={() => setDiceBonus(diceBonus + 1)}
-                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all"
+                          onLongPress={
+                            diceBonus < 0
+                              ? () => {
+                                  setDiceBonus(0);
+                                }
+                              : undefined
+                          }
+                          title={diceBonus < 0 ? "Aumentar (segure 1s para redefinir para 0)" : "Aumentar"}
+                          className="w-8 h-8 flex items-center justify-center bg-zinc-800 rounded-full text-zinc-400 hover:text-white active:scale-90 transition-all cursor-pointer select-none"
                         >
                           <Plus size={16} />
-                        </motion.button>
+                        </LongPressDiceButton>
                       </div>
                     </div>
                   </div>
@@ -9878,8 +9968,8 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
               </motion.button>
             </div>
           ) : (
-            <div className="space-y-6 max-w-4xl mx-auto">
-            <div className="flex justify-between items-center mb-4">
+            <div className="space-y-6 w-full">
+            <div className="flex justify-between items-center mb-4 w-full">
               <h2 className="text-xl font-bold text-amber-500 flex items-center gap-2">
                 <FileText size={24} /> Anotações
               </h2>
@@ -9897,9 +9987,9 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                     ],
                   })
                 }
-                className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 px-4 py-2 rounded-lg font-bold transition-all shadow-lg shadow-amber-500/20"
+                className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-md shadow-amber-500/20 shrink-0"
               >
-                <Plus size={18} /> Adicionar Aba
+                <Plus size={15} /> Nova anotação
               </motion.button>
             </div>
 
@@ -10054,7 +10144,12 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                         anotacoes: [
                           {
                             id: generateId(),
-                            titulo: "Anotações Gerais",
+                            titulo: "Traumas",
+                            conteudo: "",
+                          },
+                          {
+                            id: generateId(),
+                            titulo: "Vícios",
                             conteudo: "",
                           },
                         ],
@@ -10062,7 +10157,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                     }
                     className="mt-4 text-amber-500 hover:text-amber-400 font-bold uppercase text-xs tracking-widest"
                   >
-                    Criar Primeira Aba
+                    Criar Abas Padrão (Traumas e Vícios)
                   </motion.button>
                 </div>
               )}
