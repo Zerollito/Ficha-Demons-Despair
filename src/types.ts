@@ -195,6 +195,14 @@ export interface BestiaryMonster {
   // Lista de Ações/Ataques
   acoes: MonsterAction[];
 
+  compartimentos?: Compartment[];
+  armas?: Weapon[];
+  catalisadores?: Catalyst[];
+  armaduras?: ArmorPiece[];
+  acessorios?: ArmorPiece[];
+  stats?: Stats;
+  statsXP?: Stats;
+
   masterId: string;
   createdAt?: string;
   updatedAt?: string;
@@ -327,6 +335,7 @@ export interface Character {
   local?: string;
   personalidade?: string;
   gostaNaoGosta?: string;
+  partesUteis?: string;
   informacoes?: string;
   habitos?: string;
   ataque?: {

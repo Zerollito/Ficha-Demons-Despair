@@ -15,6 +15,8 @@ import {
   Copy,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Shield,
   Sword,
   Backpack,
@@ -179,7 +181,7 @@ import {
   getCargaMaxima,
   getDeslocamentoBase,
 } from "./rules/statusRules";
-import { getSeason, getSeasonIcon, formatTime, formatDate, getDaysInMonth, generateWeather, getMoonPhase, dateToAbsoluteDays } from "./rules/timeRules";
+import { getSeason, getSeasonIcon, formatTime, formatDate, getDaysInMonth, generateWeather, getMoonPhase, dateToAbsoluteDays, MONTHS } from "./rules/timeRules";
 import {
   Item,
   calculateInventoryTotals,
@@ -349,6 +351,56 @@ const createEmptyCharacter = (): Character => ({
   dadosCustomizados: [],
   imagens: [],
   itens: [],
+});
+
+const createEmptyCreature = (isBestiary = false): Character => ({
+  id: generateId(),
+  userId: "",
+  nome: isBestiary ? "Novo Demônio" : "Novo Companheiro",
+  etnia: "",
+  dinheiro: { C: 0, B: 0, P: 0, O: 0 },
+  vidaAtual: 15,
+  manaAtual: 0,
+  sanidadeAtual: 0,
+  fome: 100,
+  sede: 100,
+  cansaco: 8,
+  defesa: { "Cabeça": 0, "Tronco": 0, "Braço Esquerdo": 0, "Braço Direito": 0, "Pernas": 0 },
+  clima: 0,
+  stats: {
+    CON: 7, RES: 3, ADP: 0, MEN: 0, APR: 0, FOR: 5, DEX: 5, INT: 0, RIT: 0
+  },
+  statsXP: {
+    CON: 0, RES: 0, ADP: 0, MEN: 0, APR: 0, FOR: 0, DEX: 0, INT: 0, RIT: 0
+  },
+  bonusProficiencias: {},
+  joias: [],
+  imagem: "",
+  armas: [],
+  catalisadores: [],
+  habilidades: [],
+  magias: [],
+  armaduras: [],
+  acessorios: [],
+  compartimentos: [], // Vazio por padrão
+  conhecimentos: [],
+  escalas: [],
+  efeitosNegativos: [],
+  anotacoes: [],
+  dadosCustomizados: [],
+  imagens: [],
+  itens: [],
+  acoes: [],
+  local: "",
+  personalidade: "",
+  gostaNaoGosta: "",
+  partesUteis: "",
+  informacoes: "",
+  habitos: "",
+  ataque: {
+    corte: 0, perfuracao: 0, impacto: 0, resistencia: 0,
+    feitico: 0, elemental: 0, magiaNegra: 0, potencial: 0
+  }
 });
 
 // Static default for sanitization (to avoid generating new IDs every time getSyncJson runs)
@@ -1772,13 +1824,13 @@ function App() {
       for (const parent of state.characters) {
         const found = (parent.tocaCreatures || []).find(tc => tc.id === tocaEditingCreatureId);
         if (found) {
-          const empty = createEmptyCharacter();
+          const empty = createEmptyCreature(false);
           const f = found as any;
           return {
             ...empty,
             ...f,
-            nome: f.nome || f.name || "Criatura da Toca",
-            imagem: f.imagem || f.imageUrl || "",
+            nome: f.name || f.nome || "Criatura da Toca",
+            imagem: f.imageUrl || f.imagem || "",
             vidaAtual: f.vidaAtual !== undefined ? f.vidaAtual : (f.hpAtual !== undefined ? f.hpAtual : (Number(f.maxHp) || 15)),
           } as unknown as Character;
         }
@@ -1787,7 +1839,7 @@ function App() {
     if (bestiaryEditingMonsterId) {
       const found = bestiaryMonsters.find(m => m.id === bestiaryEditingMonsterId);
       if (found) {
-        const empty = createEmptyCharacter();
+        const empty = createEmptyCreature(true);
         const f = found as any;
         return {
           ...empty,
@@ -2010,6 +2062,18 @@ function App() {
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<number | null>(null);
   const [newEventTitle, setNewEventTitle] = useState("");
   const [newEventDesc, setNewEventDesc] = useState("");
+  const [calendarViewMonth, setCalendarViewMonth] = useState<number>(tableConfig.date?.month || 1);
+  const [calendarViewYear, setCalendarViewYear] = useState<number>(tableConfig.date?.year || 2024);
+
+  // Sync calendar view month/year when switching campaigns or on first load
+  useEffect(() => {
+    if (tableConfig.date?.month) {
+      setCalendarViewMonth(tableConfig.date.month);
+    }
+    if (tableConfig.date?.year !== undefined) {
+      setCalendarViewYear(tableConfig.date.year);
+    }
+  }, [activeCampaignId]);
 
   const [localHour, setLocalHour] = useState<string>("");
   const [localMinute, setLocalMinute] = useState<string>("");
@@ -3355,13 +3419,13 @@ function App() {
           const companionIndex = (parentChar.tocaCreatures || []).findIndex(tc => tc.id === tocaEditingCreatureId);
           if (companionIndex !== -1) {
             const companion = parentChar.tocaCreatures![companionIndex];
-            const empty = createEmptyCharacter();
+            const empty = createEmptyCreature(false);
             const comp = companion as any;
             const mockChar = {
               ...empty,
               ...comp,
-              nome: comp.nome || comp.name || "Criatura da Toca",
-              imagem: comp.imagem || comp.imageUrl || "",
+              nome: comp.name || comp.nome || "Criatura da Toca",
+              imagem: comp.imageUrl || comp.imagem || "",
               vidaAtual: comp.vidaAtual !== undefined ? comp.vidaAtual : (comp.hpAtual !== undefined ? comp.hpAtual : (Number(comp.maxHp) || 15)),
             } as unknown as Character;
 
@@ -3375,6 +3439,7 @@ function App() {
             if (updates.imagem !== undefined) finalCompanion.imageUrl = updates.imagem;
             if (updates.vidaAtual !== undefined) {
               finalCompanion.hpAtual = updates.vidaAtual;
+              finalCompanion.vidaAtual = updates.vidaAtual;
             }
             
             const updatedToca = [...parentChar.tocaCreatures!];
@@ -3399,7 +3464,7 @@ function App() {
         const foundIndex = bestiaryMonsters.findIndex(m => m.id === bestiaryEditingMonsterId);
         if (foundIndex !== -1) {
           const monster = bestiaryMonsters[foundIndex];
-          const empty = createEmptyCharacter();
+          const empty = createEmptyCreature(true);
           const f = monster as any;
           const mockChar = {
             ...empty,
@@ -3763,14 +3828,14 @@ function App() {
     let vMax = getVidaMaxima(s.CON);
 
     if (activeChar && isCreatureMode) {
-      const maxHpNum = Number((activeChar as any).maxHp) || Number((activeChar as any).vidaMaxima) || 15;
+      const maxHpNum = Number((activeChar as any).maxHp) || Number((activeChar as any).vidaMaxima) || (s.CON > 0 ? getVidaMaxima(s.CON) : 15);
       const esq = Number((activeChar as any).esquiva) || 0;
       const acur = Number((activeChar as any).acuracia) || 0;
       const parsedStats = parseMonsterStats((activeChar as any).bonus, maxHpNum, esq, acur);
       
-      // Merge parsedStats into stats
-      s = { ...s, ...parsedStats };
-      vMax = maxHpNum;
+      const hasCustomStats = s && Object.values(s).some(v => v > 0);
+      s = hasCustomStats ? { ...parsedStats, ...s } : { ...s, ...parsedStats };
+      vMax = (activeChar as any).maxHp !== undefined ? maxHpNum : (s.CON > 0 ? getVidaMaxima(s.CON) : maxHpNum);
     }
 
     const bonusCarga = activeChar?.bonusCarga || 0;
@@ -4550,7 +4615,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.25</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.28</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4660,14 +4725,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.25</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.28</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.25</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.28</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -5143,7 +5208,12 @@ function App() {
               </div>
             )}
             {/* All Sections Stacking Vertically */}
-            <Section title="Personagem" icon={<UserIcon size={18} />} collapsible defaultCollapsed={false}>
+            <Section
+              title={isCreatureMode ? "Criatura" : "Personagem"}
+              icon={isCreatureMode ? <PawPrint size={18} /> : <UserIcon size={18} />}
+              collapsible
+              defaultCollapsed={false}
+            >
                 <div className="space-y-4">
                   <div className="flex flex-col items-center gap-2 mb-4">
                     <div className="w-32 h-32 bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden flex items-center justify-center relative group">
@@ -5189,13 +5259,7 @@ function App() {
                     value={activeChar?.nome || ""}
                     onChange={(v) => updateChar({ nome: v })}
                   />
-                  {isCreatureMode ? (
-                    <Input
-                      label="Localização"
-                      value={activeChar?.etnia || ""}
-                      onChange={(v) => updateChar({ etnia: v })}
-                    />
-                  ) : (
+                  {!isCreatureMode && (
                     <EthnicitySelector
                       value={activeChar?.etnia || ""}
                       onChangeEthnicity={(ethId, customName) => {
@@ -5208,41 +5272,43 @@ function App() {
                     />
                   )}
 
-                  <div className="space-y-2">
-                    <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                      Dinheiro
-                    </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {(["C", "B", "P", "O"] as const).map((coin) => (
-                        <div
-                          key={coin}
-                          className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded p-2"
-                        >
-                          <span className="text-xs font-bold text-amber-500">
-                            {coin}
-                          </span>
-                          <NumericInput
-                            value={activeChar.dinheiro?.[coin] || 0}
-                            onChange={(v) =>
-                              updateChar({
-                                dinheiro: {
-                                  ...(activeChar.dinheiro || {
-                                    C: 0,
-                                    B: 0,
-                                    P: 0,
-                                    O: 0,
-                                  }),
-                                  [coin]: v,
-                                },
-                              })
-                            }
-                            className="flex-1"
-                            size="sm"
-                          />
-                        </div>
-                      ))}
+                  {!isCreatureMode && (
+                    <div className="space-y-2">
+                      <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                        Dinheiro
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {(["C", "B", "P", "O"] as const).map((coin) => (
+                          <div
+                            key={coin}
+                            className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded p-2"
+                          >
+                            <span className="text-xs font-bold text-amber-500">
+                              {coin}
+                            </span>
+                            <NumericInput
+                              value={activeChar.dinheiro?.[coin] || 0}
+                              onChange={(v) =>
+                                updateChar({
+                                  dinheiro: {
+                                    ...(activeChar.dinheiro || {
+                                      C: 0,
+                                      B: 0,
+                                      P: 0,
+                                      O: 0,
+                                    }),
+                                    [coin]: v,
+                                  },
+                                })
+                              }
+                              className="flex-1"
+                              size="sm"
+                            />
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="flex-1">
                     <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1 flex justify-between items-center">
@@ -5333,22 +5399,26 @@ function App() {
                         color="bg-blue-500"
                         onChange={(v) => updateChar({ manaAtual: v })}
                       />
-                      <ProgressBar
-                        label="Sanidade"
-                        current={activeChar?.sanidadeAtual || 0}
-                        max={sanidadeMax}
-                        color="bg-emerald-500"
-                        onChange={(v) => updateChar({ sanidadeAtual: v })}
-                      />
-                      {sanityEffects.length > 0 && (
-                        <div className="space-y-1">
-                          {sanityEffects.map((effect, idx) => (
-                            <div key={idx} className="text-[9px] leading-tight text-emerald-400 bg-emerald-400/10 p-1.5 rounded border border-emerald-400/20 flex gap-1.5 items-start">
-                              <Activity size={10} className="shrink-0 mt-0.5 animate-pulse" />
-                              <span>{effect}</span>
+                      {!isCreatureMode && (
+                        <>
+                          <ProgressBar
+                            label="Sanidade"
+                            current={activeChar?.sanidadeAtual || 0}
+                            max={sanidadeMax}
+                            color="bg-emerald-500"
+                            onChange={(v) => updateChar({ sanidadeAtual: v })}
+                          />
+                          {sanityEffects.length > 0 && (
+                            <div className="space-y-1">
+                              {sanityEffects.map((effect, idx) => (
+                                <div key={idx} className="text-[9px] leading-tight text-emerald-400 bg-emerald-400/10 p-1.5 rounded border border-emerald-400/20 flex gap-1.5 items-start">
+                                  <Activity size={10} className="shrink-0 mt-0.5 animate-pulse" />
+                                  <span>{effect}</span>
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
+                          )}
+                        </>
                       )}
                       <div className="grid grid-cols-3 gap-3">
                         <MiniBar
@@ -5644,6 +5714,12 @@ function App() {
                 >
                   <div className="space-y-4">
                     <Input
+                      label="Localização / Habitat"
+                      value={(activeChar as any).local || activeChar?.etnia || ""}
+                      onChange={(v) => updateChar({ local: v, etnia: v })}
+                      placeholder="Ex: Florestas densas, cavernas escuras..."
+                    />
+                    <Input
                       label="Personalidade"
                       value={(activeChar as any).personalidade || ""}
                       onChange={(v) => updateChar({ personalidade: v })}
@@ -5680,7 +5756,9 @@ function App() {
                 defaultCollapsed={true}
               >
                 <div className="grid grid-cols-2 gap-3">
-                  {["FOR", "DEX", "INT", "RIT"].map((stat) => (
+                  {["FOR", "DEX", "INT", "RIT"]
+                    .filter((stat) => !isCreatureMode || stat !== "RIT")
+                    .map((stat) => (
                     <div
                       key={stat}
                       className="flex justify-between items-center bg-zinc-900/50 p-2 rounded border border-zinc-800"
@@ -5732,7 +5810,9 @@ function App() {
                 defaultCollapsed={true}
               >
                 <div className="grid grid-cols-3 gap-2">
-                  {(Object.keys(stats) as (keyof Stats)[]).map((stat) => {
+                  {(Object.keys(stats) as (keyof Stats)[])
+                    .filter((stat) => !isCreatureMode || (stat !== "APR" && stat !== "RIT" && stat !== "MEN"))
+                    .map((stat) => {
                     const statVal = stats[stat];
                     const xpLimit = 5 + Math.floor(statVal / 15) * 5;
                     const currentXP = activeChar?.statsXP?.[stat] || 0;
@@ -5816,7 +5896,19 @@ function App() {
                 defaultCollapsed={true}
               >
                 <div className="grid grid-cols-1 gap-1">
-                  {PROFICIENCIES.map((prof) => {
+                  {PROFICIENCIES
+                    .filter((prof) => {
+                      if (!isCreatureMode) return true;
+                      const pName = prof.name.toLowerCase();
+                      return (
+                        pName !== "forja manual" &&
+                        pName !== "forja artesanal" &&
+                        pName !== "forja rústica" &&
+                        pName !== "ritualismo" &&
+                        pName !== "mentalidade"
+                      );
+                    })
+                    .map((prof) => {
                     const currentEth = getEthnicityById(activeChar.etnia);
                     const ethMod = currentEth?.proficienciasModifiers?.[prof.name] || 0;
                     
@@ -5912,9 +6004,8 @@ function App() {
                 </div>
               </Section>
 
-              {!isCreatureMode && (
-                <Section
-                  title="Equipamentos"
+              <Section
+                title="Equipamentos"
                 icon={<Package size={18} />}
                 collapsible
                 defaultCollapsed={true}
@@ -6639,7 +6730,6 @@ function App() {
                   </SubSection>
                 </div>
               </Section>
-              )}
 
               {isCreatureMode && (
                 <>
@@ -6933,9 +7023,8 @@ function App() {
                 </>
               )}
 
-              {!isCreatureMode && (
-                <Section
-                  title="Compartimentos"
+              <Section
+                title="Compartimentos"
                 icon={<Backpack size={18} />}
                 collapsible
                 defaultCollapsed={true}
@@ -8333,11 +8422,9 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                   </div>
                 </div>
               </Section>
-              )}
 
-              {!isCreatureMode && (
-                <Section
-                  title="Magias"
+              <Section
+                title="Magias"
                 icon={<Zap size={18} />}
                 collapsible
                 defaultCollapsed
@@ -8691,11 +8778,9 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                   </div>
                 </div>
               </Section>
-              )}
 
-              {!isCreatureMode && (
-                <Section
-                  title="Habilidades"
+              <Section
+                title="Habilidades"
                   icon={<Activity size={18} />}
                   collapsible
                   defaultCollapsed
@@ -8798,7 +8883,6 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                     </div>
                   </div>
                 </Section>
-              )}
               {!isCreatureMode && (
                 <Section
                   title="Conhecimentos"
@@ -9265,8 +9349,8 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                     })}
                   </div>
                 </div>
-              </Section>
-            )}
+                </Section>
+              )}
 
 
             </div>
@@ -10975,48 +11059,226 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                       className="bg-zinc-950 border border-zinc-800 rounded-3xl p-6 shadow-2xl overflow-hidden relative"
                     >
                       <div className="absolute top-0 right-0 w-1 h-full bg-amber-500" />
-                      <div className="flex items-center justify-between mb-6">
+                      
+                      {/* Top Header & Month Chooser Controls */}
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b border-zinc-900">
                         <div className="flex items-center gap-3">
-                          <Calendar className="text-amber-500" size={20} />
-                          <h3 className="text-sm font-black text-white uppercase tracking-widest">Calendário de Eventos</h3>
+                          <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500">
+                            <Calendar size={22} />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                              Calendário de Eventos do Mestre
+                              <span className="text-[10px] font-mono text-zinc-500 font-normal">
+                                (Ano {calendarViewYear})
+                              </span>
+                            </h3>
+                            <p className="text-[10px] text-zinc-500 font-medium">
+                              Navegue e escolha qualquer mês do ano para planejar encontros, festivais e eventos.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Month / Year Navigator Controls */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* Previous Month */}
+                          <button
+                            onClick={() => {
+                              setSelectedCalendarDay(null);
+                              if (calendarViewMonth === 1) {
+                                setCalendarViewMonth(12);
+                                setCalendarViewYear(prev => prev - 1);
+                              } else {
+                                setCalendarViewMonth(prev => prev - 1);
+                              }
+                            }}
+                            className="p-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all shadow-sm"
+                            title="Mês Anterior"
+                          >
+                            <ChevronLeft size={16} />
+                          </button>
+
+                          {/* Month Selector Dropdown */}
+                          <div className="relative">
+                            <select
+                              value={calendarViewMonth}
+                              onChange={(e) => {
+                                setSelectedCalendarDay(null);
+                                setCalendarViewMonth(parseInt(e.target.value) || 1);
+                              }}
+                              className="bg-zinc-900 border border-zinc-700/80 hover:border-amber-500/60 text-white font-bold text-xs rounded-xl px-3 py-2 pr-8 appearance-none focus:outline-none transition-colors cursor-pointer"
+                            >
+                              {MONTHS.map((monthName, idx) => {
+                                const m = idx + 1;
+                                const count = (tableConfig.events || []).filter(e => e.month === m && (e.year === undefined || e.year === calendarViewYear)).length;
+                                const isCurrentInGame = tableConfig.date?.month === m && (tableConfig.date?.year === undefined || tableConfig.date?.year === calendarViewYear);
+                                return (
+                                  <option key={m} value={m} className="bg-zinc-900 text-white">
+                                    {monthName} {count > 0 ? `(${count} ${count === 1 ? 'evento' : 'eventos'})` : ''} {isCurrentInGame ? '• [Data do Jogo]' : ''}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400">
+                              <ChevronDown size={14} />
+                            </div>
+                          </div>
+
+                          {/* Year Input / Stepper */}
+                          <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl px-2 py-1 gap-1">
+                            <span className="text-[9px] font-mono font-bold text-zinc-500 uppercase">Ano:</span>
+                            <input
+                              type="number"
+                              value={calendarViewYear}
+                              onChange={(e) => setCalendarViewYear(parseInt(e.target.value) || 0)}
+                              className="w-16 bg-transparent text-xs font-mono font-bold text-amber-400 focus:outline-none"
+                            />
+                          </div>
+
+                          {/* Next Month */}
+                          <button
+                            onClick={() => {
+                              setSelectedCalendarDay(null);
+                              if (calendarViewMonth === 12) {
+                                setCalendarViewMonth(1);
+                                setCalendarViewYear(prev => prev + 1);
+                              } else {
+                                setCalendarViewMonth(prev => prev + 1);
+                              }
+                            }}
+                            className="p-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-all shadow-sm"
+                            title="Próximo Mês"
+                          >
+                            <ChevronRight size={16} />
+                          </button>
+
+                          {/* Return to Game Date if viewing another month/year */}
+                          {(calendarViewMonth !== (tableConfig.date?.month || 1) || calendarViewYear !== (tableConfig.date?.year || 2024)) && (
+                            <button
+                              onClick={() => {
+                                setSelectedCalendarDay(tableConfig.date?.day || 1);
+                                setCalendarViewMonth(tableConfig.date?.month || 1);
+                                setCalendarViewYear(tableConfig.date?.year || 2024);
+                              }}
+                              className="px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl text-[10px] font-black uppercase text-amber-400 hover:text-amber-300 transition-all flex items-center gap-1.5 shadow-sm"
+                              title="Voltar para a data atual da campanha"
+                            >
+                              <RotateCw size={12} />
+                              Mês Atual do Jogo ({MONTHS[(tableConfig.date?.month || 1) - 1]})
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 12 Months Fast Selector Bar */}
+                      <div className="mb-6">
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 custom-scrollbar">
+                          {MONTHS.map((name, idx) => {
+                            const m = idx + 1;
+                            const isSelected = calendarViewMonth === m;
+                            const isGameMonth = tableConfig.date?.month === m && (tableConfig.date?.year === undefined || tableConfig.date?.year === calendarViewYear);
+                            const count = (tableConfig.events || []).filter(e => e.month === m && (e.year === undefined || e.year === calendarViewYear)).length;
+                            const abbr = name.slice(0, 3);
+                            return (
+                              <button
+                                key={m}
+                                onClick={() => {
+                                  setSelectedCalendarDay(null);
+                                  setCalendarViewMonth(m);
+                                }}
+                                className={cn(
+                                  "px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase transition-all flex items-center gap-1.5 shrink-0 border",
+                                  isSelected
+                                    ? "bg-amber-500/20 border-amber-500 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.15)]"
+                                    : "bg-zinc-900/60 border-zinc-800 text-zinc-500 hover:text-zinc-200 hover:border-zinc-700"
+                                )}
+                              >
+                                <span>{abbr}</span>
+                                {isGameMonth && (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" title="Mês em jogo" />
+                                )}
+                                {count > 0 && (
+                                  <span className={cn(
+                                    "px-1.5 py-0.2 rounded-full text-[8px] font-mono leading-none shrink-0",
+                                    isSelected ? "bg-amber-500 text-black font-black" : "bg-zinc-800 text-amber-400 font-bold"
+                                  )}>
+                                    {count}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         {/* Month Grid */}
-                        <div className="space-y-4">
+                        <div className="space-y-3">
                           <div className="flex items-center justify-between px-2">
-                             <span className="text-xs font-black text-zinc-400 uppercase tracking-widest">
-                               {new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date(2024, (tableConfig.date?.month || 1) - 1, 1))} {tableConfig.date?.year}
+                             <div className="flex items-center gap-2">
+                               <span className="text-xs font-black text-white uppercase tracking-widest">
+                                 {MONTHS[calendarViewMonth - 1]} de {calendarViewYear}
+                               </span>
+                               {calendarViewMonth === (tableConfig.date?.month || 1) && calendarViewYear === (tableConfig.date?.year || 2024) && (
+                                 <span className="px-2 py-0.5 rounded-md text-[8px] font-black uppercase bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+                                   Em Jogo
+                                 </span>
+                               )}
+                             </div>
+                             <span className="text-[10px] text-zinc-500 font-mono">
+                               {getDaysInMonth(calendarViewMonth, calendarViewYear)} dias
                              </span>
                           </div>
                           
+                          {/* Weekdays header */}
+                          <div className="grid grid-cols-7 gap-1 text-center">
+                            {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map(dayName => (
+                              <span key={dayName} className="text-[9px] font-black text-zinc-500 uppercase py-1">
+                                {dayName}
+                              </span>
+                            ))}
+                          </div>
+
+                          {/* Days grid with leading empty slots */}
                           <div className="grid grid-cols-7 gap-1">
-                            {Array.from({ length: getDaysInMonth(tableConfig.date?.month || 1, tableConfig.date?.year || 2024) }).map((_, i) => {
+                            {/* Empty days before 1st of month */}
+                            {Array.from({ length: Math.max(0, new Date(calendarViewYear, calendarViewMonth - 1, 1).getDay()) }).map((_, i) => (
+                              <div key={`empty-${i}`} className="aspect-square rounded-lg bg-zinc-900/10 border border-transparent opacity-20 pointer-events-none" />
+                            ))}
+
+                            {Array.from({ length: getDaysInMonth(calendarViewMonth, calendarViewYear) }).map((_, i) => {
                               const day = i + 1;
-                              const isToday = tableConfig.date?.day === day;
-                              const hasEvents = tableConfig.events?.some(e => e.day === day && e.month === tableConfig.date?.month);
+                              const isToday = tableConfig.date?.day === day && tableConfig.date?.month === calendarViewMonth && (tableConfig.date?.year === undefined || tableConfig.date?.year === calendarViewYear);
+                              const dayEvents = (tableConfig.events || []).filter(e => e.day === day && e.month === calendarViewMonth && (e.year === undefined || e.year === calendarViewYear));
+                              const hasEvents = dayEvents.length > 0;
                               const isSelected = selectedCalendarDay === day;
 
-                              const moon = getMoonPhase(day);
+                              const moon = getMoonPhase(day, calendarViewMonth, calendarViewYear);
                               return (
                                 <button
                                   key={day}
                                   onClick={() => setSelectedCalendarDay(day)}
-                                  title={`${day} de ${new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date(2024, (tableConfig.date?.month || 1) - 1, 1))} - ${moon.name}: ${moon.description}`}
+                                  title={`${day} de ${MONTHS[calendarViewMonth - 1]} de ${calendarViewYear} - ${moon.name}: ${moon.description}${hasEvents ? ` (${dayEvents.length} evento(s))` : ''}`}
                                   className={cn(
-                                    "aspect-square rounded-lg text-[10px] font-bold flex flex-col items-center justify-between p-1 relative transition-all border",
+                                    "aspect-square rounded-lg text-[10px] font-bold flex flex-col items-center justify-between p-1 relative transition-all border group",
                                     isToday 
-                                      ? "bg-amber-500/20 border-amber-500 text-amber-500" 
+                                      ? "bg-amber-500/20 border-amber-500 text-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.2)]" 
                                       : isSelected
-                                      ? "bg-white/10 border-white/30 text-white"
-                                      : "bg-zinc-900 border-zinc-800 text-zinc-600 hover:border-zinc-700 hover:text-zinc-400"
+                                      ? "bg-white/10 border-white/50 text-white shadow-lg"
+                                      : "bg-zinc-900 border-zinc-800 text-zinc-600 hover:border-zinc-700 hover:text-zinc-300"
                                   )}
                                 >
-                                  <span className="self-start text-[8px] font-mono leading-none opacity-50">{day}</span>
+                                  <div className="w-full flex items-center justify-between">
+                                    <span className="text-[8px] font-mono leading-none opacity-60 group-hover:opacity-100">{day}</span>
+                                    {isToday && (
+                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                                    )}
+                                  </div>
                                   <span className="text-sm select-none" title={moon.name}>{moon.icon}</span>
                                   {hasEvents && (
-                                    <div className="absolute bottom-1 right-1 w-1 h-1 rounded-full bg-amber-500" />
+                                    <div className="absolute bottom-1 right-1 flex items-center justify-center min-w-[12px] h-[12px] px-0.5 rounded-full bg-amber-500 text-black text-[8px] font-black leading-none shadow">
+                                      {dayEvents.length > 1 ? dayEvents.length : ''}
+                                    </div>
                                   )}
                                 </button>
                               );
@@ -11029,33 +11291,45 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                           {selectedCalendarDay ? (
                             <>
                               <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
-                                <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">
-                                  Eventos: Dia {selectedCalendarDay}
-                                </span>
-                                <button onClick={() => setSelectedCalendarDay(null)} className="text-zinc-600 hover:text-white">
+                                <div>
+                                  <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest block">
+                                    Eventos: {selectedCalendarDay} de {MONTHS[calendarViewMonth - 1]} ({calendarViewYear})
+                                  </span>
+                                  {tableConfig.date?.day === selectedCalendarDay && tableConfig.date?.month === calendarViewMonth && (tableConfig.date?.year === undefined || tableConfig.date?.year === calendarViewYear) && (
+                                    <span className="text-[8px] font-black uppercase text-cyan-400 tracking-wider">
+                                      ★ Dia Atual da Campanha
+                                    </span>
+                                  )}
+                                </div>
+                                <button 
+                                  onClick={() => setSelectedCalendarDay(null)} 
+                                  className="text-zinc-600 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition-colors"
+                                  title="Ver todos do mês"
+                                >
                                   <X size={14} />
                                 </button>
                               </div>
 
-                              <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
-                                {tableConfig.events?.filter(e => e.day === selectedCalendarDay && e.month === tableConfig.date?.month).map(event => (
+                              <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                                {(tableConfig.events || []).filter(e => e.day === selectedCalendarDay && e.month === calendarViewMonth && (e.year === undefined || e.year === calendarViewYear)).map(event => (
                                   <div key={event.id} className="bg-zinc-800/80 border border-zinc-700 p-3 rounded-xl flex items-center justify-between group">
                                     <div className="space-y-0.5">
                                       <p className="text-xs font-bold text-white">{event.title}</p>
-                                      {event.description && <p className="text-[9px] text-zinc-500 leading-tight">{event.description}</p>}
+                                      {event.description && <p className="text-[9px] text-zinc-400 leading-tight">{event.description}</p>}
                                     </div>
                                     <button 
                                       onClick={() => {
                                         const newEvents = (tableConfig.events || []).filter(e => e.id !== event.id);
                                         updateTableConfig(activeCampaignId, { events: newEvents });
                                       }}
-                                      className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-600 hover:text-red-500 transition-all"
+                                      className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-600 hover:text-red-500 transition-all rounded-lg hover:bg-zinc-700/50"
+                                      title="Excluir evento"
                                     >
                                       <Trash2 size={12} />
                                     </button>
                                   </div>
                                 ))}
-                                {(!tableConfig.events || tableConfig.events.filter(e => e.day === selectedCalendarDay && e.month === tableConfig.date?.month).length === 0) && (
+                                {(!tableConfig.events || tableConfig.events.filter(e => e.day === selectedCalendarDay && e.month === calendarViewMonth && (e.year === undefined || e.year === calendarViewYear)).length === 0) && (
                                   <p className="text-[10px] text-zinc-600 italic text-center py-4">Nenhum evento para este dia.</p>
                                 )}
                               </div>
@@ -11063,45 +11337,96 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                               <div className="pt-4 border-t border-zinc-800 space-y-3">
                                 <input 
                                   type="text"
-                                  placeholder="Novo evento..."
+                                  placeholder="Título do novo evento..."
                                   value={newEventTitle}
                                   onChange={(e) => setNewEventTitle(e.target.value)}
                                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white focus:border-amber-500/50 outline-none"
                                 />
                                 <textarea 
-                                  placeholder="Descrição (opcional)..."
+                                  placeholder="Descrição ou anotações (opcional)..."
                                   value={newEventDesc}
                                   onChange={(e) => setNewEventDesc(e.target.value)}
                                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-xs text-white focus:border-amber-500/50 outline-none min-h-[60px] resize-none"
                                 />
                                 <button 
-                                  disabled={!newEventTitle}
+                                  disabled={!newEventTitle.trim()}
                                   onClick={() => {
                                     const event: CalendarEvent = {
                                       id: generateId(),
                                       day: selectedCalendarDay!,
-                                      month: tableConfig.date?.month || 1,
-                                      year: tableConfig.date?.year,
-                                      title: newEventTitle,
-                                      description: newEventDesc
+                                      month: calendarViewMonth,
+                                      year: calendarViewYear,
+                                      title: newEventTitle.trim(),
+                                      description: newEventDesc.trim() || undefined
                                     };
                                     const newEvents = [...(tableConfig.events || []), event];
                                     updateTableConfig(activeCampaignId, { events: newEvents });
                                     setNewEventTitle("");
                                     setNewEventDesc("");
+                                    showToast("Evento adicionado com sucesso!", "success");
                                   }}
-                                  className="w-full py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase rounded-xl transition-all"
+                                  className="w-full py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase rounded-xl transition-all shadow-md"
                                 >
-                                  Adicionar Evento
+                                  Adicionar Evento no Dia {selectedCalendarDay}
                                 </button>
                               </div>
                             </>
                           ) : (
-                            <div className="h-full flex flex-col items-center justify-center text-center space-y-3 py-10">
-                              <Calendar className="text-zinc-800" size={32} />
-                              <p className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest max-w-[150px]">
-                                Selecione um dia no calendário para gerenciar eventos
-                              </p>
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
+                                <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">
+                                  Eventos em {MONTHS[calendarViewMonth - 1]} ({calendarViewYear})
+                                </span>
+                                <span className="text-[9px] font-mono text-zinc-500">
+                                  {(tableConfig.events || []).filter(e => e.month === calendarViewMonth && (e.year === undefined || e.year === calendarViewYear)).length} evento(s)
+                                </span>
+                              </div>
+
+                              <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar">
+                                {(tableConfig.events || [])
+                                  .filter(e => e.month === calendarViewMonth && (e.year === undefined || e.year === calendarViewYear))
+                                  .sort((a, b) => a.day - b.day)
+                                  .map(event => (
+                                    <div 
+                                      key={event.id} 
+                                      onClick={() => setSelectedCalendarDay(event.day)}
+                                      className="bg-zinc-800/80 hover:bg-zinc-800 border border-zinc-700/80 p-3 rounded-xl flex items-center justify-between group cursor-pointer transition-colors"
+                                    >
+                                      <div className="space-y-0.5">
+                                        <div className="flex items-center gap-2">
+                                          <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 text-[9px] font-bold font-mono">
+                                            Dia {event.day}
+                                          </span>
+                                          <p className="text-xs font-bold text-white">{event.title}</p>
+                                        </div>
+                                        {event.description && <p className="text-[9px] text-zinc-400 leading-tight pl-0.5">{event.description}</p>}
+                                      </div>
+                                      <button 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const newEvents = (tableConfig.events || []).filter(item => item.id !== event.id);
+                                          updateTableConfig(activeCampaignId, { events: newEvents });
+                                        }}
+                                        className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-600 hover:text-red-500 transition-all rounded-lg hover:bg-zinc-700/50"
+                                        title="Excluir evento"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    </div>
+                                  ))}
+
+                                {(!tableConfig.events || tableConfig.events.filter(e => e.month === calendarViewMonth && (e.year === undefined || e.year === calendarViewYear)).length === 0) && (
+                                  <div className="h-full flex flex-col items-center justify-center text-center space-y-2 py-8">
+                                    <Calendar className="text-zinc-800" size={32} />
+                                    <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest max-w-[200px]">
+                                      Nenhum evento agendado para {MONTHS[calendarViewMonth - 1]}
+                                    </p>
+                                    <p className="text-[9px] text-zinc-600">
+                                      Clique em um dia na grade ao lado para adicionar um novo evento.
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           )}
                         </div>
@@ -11391,13 +11716,22 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
             />
           </div>
         ) : activePage === "toca" ? (
-          <div className="max-w-6xl mx-auto">
+          <div className="max-w-6xl mx-auto space-y-6">
+            <div>
+              <h2 className="text-2xl font-black uppercase tracking-tight text-zinc-100 flex items-center gap-3">
+                <PawPrint className="text-amber-500" size={28} />
+                Toca dos Companheiros
+              </h2>
+              <p className="text-zinc-500 text-sm mt-1">
+                Biblioteca de animais, montarias e demônios de {activeChar?.nome || "seu personagem"}.
+              </p>
+            </div>
             {activeChar ? (
               <TocaManager 
                 activeChar={activeChar} 
                 updateChar={updateChar} 
-                cutItem={cutItem} 
-                setCutItem={setCutItem} 
+                characters={visibleCharacters}
+                activeCampaignId={activeCampaignId}
                 showToast={showToast} 
                 onEditCreatureSheet={(creatureId) => {
                   setTocaEditingCreatureId(creatureId);
@@ -11406,7 +11740,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
               />
             ) : (
               <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/10 border border-dashed border-zinc-800 rounded-3xl">
-                <Backpack size={48} className="text-zinc-800 mb-4" />
+                <PawPrint size={48} className="text-zinc-800 mb-4" />
                 <p className="text-zinc-500 italic">Selecione um personagem para acessar a Toca.</p>
               </div>
             )}

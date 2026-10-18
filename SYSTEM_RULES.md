@@ -311,5 +311,29 @@ A Ficha do Personagem conta com um seletor nativo de Etnia/Cultura com aplicaç�
 
 ---
 
+## 11. Ficha Unificada de Criaturas (Toca & Bestiário)
+
+As criaturas cadastradas na **Toca** (companheiros, montarias, animais e demônios do jogador) e os monstros do **Bestiário** compartilham o exato mesmo motor e layout de ficha da Ficha de Jogador, mantendo o padrão estético e as mesmas regras de rolagem, cálculo de carga e inventário, com as seguintes regras de omissão e seções especiais:
+
+### Omissões Estruturais (Criaturas)
+1. **Etnia / Cultura**: Ocultado completamente.
+2. **Dinheiro**: Ocultado completamente (sem moedas de cobre, prata, ouro).
+3. **Barra de Sanidade**: Ocultada (mantêm-se apenas Vida Atual/Máxima e Carga).
+4. **Conhecimentos**: Ocultada a seção inteira de Conhecimentos.
+5. **Escalas**: Ocultada a aba/seção inteira de Escalas (criaturas não utilizam a aba de escalas de atributos de jogadores).
+6. **Identificação no Topo**: A seção principal no topo da ficha exibe o título **"Criatura"** (em vez de "Personagem").
+7. **Status (Atributos)**: Ocultados **Aprendizado (APR)**, **Ritual (RIT)** e **Mentalidade (MEN)**. A criatura opera exclusivamente com **CON, RES, ADP, FOR, DEX, INT**.
+8. **Bônus de Dano**: Ocultada a linha de escala de **Ritual (RIT)**.
+9. **Proficiências**: Ocultadas **Forja Manual**, **Forja Artesanal/Rústica**, **Ritualismo** e **Mentalidade**.
+10. **Compartimentos**: Iniciam vazios (`compartimentos: []`) por padrão, sem nenhuma bolsa pré-criada.
+
+### Seções Especiais de Criatura
+- **Informações**: Localização, Personalidade, Gosta / Não Gosta, Descrição / Lore, Hábitos / Comportamento.
+- **Ataques**: Ações e ataques rápidos da criatura (dano, acerto, tipo de ação, custo de mana, efeito).
+- **Níveis de Ataque**: Corte, Perfuração, Impacto, Resistência, Feitiço, Elemental, Magia Negra, Potencial.
+- **Níveis de Defesa**: Corte, Perfuração, Impacto, Feitiço, Elemental, Magia Negra.
+
+---
+
 *Nota: Arredonde frações sempre para baixo.*
 

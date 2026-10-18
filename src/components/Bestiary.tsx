@@ -74,6 +74,7 @@ const sanitizeMonster = (m: any): Partial<BestiaryMonster> => {
     informacoes: m.informacoes || "",
     habitos: m.habitos || "",
     acoes: Array.isArray(m.acoes) ? m.acoes : [],
+    compartimentos: Array.isArray(m.compartimentos) ? m.compartimentos : [],
   };
 };
 
@@ -255,6 +256,7 @@ export const Bestiary: React.FC<BestiaryProps> = React.memo(({ onMonsterSelect, 
       feitico: 0, elemental: 0, magiaNegra: 0
     },
     acoes: [],
+    compartimentos: [],
     local: "",
     personalidade: "",
     gostaNaoGosta: "",
