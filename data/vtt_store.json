@@ -93,5 +93,47 @@
       "masterFog": false,
       "mapUrl": ""
     }
+  },
+  "camp_ykacchtbi": {
+    "tokens": [],
+    "config": {
+      "gridSize": 50,
+      "showGrid": true,
+      "masterFog": false,
+      "mapUrl": "",
+      "date": {
+        "day": 28,
+        "month": 1,
+        "year": 2024
+      },
+      "updatedAt": "2026-10-19T00:16:49.518Z",
+      "lastCombatRoll": {
+        "isCombat": true,
+        "hitSucceeded": true,
+        "armaNome": "Adaga",
+        "hitResult": 8,
+        "hitRolls": [
+          5,
+          2,
+          1
+        ],
+        "hitFormula": "3d8",
+        "hitBonus": 0,
+        "dmgResult": 2,
+        "dmgFormula": "1d4 (2)",
+        "dmgRolls": [
+          2
+        ],
+        "dmgBonus": 0,
+        "hitLocation": "Perna Esquerda",
+        "rollId": "5i3g5rkmit",
+        "timestamp": 1792368755164
+      },
+      "time": {
+        "hour": 20,
+        "minute": 25
+      },
+      "weather": "Céu limpo"
+    }
   }
 }
