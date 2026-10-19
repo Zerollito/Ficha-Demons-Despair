@@ -351,7 +351,7 @@ async function startServer() {
   const vttWsClients = new Map<string, Set<WebSocket>>();
   const vttWss = new WebSocketServer({ noServer: true });
 
-  function broadcastVtt(campaignId: string, payload: { type: string; tokens?: any[]; config?: any; tokenId?: string; x?: number; y?: number }, excludeWs?: WebSocket) {
+  function broadcastVtt(campaignId: string, payload: { type: string; tokens?: any[]; config?: any; tokenId?: string; x?: number; y?: number; senderId?: string }, excludeWs?: WebSocket) {
     const rawData = JSON.stringify(payload);
 
     // 1. Instant WebSocket broadcast (zero proxy buffering, <1ms latency)
@@ -440,7 +440,7 @@ async function startServer() {
 
           // Instant Live Drag Movement: updates memory and immediately informs peers without disk blocking
           if (msg.type === 'token_live_move') {
-            const { tokenId, x, y } = msg;
+            const { tokenId, x, y, senderId } = msg;
             if (tokenId && typeof x === 'number' && typeof y === 'number') {
               let list = currentCampVtt.tokens || [];
               const idx = list.findIndex((t: any) => t.id === tokenId);
@@ -449,7 +449,7 @@ async function startServer() {
                 currentCampVtt.tokens = list;
                 currentStore[campaignId] = currentCampVtt;
               }
-              broadcastVtt(campaignId, { type: "token_live_move", tokenId, x, y, tokens: list }, ws);
+              broadcastVtt(campaignId, { type: "token_live_move", tokenId, x, y, senderId }, ws);
             }
             return;
           }
@@ -650,7 +650,7 @@ async function startServer() {
   // Dedicated VTT API: Ultra-fast live token position broadcast during drag
   app.post("/api/campaigns/:campaignId/vtt/live-move", (req, res) => {
     const { campaignId } = req.params;
-    const { tokenId, x, y } = req.body;
+    const { tokenId, x, y, senderId } = req.body;
     if (!campaignId || !tokenId) return res.status(400).end();
 
     const store = getVttStore();
@@ -662,7 +662,7 @@ async function startServer() {
       campVtt.tokens = list;
       store[campaignId] = campVtt;
     }
-    broadcastVtt(campaignId, { type: "token_live_move", tokenId, x, y, tokens: list });
+    broadcastVtt(campaignId, { type: "token_live_move", tokenId, x, y, senderId });
     return res.json({ success: true });
   });
 
