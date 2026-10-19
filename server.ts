@@ -7,6 +7,7 @@ import path from "path";
 import dotenv from "dotenv";
 import cors from "cors";
 import fs from "fs";
+import { WebSocketServer, WebSocket } from "ws";
 import { GoogleGenAI } from "@google/genai";
 import { MATERIALS } from "./src/data/materials";
 
@@ -335,21 +336,121 @@ async function startServer() {
     return isSupabaseOnline;
   }
 
-  // Real-time VTT Event Stream (Server-Sent Events for instant zero-latency multi-player sync)
+  // Real-time VTT Event Stream & WebSocket Manager for sub-10ms instant multi-player sync
   const vttClients = new Map<string, Set<express.Response>>();
+  const vttWsClients = new Map<string, Set<WebSocket>>();
+  const vttWss = new WebSocketServer({ noServer: true });
 
   function broadcastVtt(campaignId: string, payload: { type: string; tokens?: any[]; config?: any }) {
+    const rawData = JSON.stringify(payload);
+
+    // 1. Instant WebSocket broadcast (zero proxy buffering, <5ms latency)
+    const wsSet = vttWsClients.get(campaignId);
+    if (wsSet && wsSet.size > 0) {
+      wsSet.forEach((wsClient) => {
+        try {
+          if (wsClient.readyState === WebSocket.OPEN) {
+            wsClient.send(rawData);
+          }
+        } catch {
+          wsSet.delete(wsClient);
+        }
+      });
+    }
+
+    // 2. High-speed SSE broadcast with explicit flush
     const clients = vttClients.get(campaignId);
-    if (!clients || clients.size === 0) return;
-    const data = `data: ${JSON.stringify(payload)}\n\n`;
-    clients.forEach((client) => {
-      try {
-        client.write(data);
-      } catch {
-        clients.delete(client);
-      }
-    });
+    if (clients && clients.size > 0) {
+      const data = `data: ${rawData}\n\n`;
+      clients.forEach((client) => {
+        try {
+          client.write(data);
+          if (typeof (client as any).flush === 'function') {
+            (client as any).flush();
+          }
+        } catch {
+          clients.delete(client);
+        }
+      });
+    }
   }
+
+  // Handle VTT WebSocket connections
+  vttWss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
+    console.log(`[DEBUG][VTT] Connection handler triggered for ${req.url}`);
+    try {
+      const parsedUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+      const campaignId = parsedUrl.searchParams.get('campaignId') || '';
+      if (!campaignId) {
+        ws.close(1008, 'campaignId required');
+        return;
+      }
+
+      if (!vttWsClients.has(campaignId)) {
+        vttWsClients.set(campaignId, new Set());
+      }
+      const set = vttWsClients.get(campaignId)!;
+      set.add(ws);
+
+      // Send immediate table state on connect
+      const store = getVttStore();
+      const campVtt = store[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000" } };
+      const initialPayload = {
+        type: "vtt_init",
+        tokens: campVtt.tokens || [],
+        config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000", ...(campVtt.config || {}) }
+      };
+      try {
+        ws.send(JSON.stringify(initialPayload));
+      } catch {}
+
+      // Fast-path incoming messages from clients
+      ws.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.type === 'token_move' || msg.type === 'update_tokens') {
+            const incomingTokens = msg.tokens || (msg.token ? [msg.token] : []);
+            if (incomingTokens.length > 0) {
+              const currentStore = getVttStore();
+              const currentCampVtt = currentStore[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000" } };
+              let list = currentCampVtt.tokens || [];
+              for (const tk of incomingTokens) {
+                if (!tk || !tk.id) continue;
+                list = [...list.filter((t: any) => t.id !== tk.id), tk];
+              }
+              currentCampVtt.tokens = list;
+              currentStore[campaignId] = currentCampVtt;
+              saveVttStore(currentStore);
+              broadcastVtt(campaignId, { type: "vtt_tokens", tokens: list, config: currentCampVtt.config });
+            }
+          } else if (msg.type === 'update_config') {
+            if (msg.config) {
+              const currentStore = getVttStore();
+              const currentCampVtt = currentStore[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000" } };
+              const updatedConfig = { ...(currentCampVtt.config || {}), ...msg.config, updatedAt: new Date().toISOString() };
+              currentCampVtt.config = updatedConfig;
+              currentStore[campaignId] = currentCampVtt;
+              saveVttStore(currentStore);
+              broadcastVtt(campaignId, { type: "vtt_config", tokens: currentCampVtt.tokens || [], config: updatedConfig });
+            }
+          }
+        } catch (err) {
+          console.warn('[VTT WS message error]', err);
+        }
+      });
+
+      ws.on('close', () => {
+        set.delete(ws);
+        if (set.size === 0) vttWsClients.delete(campaignId);
+      });
+
+      ws.on('error', () => {
+        set.delete(ws);
+      });
+    } catch (e) {
+      console.warn('[VTT WS connection error]', e);
+    }
+  });
 
   // SSE Stream endpoint: provides instant push updates whenever tokens or table config change
   app.get("/api/campaigns/:campaignId/vtt/stream", (req, res) => {
@@ -363,7 +464,16 @@ async function startServer() {
       "X-Accel-Buffering": "no"
     });
 
+    if (typeof (res as any).flushHeaders === 'function') {
+      (res as any).flushHeaders();
+    }
+
+    // Anti-buffering padding for cloud reverse proxies and Cloud Run
+    res.write(`: ${".".repeat(1024)}\n\n`);
     res.write(": connected\n\n");
+    if (typeof (res as any).flush === 'function') {
+      (res as any).flush();
+    }
 
     if (!vttClients.has(campaignId)) {
       vttClients.set(campaignId, new Set());
@@ -381,15 +491,21 @@ async function startServer() {
     };
     try {
       res.write(`data: ${JSON.stringify(initialPayload)}\n\n`);
+      if (typeof (res as any).flush === 'function') {
+        (res as any).flush();
+      }
     } catch {}
 
     const heartbeat = setInterval(() => {
       try {
         res.write(": heartbeat\n\n");
+        if (typeof (res as any).flush === 'function') {
+          (res as any).flush();
+        }
       } catch {
         clearInterval(heartbeat);
       }
-    }, 15000);
+    }, 10000);
 
     req.on("close", () => {
       clearInterval(heartbeat);
@@ -1429,9 +1545,21 @@ Escreva o relatório em português técnico, refinado, mas muito prático e pres
 
   const server = http.createServer(app);
 
-  // Handle WebSocket upgrades for Supabase Realtime
+  // Handle WebSocket upgrades for VTT instant sync and Supabase Realtime
   server.on('upgrade', (req, socket, head) => {
     const url = req.url || '';
+    console.log(`[DEBUG][VTT] Upgrade request for ${url}`);
+
+    // VTT High-Performance Duplex WebSocket Connection
+    if (url.startsWith('/api/vtt/ws') || url.startsWith('/vtt-ws')) {
+      console.log(`[DEBUG][VTT] Upgrade proceeding for ${url}`);
+      vttWss.handleUpgrade(req, socket, head, (ws) => {
+        console.log(`[DEBUG][VTT] WebSocket handshake success for ${url}`);
+        vttWss.emit('connection', ws, req);
+      });
+      return;
+    }
+
     if (url.startsWith('/realtime/v1') || url.startsWith('/supabase-proxy/realtime/v1')) {
       try {
         const parsedTarget = new URL(targetSupabase);

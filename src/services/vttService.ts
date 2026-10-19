@@ -226,58 +226,138 @@ const notifyLogListeners = (campaignId: string, logs: any[]) => {
   }
 };
 
-// Shared Real-Time SSE Stream Manager for zero-latency instant updates across master and players
-interface SseCampaignState {
+// High-Performance Hybrid Real-Time Stream Manager (WebSocket First + Resilient SSE Fallback)
+interface RealtimeCampaignState {
+  ws: WebSocket | null;
   eventSource: EventSource | null;
   refCount: number;
   pollTimer: any;
+  reconnectTimer: any;
 }
 
-const activeSseStreams = new Map<string, SseCampaignState>();
+const activeRealtimeStreams = new Map<string, RealtimeCampaignState>();
+
+export const sendVttRealtimeMessage = (campaignId: string, payload: any) => {
+  const entry = activeRealtimeStreams.get(campaignId);
+  if (entry && entry.ws && entry.ws.readyState === WebSocket.OPEN) {
+    try {
+      entry.ws.send(JSON.stringify(payload));
+      return true;
+    } catch (e) {
+      console.warn("[VTT WS send error]", e);
+    }
+  }
+  return false;
+};
 
 function connectVttStream(campaignId: string) {
   if (typeof window === 'undefined') return;
 
-  let entry = activeSseStreams.get(campaignId);
+  let entry = activeRealtimeStreams.get(campaignId);
   if (!entry) {
-    entry = { eventSource: null, refCount: 0, pollTimer: null };
-    activeSseStreams.set(campaignId, entry);
+    entry = { ws: null, eventSource: null, refCount: 0, pollTimer: null, reconnectTimer: null };
+    activeRealtimeStreams.set(campaignId, entry);
   }
   entry.refCount++;
 
-  if (!entry.eventSource) {
+  const handleIncomingPayload = (payload: any) => {
+    if (!payload || typeof payload !== 'object') return;
+    if (payload.tokens && Array.isArray(payload.tokens)) {
+      saveLocalTokens(campaignId, payload.tokens);
+      notifyTokenListeners(campaignId, payload.tokens);
+    }
+    if (payload.config && typeof payload.config === 'object') {
+      const finalCfg = { gridColor: '#000000', ...payload.config };
+      saveLocalConfig(campaignId, finalCfg);
+      notifyConfigListeners(campaignId, finalCfg);
+    }
+  };
+
+  const startWebSocket = () => {
+    if (typeof window === 'undefined' || !window.WebSocket) {
+      startSSE();
+      return;
+    }
+
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/api/vtt/ws?campaignId=${encodeURIComponent(campaignId)}`;
+      const ws = new WebSocket(wsUrl);
+      entry!.ws = ws;
+
+      ws.onopen = () => {
+        console.log(`⚡ [VTT WS] Conectado com sucesso à mesa (${campaignId})`);
+        // If SSE was running as fallback, close it to avoid duplicate network traffic
+        if (entry?.eventSource) {
+          entry.eventSource.close();
+          entry.eventSource = null;
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          if (!event.data) return;
+          const payload = JSON.parse(event.data);
+          handleIncomingPayload(payload);
+        } catch (err) {
+          console.warn("[VTT WS] Message parse warning:", err);
+        }
+      };
+
+      ws.onclose = () => {
+        entry!.ws = null;
+        // Schedule auto-reconnect or fallback to SSE
+        if (entry && entry.refCount > 0 && !entry.reconnectTimer) {
+          startSSE();
+          entry.reconnectTimer = setTimeout(() => {
+            if (entry) {
+              entry.reconnectTimer = null;
+              if (entry.refCount > 0 && !entry.ws) {
+                startWebSocket();
+              }
+            }
+          }, 3000);
+        }
+      };
+
+      ws.onerror = () => {
+        startSSE();
+      };
+    } catch {
+      startSSE();
+    }
+  };
+
+  const startSSE = () => {
+    if (entry?.eventSource || entry?.ws?.readyState === WebSocket.OPEN) return;
+
     try {
       const url = `/api/campaigns/${encodeURIComponent(campaignId)}/vtt/stream`;
       const es = new EventSource(url);
-      entry.eventSource = es;
+      entry!.eventSource = es;
 
       es.onmessage = (event) => {
         try {
           if (!event.data) return;
           const payload = JSON.parse(event.data);
-          if (payload.tokens && Array.isArray(payload.tokens)) {
-            saveLocalTokens(campaignId, payload.tokens);
-            notifyTokenListeners(campaignId, payload.tokens);
-          }
-          if (payload.config && typeof payload.config === 'object') {
-            const finalCfg = { gridColor: '#000000', ...payload.config };
-            saveLocalConfig(campaignId, finalCfg);
-            notifyConfigListeners(campaignId, finalCfg);
-          }
+          handleIncomingPayload(payload);
         } catch (err) {
           console.warn("[VTT SSE] Message parse warning:", err);
         }
       };
 
       es.onerror = () => {
-        // Browser EventSource automatically reconnects on network drop
+        // Browser EventSource automatically reconnects
       };
     } catch (err) {
       console.warn("[VTT SSE] Could not start EventSource, relying on polling fallback:", err);
     }
-  }
+  };
 
-  // Failsafe background polling (every 2.5s) to guarantee consistency without flooding the server
+  // Start with WebSocket for immediate sub-10ms duplex reactivity
+  startWebSocket();
+
+  // Failsafe background polling (every 2s) to guarantee consistency without flooding the server
   if (!entry.pollTimer) {
     entry.pollTimer = setInterval(async () => {
       try {
@@ -301,15 +381,19 @@ function connectVttStream(campaignId: string) {
           }
         }
       } catch {}
-    }, 2500);
+    }, 2000);
   }
 }
 
 function disconnectVttStream(campaignId: string) {
-  const entry = activeSseStreams.get(campaignId);
+  const entry = activeRealtimeStreams.get(campaignId);
   if (!entry) return;
   entry.refCount--;
   if (entry.refCount <= 0) {
+    if (entry.ws) {
+      try { entry.ws.close(); } catch {}
+      entry.ws = null;
+    }
     if (entry.eventSource) {
       entry.eventSource.close();
       entry.eventSource = null;
@@ -318,7 +402,11 @@ function disconnectVttStream(campaignId: string) {
       clearInterval(entry.pollTimer);
       entry.pollTimer = null;
     }
-    activeSseStreams.delete(campaignId);
+    if (entry.reconnectTimer) {
+      clearTimeout(entry.reconnectTimer);
+      entry.reconnectTimer = null;
+    }
+    activeRealtimeStreams.delete(campaignId);
   }
 }
 
