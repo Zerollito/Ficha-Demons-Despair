@@ -85,6 +85,7 @@ import {
   ShieldAlert,
   Archive,
   Folder,
+  FolderPlus,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
@@ -1020,6 +1021,10 @@ function App() {
   const [inviteCodeInput, setInviteCodeInput] = useState("");
   const [newCampaignName, setNewCampaignName] = useState("");
   const [charToLinkCampaignId, setCharToLinkCampaignId] = useState("");
+  const myLinkedChar = useMemo(() => {
+    if (!activeCampaignId) return null;
+    return state.characters.find(c => c.campaignId === activeCampaignId) || null;
+  }, [state.characters, activeCampaignId]);
   const [libraryFolderId, setLibraryFolderId] = useState<string>("all");
   const [campaignToDelete, setCampaignToDelete] = useState<string | null>(null);
   const [charIdToDelete, setCharIdToDelete] = useState<string | null>(null);
@@ -10754,16 +10759,23 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                              return;
                            }
                            try {
-                             const joinedCampId = await joinCampaign(inviteCodeInput.trim(), user?.email || "");
+                             const userIdentifier = user?.email || user?.uid || "";
+                             const joinedCampId = await joinCampaign(inviteCodeInput.trim(), userIdentifier);
                              if (activeChar) {
                                try {
                                  await linkCharacterToCampaign(joinedCampId, activeChar);
+                                 updateChar({ campaignId: joinedCampId }, activeChar.id);
+                                 setState(prev => ({
+                                   ...prev,
+                                   characters: prev.characters.map(c => c.id === activeChar.id ? { ...c, campaignId: joinedCampId } : c)
+                                 }));
+                                 await saveCharacterToFirestore({ ...activeChar, campaignId: joinedCampId });
                                  showToast(`Você entrou na campanha e vinculou a ficha "${activeChar.nome}"!`, "success");
                                } catch (e) {
                                  showToast("Você entrou na campanha!", "success");
                                }
                              } else {
-                               showToast("Você entrou na campanha!", "success");
+                               showToast("Você entrou na campanha! Vincule sua ficha abaixo.", "success");
                              }
                              setActiveCampaignIdWithSync(joinedCampId);
                              setInviteCodeInput("");
@@ -11612,6 +11624,100 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
 
                     {activeCampaignId && campaigns.some(c => c.id === activeCampaignId) ? (
                       <div className="space-y-4">
+                        {/* Caixa para vincular/trocar ficha nesta campanha */}
+                        <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-lg">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-purple-600/10 border border-purple-500/30 flex items-center justify-center shrink-0 text-purple-400">
+                              <FolderPlus size={20} />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-black text-white uppercase tracking-wider">
+                                {myLinkedChar ? "Sua Ficha Vinculada a esta Mesa" : "Vincular Minha Ficha à Campanha"}
+                              </h4>
+                              <p className="text-[11px] text-zinc-400">
+                                {myLinkedChar 
+                                  ? `Você está participando com a ficha "${myLinkedChar.nome}". O mestre tem acesso direto a ela.`
+                                  : "Escolha uma de suas fichas para vincular a esta campanha e torná-la visível ao mestre."}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                            <select
+                              value={charToLinkCampaignId || (myLinkedChar ? myLinkedChar.id : "")}
+                              onChange={(e) => setCharToLinkCampaignId(e.target.value)}
+                              className="flex-1 md:w-48 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-purple-500 cursor-pointer"
+                            >
+                              <option value="">{myLinkedChar ? "Trocar por outra ficha..." : "-- Selecione uma ficha --"}</option>
+                              {state.characters.map(c => (
+                                <option key={c.id} value={c.id}>
+                                  {c.nome || "Sem Nome"} {c.campaignId === activeCampaignId ? "✓ (Atual)" : ""}
+                                </option>
+                              ))}
+                            </select>
+
+                            <button
+                              type="button"
+                              disabled={!charToLinkCampaignId || charToLinkCampaignId === myLinkedChar?.id}
+                              onClick={async () => {
+                                const charId = charToLinkCampaignId;
+                                if (!charId) return;
+                                const targetChar = state.characters.find(c => c.id === charId);
+                                if (!targetChar) return;
+                                try {
+                                  if (myLinkedChar && myLinkedChar.id !== charId) {
+                                    await unlinkCharacterFromCampaign(activeCampaignId, myLinkedChar.id);
+                                    updateChar({ campaignId: "" }, myLinkedChar.id);
+                                  }
+                                  await linkCharacterToCampaign(activeCampaignId, targetChar);
+                                  updateChar({ campaignId: activeCampaignId }, targetChar.id);
+                                  setState(prev => ({
+                                    ...prev,
+                                    characters: prev.characters.map(c => c.id === targetChar.id ? { ...c, campaignId: activeCampaignId } : (myLinkedChar && c.id === myLinkedChar.id ? { ...c, campaignId: "" } : c))
+                                  }));
+                                  await saveCharacterToFirestore({ ...targetChar, campaignId: activeCampaignId });
+                                  showToast(`Ficha "${targetChar.nome}" vinculada à campanha com sucesso!`, "success");
+                                  setCharToLinkCampaignId("");
+                                } catch (err: any) {
+                                  showToast(err.message || "Erro ao vincular ficha.", "error");
+                                }
+                              }}
+                              className={cn(
+                                "px-4 py-2 rounded-xl text-xs font-bold uppercase transition-all whitespace-nowrap cursor-pointer",
+                                charToLinkCampaignId && charToLinkCampaignId !== myLinkedChar?.id
+                                  ? "bg-purple-600 hover:bg-purple-500 text-white shadow-lg"
+                                  : "bg-zinc-800 text-zinc-500 cursor-not-allowed opacity-50"
+                              )}
+                            >
+                              {myLinkedChar ? "Trocar Ficha" : "Vincular Ficha"}
+                            </button>
+
+                            {myLinkedChar && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    await unlinkCharacterFromCampaign(activeCampaignId, myLinkedChar.id);
+                                    updateChar({ campaignId: "" }, myLinkedChar.id);
+                                    setState(prev => ({
+                                      ...prev,
+                                      characters: prev.characters.map(c => c.id === myLinkedChar.id ? { ...c, campaignId: "" } : c)
+                                    }));
+                                    await saveCharacterToFirestore({ ...myLinkedChar, campaignId: "" });
+                                    showToast(`Ficha "${myLinkedChar.nome}" desvinculada da campanha.`, "success");
+                                  } catch (err: any) {
+                                    showToast(err.message || "Erro ao desvincular ficha.", "error");
+                                  }
+                                }}
+                                className="px-3 py-2 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-700/50 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
+                                title="Desvincular esta ficha da campanha"
+                              >
+                                Desvincular
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {campaignCharacters.map(char => (
                             <div 
