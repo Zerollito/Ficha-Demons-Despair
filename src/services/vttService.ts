@@ -329,6 +329,7 @@ function connectVttStream(campaignId: string) {
 
       ws.onopen = () => {
         console.log(`⚡ [VTT WS] Conectado com sucesso à mesa (${campaignId})`);
+        if (wsConnectTimeout) clearTimeout(wsConnectTimeout);
         // If SSE was running as fallback, close it to avoid duplicate network traffic
         if (entry?.eventSource) {
           entry.eventSource.close();
@@ -373,7 +374,7 @@ function connectVttStream(campaignId: string) {
   };
 
   const startSSE = () => {
-    if (entry?.eventSource || entry?.ws?.readyState === WebSocket.OPEN || entry?.ws?.readyState === WebSocket.CONNECTING) return;
+    if (entry?.eventSource || entry?.ws?.readyState === WebSocket.OPEN) return;
 
     try {
       const url = `/api/campaigns/${encodeURIComponent(campaignId)}/vtt/stream`;
@@ -401,7 +402,14 @@ function connectVttStream(campaignId: string) {
   // Start with WebSocket for immediate sub-10ms duplex reactivity
   startWebSocket();
 
-  // Failsafe background polling (every 4000ms as relaxed fallback, skips when WS is active or during drag)
+  // If WebSocket takes more than 1500ms (e.g. mobile cellular firewall or proxy delay), start SSE immediately as hot fallback
+  const wsConnectTimeout = setTimeout(() => {
+    if (entry && (!entry.ws || entry.ws.readyState !== WebSocket.OPEN)) {
+      startSSE();
+    }
+  }, 1500);
+
+  // Failsafe background polling (every 1200ms as relaxed fallback, skips when WS is active or during drag)
   if (!entry.pollTimer) {
     entry.pollTimer = setInterval(async () => {
       // If WebSocket is active and live, skip polling to avoid unnecessary network traffic and state churn
@@ -430,7 +438,7 @@ function connectVttStream(campaignId: string) {
           }
         }
       } catch {}
-    }, 4000);
+    }, 1200);
   }
 }
 
