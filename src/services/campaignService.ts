@@ -24,6 +24,18 @@ export const createCampaign = async (name: string) => {
 
   try {
     const id = "camp_" + Math.random().toString(36).substring(2, 11);
+    const newCamp = { id, ...campaignData } as Campaign;
+
+    // 1. Salvar no servidor local / backend
+    try {
+      fetch("/api/campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newCamp)
+      }).catch(() => {});
+    } catch (e) {}
+
+    // 2. Salvar no Supabase
     const { error } = await supabase
       .from(CAMPAIGNS_TABLE)
       .insert({
@@ -36,10 +48,10 @@ export const createCampaign = async (name: string) => {
         updated_at: new Date().toISOString()
       });
 
-    if (error) throw error;
-    return { id, ...campaignData } as Campaign;
+    if (error) console.warn("[Supabase createCampaign] Note:", error);
+    return newCamp;
   } catch (error: any) {
-    console.error("[Supabase createCampaign] Error:", error);
+    console.error("[createCampaign] Error:", error);
     throw new Error(error?.message || "Erro desconhecido ao criar campanha.");
   }
 };
@@ -69,7 +81,18 @@ export const mapRowToCampaign = (row: any): Campaign => {
 export const saveCampaign = async (campaign: Campaign) => {
   const userEmail = (campaign.masterEmail || auth.currentUser?.email || "").trim().toLowerCase();
   const masterId = campaign.masterId || auth.currentUser?.uid || userEmail;
+  const fullCamp = { ...campaign, masterEmail: userEmail, masterId };
 
+  // 1. Salvar no servidor backend
+  try {
+    fetch("/api/campaigns", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fullCamp)
+    }).catch(() => {});
+  } catch (e) {}
+
+  // 2. Salvar no Supabase
   try {
     const { error } = await supabase
       .from(CAMPAIGNS_TABLE)
@@ -79,7 +102,7 @@ export const saveCampaign = async (campaign: Campaign) => {
         master_email: userEmail,
         name: campaign.name || "Sem Nome",
         invite_code: campaign.inviteCode || generateInviteCode(),
-        data: { ...campaign, masterEmail: userEmail, masterId },
+        data: fullCamp,
         updated_at: new Date().toISOString()
       });
 
@@ -109,18 +132,38 @@ export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => 
     if (!active || isFetching) return;
     isFetching = true;
     try {
+      const campMap = new Map<string, Campaign>();
+
+      // 1. Buscar do servidor backend
+      try {
+        const sRes = await fetch(`/api/campaigns?masterEmail=${encodeURIComponent(userEmail)}`);
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (sData && Array.isArray(sData.campaigns)) {
+            sData.campaigns.forEach((c: any) => {
+              if (c && c.id) campMap.set(c.id, c);
+            });
+          }
+        }
+      } catch (sErr) {}
+
+      // 2. Buscar do Supabase
       const { data, error } = await supabase
         .from(CAMPAIGNS_TABLE)
         .select('*')
         .eq('master_email', userEmail);
 
-      if (error) {
-        console.warn("[Supabase subscribeToMasterCampaigns] Info/Error:", error);
-        return;
+      if (!error && data && Array.isArray(data)) {
+        data.forEach(row => {
+          const mapped = mapRowToCampaign(row);
+          if (mapped && mapped.id) {
+            campMap.set(mapped.id, mapped);
+          }
+        });
       }
 
-      if (active && data) {
-        const campaigns = data.map(row => mapRowToCampaign(row));
+      if (active) {
+        const campaigns = Array.from(campMap.values());
         const serialized = JSON.stringify(campaigns);
         if (serialized !== lastSerialized) {
           lastSerialized = serialized;
@@ -128,7 +171,7 @@ export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => 
         }
       }
     } catch (e) {
-      console.warn("[Supabase subscribeToMasterCampaigns] Exception handled gracefully:", e);
+      console.warn("[subscribeToMasterCampaigns] Exception handled gracefully:", e);
     } finally {
       isFetching = false;
     }
@@ -178,28 +221,53 @@ export const subscribeToMasterCampaigns = (onUpdate: (campaigns: Campaign[]) => 
 };
 
 export const joinCampaign = async (inviteCode: string, playerEmail: string) => {
-  const cleanEmail = (playerEmail || '').trim().toLowerCase();
-  if (!cleanEmail) {
-    throw new Error('Você precisa estar autenticado com um email válido.');
+  const cleanCode = (inviteCode || '').trim().toUpperCase();
+  if (!cleanCode) {
+    throw new Error('Código de convite não informado.');
   }
 
-  const { data, error } = await supabase
-    .from(CAMPAIGNS_TABLE)
-    .select('*')
-    .eq('invite_code', inviteCode);
-  
-  if (error || !data || data.length === 0) {
-    throw new Error('Código de convite inválido.');
+  const cleanEmail = (playerEmail || auth.currentUser?.email || auth.currentUser?.uid || 'jogador').trim().toLowerCase();
+
+  let campaignRow: any = null;
+  let campaignId = '';
+
+  // 1. Tentar buscar pelo Supabase
+  try {
+    const { data, error } = await supabase
+      .from(CAMPAIGNS_TABLE)
+      .select('*')
+      .eq('invite_code', cleanCode);
+    
+    if (!error && data && data.length > 0) {
+      campaignRow = data[0];
+      campaignId = campaignRow.id;
+    }
+  } catch (e) {}
+
+  // 2. Se não encontrou no Supabase, buscar na rota /api/campaigns/invite/:inviteCode do servidor backend
+  if (!campaignId) {
+    try {
+      const sRes = await fetch(`/api/campaigns/invite/${encodeURIComponent(cleanCode)}`);
+      if (sRes.ok) {
+        const sData = await sRes.json();
+        if (sData && sData.campaign) {
+          campaignRow = { id: sData.campaign.id, data: sData.campaign, ...sData.campaign };
+          campaignId = sData.campaign.id;
+        }
+      }
+    } catch (e) {}
   }
 
-  const campaignRow = data[0];
-  const campaignId = campaignRow.id;
-  const campData = campaignRow.data || {};
+  if (!campaignId || !campaignRow) {
+    throw new Error('Código de convite inválido ou campanha não encontrada.');
+  }
+
+  const campData = campaignRow.data || campaignRow || {};
   let playerEmails: string[] = campData.playerEmails || campaignRow.player_emails || [];
   if (!Array.isArray(playerEmails)) playerEmails = [];
   playerEmails = playerEmails.map((e: string) => (e || '').trim().toLowerCase());
 
-  if (!playerEmails.includes(cleanEmail)) {
+  if (cleanEmail && !playerEmails.includes(cleanEmail)) {
     playerEmails.push(cleanEmail);
   }
 
@@ -208,31 +276,53 @@ export const joinCampaign = async (inviteCode: string, playerEmail: string) => {
     playerEmails,
   };
 
+  // 3. Registrar no servidor local / backend
   try {
-    const { error: updateError } = await supabase
+    await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/join`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerEmail: cleanEmail })
+    });
+  } catch (e) {}
+
+  // 4. Registrar no Supabase
+  try {
+    await supabase
       .from(CAMPAIGNS_TABLE)
       .upsert({
         id: campaignId,
-        master_id: campaignRow.master_id,
-        master_email: campaignRow.master_email || "",
+        master_id: campaignRow.master_id || campData.masterId,
+        master_email: campaignRow.master_email || campData.masterEmail || "",
         name: campaignRow.name || campData.name || "Sem Nome",
-        invite_code: campaignRow.invite_code || inviteCode,
+        invite_code: campaignRow.invite_code || cleanCode,
         data: updatedCampData,
         updated_at: new Date().toISOString()
       });
-
-    if (updateError) throw updateError;
-    return campaignId;
   } catch (error) {
-    console.error("[Supabase joinCampaign] Failed:", error);
-    throw error;
+    console.warn("[joinCampaign] Supabase note:", error);
   }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(`supabase_local_change_${CAMPAIGNS_TABLE}`));
+  }
+
+  return campaignId;
 };
 
 export const leaveCampaign = async (campaignId: string, playerEmail: string) => {
-  const cleanEmail = (playerEmail || '').trim().toLowerCase();
-  if (!cleanEmail) return;
+  const cleanEmail = (playerEmail || auth.currentUser?.email || auth.currentUser?.uid || '').trim().toLowerCase();
+  if (!campaignId) return;
 
+  // 1. Notificar servidor backend
+  try {
+    fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/leave`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerEmail: cleanEmail })
+    }).catch(() => {});
+  } catch (e) {}
+
+  // 2. Atualizar no Supabase
   try {
     const { data, error } = await supabase
       .from(CAMPAIGNS_TABLE)
@@ -254,7 +344,7 @@ export const leaveCampaign = async (campaignId: string, playerEmail: string) => 
       playerEmails,
     };
 
-    const { error: updateError } = await supabase
+    await supabase
       .from(CAMPAIGNS_TABLE)
       .upsert({
         id: campaignId,
@@ -265,15 +355,17 @@ export const leaveCampaign = async (campaignId: string, playerEmail: string) => 
         data: updatedCampData,
         updated_at: new Date().toISOString()
       });
-
-    if (updateError) throw updateError;
   } catch (error) {
-    console.error("[Supabase leaveCampaign] Failed:", error);
+    console.error("[leaveCampaign] Failed:", error);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(`supabase_local_change_${CAMPAIGNS_TABLE}`));
   }
 };
 
 export const subscribeToJoinedCampaigns = (userEmail: string, onUpdate: (campaigns: Campaign[]) => void) => {
-  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  const cleanEmail = (userEmail || auth.currentUser?.email || auth.currentUser?.uid || '').trim().toLowerCase();
   if (!cleanEmail) {
     onUpdate([]);
     return () => {};
@@ -287,23 +379,40 @@ export const subscribeToJoinedCampaigns = (userEmail: string, onUpdate: (campaig
     if (!active || isFetching) return;
     isFetching = true;
     try {
+      const campMap = new Map<string, Campaign>();
+
+      // 1. Buscar do servidor backend
+      try {
+        const sRes = await fetch(`/api/campaigns?playerEmail=${encodeURIComponent(cleanEmail)}`);
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (sData && Array.isArray(sData.campaigns)) {
+            sData.campaigns.forEach((c: any) => {
+              if (c && c.id) campMap.set(c.id, c);
+            });
+          }
+        }
+      } catch (sErr) {}
+
+      // 2. Buscar do Supabase
       const { data, error } = await supabase
         .from(CAMPAIGNS_TABLE)
         .select('*');
 
-      if (error) {
-        console.warn("[Supabase subscribeToJoinedCampaigns] Info/Error:", error);
-        return;
-      }
-
-      if (active && data) {
-        const campaigns = data
+      if (!error && data && Array.isArray(data)) {
+        data
           .map(row => mapRowToCampaign(row))
           .filter(camp => {
             const playerEmails = ((camp as any).playerEmails || []).map((e: string) => (e || '').toLowerCase());
             return playerEmails.includes(cleanEmail);
+          })
+          .forEach(c => {
+            if (c && c.id) campMap.set(c.id, c);
           });
-        
+      }
+
+      if (active) {
+        const campaigns = Array.from(campMap.values());
         const serialized = JSON.stringify(campaigns);
         if (serialized !== lastSerialized) {
           lastSerialized = serialized;
@@ -311,7 +420,7 @@ export const subscribeToJoinedCampaigns = (userEmail: string, onUpdate: (campaig
         }
       }
     } catch (e) {
-      console.warn("[Supabase subscribeToJoinedCampaigns] Exception handled gracefully:", e);
+      console.warn("[subscribeToJoinedCampaigns] Exception handled gracefully:", e);
     } finally {
       isFetching = false;
     }
@@ -588,14 +697,19 @@ export const linkCharacterToCampaign = async (campaignId: string, character: Cha
     window.dispatchEvent(new CustomEvent('campaign_characters_updated', { detail: { campaignId, character: linkedChar } }));
   }
 
-  // 2. Notificar o servidor backend dedicado (/api/campaigns/:id/characters)
+  // 2. Notificar o servidor backend dedicado (/api/campaigns/:id/characters) e aguardar confirmação
   try {
-    fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/characters`, {
+    const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/characters`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ character: linkedChar })
-    }).catch(() => {});
-  } catch (e) {}
+    });
+    if (res.ok) {
+      console.log(`[linkCharacterToCampaign] Ficha ${linkedChar.nome} confirmada pelo backend.`);
+    }
+  } catch (e) {
+    console.warn("[linkCharacterToCampaign] Backend fetch notice:", e);
+  }
 
   // 3. Atualizar no banco Supabase
   try {
@@ -637,11 +751,11 @@ export const unlinkCharacterFromCampaign = async (campaignId: string, characterI
 
   // 2. Chamar endpoint de desvinculação no servidor backend
   try {
-    fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/unlink-character`, {
+    await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/unlink-character`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ characterId })
-    }).catch(() => {});
+    });
   } catch (e) {}
 
   // 3. Desvincular no Supabase
@@ -674,13 +788,13 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
       const seenIds = new Set<string>();
 
       // 1. Buscar primeiro da API dedicada do servidor backend (/api/campaigns/:id/characters)
-      // Esta rota usa SERVICE_ROLE_KEY no servidor e contorna completamente qualquer RLS do Supabase!
+      // Esta rota contorna completamente qualquer RLS do Supabase e lê da persistência em disco do servidor
       try {
         const sRes = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/characters`);
         if (sRes.ok) {
           const sData = await sRes.json();
           if (sData && Array.isArray(sData.characters)) {
-             for (const c of sData.characters) {
+            for (const c of sData.characters) {
               if (c && c.id && !blacklist.has(c.id) && !seenIds.has(c.id)) {
                 const charCampId = c.campaignId || c.campaign_id || '';
                 if (charCampId && charCampId !== campaignId) continue;
@@ -692,9 +806,7 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
         }
       } catch (sErr) {}
 
-      // 2. Obter os dados da campanha para ter os e-mails e IDs dos jogadores e do mestre atualizados
-      let allowedEmails: string[] = [];
-      let masterId = '';
+      // 2. Obter os dados da campanha para verificar fichas embutidas (playerCharacters)
       try {
         const { data: campRow } = await supabase
           .from(CAMPAIGNS_TABLE)
@@ -703,15 +815,37 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
           .single();
 
         if (campRow) {
-          const campaign = mapRowToCampaign(campRow);
-          const playerEmails = campaign.playerEmails || [];
-          const masterEmail = (campaign.masterEmail || "").toLowerCase();
-          masterId = campaign.masterId || '';
-          allowedEmails = Array.from(new Set([masterEmail, ...playerEmails.map(e => (e || "").toLowerCase())].filter(Boolean)));
+          const campData = campRow.data || {};
+          const pcs = campData.playerCharacters || (campRow as any).playerCharacters || [];
+          if (Array.isArray(pcs)) {
+            for (const pc of pcs) {
+              if (pc && pc.id && !blacklist.has(pc.id) && !seenIds.has(pc.id)) {
+                seenIds.add(pc.id);
+                matchedCharacters.push({ ...pc, campaignId });
+              }
+            }
+          }
         }
       } catch (err) {
         console.warn("[subscribeToCampaignCharacters] Camp row fetch warning:", err);
       }
+
+      // 2.1 Também conferir no endpoint /api/campaigns/:id
+      try {
+        const cRes = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}`);
+        if (cRes.ok) {
+          const cData = await cRes.json();
+          const camp = cData?.campaign;
+          if (camp && Array.isArray(camp.playerCharacters)) {
+            for (const pc of camp.playerCharacters) {
+              if (pc && pc.id && !blacklist.has(pc.id) && !seenIds.has(pc.id)) {
+                seenIds.add(pc.id);
+                matchedCharacters.push({ ...pc, campaignId });
+              }
+            }
+          }
+        }
+      } catch (e) {}
 
       // 3. Buscar fichas do banco de dados estritamente pelo campaign_id
       try {

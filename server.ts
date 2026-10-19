@@ -235,6 +235,29 @@ async function startServer() {
 
   // Campaign characters persistence store (failsafe across restarts and network disruptions)
   const CAMPAIGN_STORE_PATH = path.join(process.cwd(), "data", "campaign_characters_store.json");
+  const CAMPAIGNS_STORE_PATH = path.join(process.cwd(), "data", "campaigns_store.json");
+
+  function getCampaignsStore(): Record<string, any> {
+    try {
+      if (fs.existsSync(CAMPAIGNS_STORE_PATH)) {
+        const raw = fs.readFileSync(CAMPAIGNS_STORE_PATH, "utf-8");
+        return JSON.parse(raw) || {};
+      }
+    } catch (e) {
+      console.error("[CampaignsStore] Read error:", e);
+    }
+    return {};
+  }
+
+  function saveCampaignsStore(data: Record<string, any>) {
+    try {
+      const dir = path.dirname(CAMPAIGNS_STORE_PATH);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(CAMPAIGNS_STORE_PATH, JSON.stringify(data, null, 2), "utf-8");
+    } catch (e) {
+      console.error("[CampaignsStore] Save error:", e);
+    }
+  }
 
   function getCampaignCharactersStore(): Record<string, any[]> {
     try {
@@ -537,6 +560,270 @@ async function startServer() {
     return res.json({ success: true, config: updatedConfig });
   });
 
+  // Dedicated Campaign Management APIs
+  // 1. Get all campaigns (merges disk store and Supabase)
+  app.get("/api/campaigns", async (req, res) => {
+    const { masterEmail, playerEmail } = req.query;
+    const cleanMaster = masterEmail ? String(masterEmail).trim().toLowerCase() : "";
+    const cleanPlayer = playerEmail ? String(playerEmail).trim().toLowerCase() : "";
+
+    const campMap = new Map<string, any>();
+
+    // Load from disk store first
+    try {
+      const store = getCampaignsStore();
+      Object.values(store).forEach((camp: any) => {
+        if (camp && camp.id) {
+          campMap.set(camp.id, camp);
+        }
+      });
+    } catch (e) {}
+
+    // Merge from Supabase if online
+    if (await isSupabaseReachable()) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2000);
+        const campRes = await fetch(`${targetSupabase}/rest/v1/campaigns?select=*`, {
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            Accept: "application/json"
+          },
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        if (campRes.ok) {
+          const rows = await campRes.json();
+          if (Array.isArray(rows)) {
+            rows.forEach((row: any) => {
+              const cData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
+              const campObj = {
+                ...cData,
+                id: row.id,
+                name: row.name || cData.name || "Sem Nome",
+                masterId: row.master_id || cData.masterId,
+                masterEmail: (row.master_email || cData.masterEmail || "").trim().toLowerCase(),
+                inviteCode: row.invite_code || cData.inviteCode || "",
+                playerEmails: cData.playerEmails || row.player_emails || []
+              };
+              campMap.set(row.id, campObj);
+            });
+          }
+        }
+      } catch (err) {}
+    }
+
+    let campaigns = Array.from(campMap.values());
+    if (cleanMaster) {
+      campaigns = campaigns.filter(c => (c.masterEmail || "").toLowerCase() === cleanMaster);
+    } else if (cleanPlayer) {
+      campaigns = campaigns.filter(c => {
+        const emails = Array.isArray(c.playerEmails) ? c.playerEmails.map((e: string) => (e || "").toLowerCase()) : [];
+        return emails.includes(cleanPlayer);
+      });
+    }
+
+    return res.json({ success: true, count: campaigns.length, campaigns });
+  });
+
+  // 2. Find campaign by invite code
+  app.get("/api/campaigns/invite/:inviteCode", async (req, res) => {
+    const inviteCode = (req.params.inviteCode || "").trim().toUpperCase();
+    if (!inviteCode) return res.status(400).json({ error: "inviteCode é obrigatório." });
+
+    // Check disk store first
+    try {
+      const store = getCampaignsStore();
+      for (const camp of Object.values(store)) {
+        if (camp && String(camp.inviteCode || camp.invite_code || "").trim().toUpperCase() === inviteCode) {
+          return res.json({ success: true, campaign: camp });
+        }
+      }
+    } catch (e) {}
+
+    // Check Supabase if reachable
+    if (await isSupabaseReachable()) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2000);
+        const campRes = await fetch(`${targetSupabase}/rest/v1/campaigns?invite_code=eq.${encodeURIComponent(inviteCode)}&select=*`, {
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            Accept: "application/json"
+          },
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        if (campRes.ok) {
+          const rows = await campRes.json();
+          if (Array.isArray(rows) && rows.length > 0) {
+            const row = rows[0];
+            const cData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
+            const campObj = {
+              ...cData,
+              id: row.id,
+              name: row.name || cData.name || "Sem Nome",
+              masterId: row.master_id || cData.masterId,
+              masterEmail: (row.master_email || cData.masterEmail || "").trim().toLowerCase(),
+              inviteCode: row.invite_code || cData.inviteCode || "",
+              playerEmails: cData.playerEmails || row.player_emails || []
+            };
+            // Cache in disk store
+            try {
+              const store = getCampaignsStore();
+              store[campObj.id] = campObj;
+              saveCampaignsStore(store);
+            } catch (e) {}
+            return res.json({ success: true, campaign: campObj });
+          }
+        }
+      } catch (err) {}
+    }
+
+    return res.status(404).json({ error: "Campanha não encontrada para o código informado." });
+  });
+
+  // 3. Create or update campaign
+  app.post("/api/campaigns", async (req, res) => {
+    const campaign = req.body;
+    if (!campaign || !campaign.id) {
+      return res.status(400).json({ error: "campaign com ID é obrigatório." });
+    }
+
+    const cleanMaster = (campaign.masterEmail || "").trim().toLowerCase();
+    const cleanCamp = {
+      ...campaign,
+      masterEmail: cleanMaster,
+      playerEmails: Array.isArray(campaign.playerEmails) ? campaign.playerEmails.map((e: string) => (e || "").trim().toLowerCase()) : []
+    };
+
+    // Save to disk store
+    try {
+      const store = getCampaignsStore();
+      store[cleanCamp.id] = cleanCamp;
+      saveCampaignsStore(store);
+    } catch (e) {
+      console.error("[API save campaign] Store error:", e);
+    }
+
+    // Upsert to Supabase if online
+    if (await isSupabaseReachable()) {
+      try {
+        await fetch(`${targetSupabase}/rest/v1/campaigns`, {
+          method: "POST",
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            "Content-Type": "application/json",
+            Prefer: "resolution=merge-duplicates"
+          },
+          body: JSON.stringify({
+            id: cleanCamp.id,
+            master_id: cleanCamp.masterId || cleanMaster,
+            master_email: cleanMaster,
+            name: cleanCamp.name || "Sem Nome",
+            invite_code: cleanCamp.inviteCode || "",
+            data: cleanCamp,
+            updated_at: new Date().toISOString()
+          })
+        });
+      } catch (err) {}
+    }
+
+    return res.json({ success: true, campaign: cleanCamp });
+  });
+
+  // 4. Join campaign
+  app.post("/api/campaigns/:campaignId/join", async (req, res) => {
+    const { campaignId } = req.params;
+    const { playerEmail } = req.body;
+    const cleanEmail = (playerEmail || "").trim().toLowerCase();
+
+    if (!campaignId) return res.status(400).json({ error: "campaignId é obrigatório." });
+
+    const store = getCampaignsStore();
+    const camp = store[campaignId] || { id: campaignId, name: "Campanha", playerEmails: [] };
+    let playerEmails: string[] = Array.isArray(camp.playerEmails) ? camp.playerEmails : [];
+    if (cleanEmail && !playerEmails.includes(cleanEmail)) {
+      playerEmails.push(cleanEmail);
+    }
+    camp.playerEmails = playerEmails;
+    store[campaignId] = camp;
+    saveCampaignsStore(store);
+
+    if (await isSupabaseReachable()) {
+      try {
+        await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
+          method: "PATCH",
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            data: camp,
+            updated_at: new Date().toISOString()
+          })
+        });
+      } catch (e) {}
+    }
+
+    return res.json({ success: true, campaign: camp });
+  });
+
+  // 5. Leave campaign
+  app.post("/api/campaigns/:campaignId/leave", async (req, res) => {
+    const { campaignId } = req.params;
+    const { playerEmail } = req.body;
+    const cleanEmail = (playerEmail || "").trim().toLowerCase();
+
+    if (!campaignId) return res.status(400).json({ error: "campaignId é obrigatório." });
+
+    const store = getCampaignsStore();
+    const camp = store[campaignId];
+    if (camp && Array.isArray(camp.playerEmails)) {
+      camp.playerEmails = camp.playerEmails.filter((e: string) => (e || "").toLowerCase() !== cleanEmail);
+      store[campaignId] = camp;
+      saveCampaignsStore(store);
+    }
+
+    return res.json({ success: true });
+  });
+
+  // 6. Delete campaign
+  app.delete("/api/campaigns/:campaignId", async (req, res) => {
+    const { campaignId } = req.params;
+    if (!campaignId) return res.status(400).json({ error: "campaignId é obrigatório." });
+
+    try {
+      const store = getCampaignsStore();
+      delete store[campaignId];
+      saveCampaignsStore(store);
+    } catch (e) {}
+
+    try {
+      const charStore = getCampaignCharactersStore();
+      delete charStore[campaignId];
+      saveCampaignCharactersStore(charStore);
+    } catch (e) {}
+
+    if (await isSupabaseReachable()) {
+      try {
+        await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
+          method: "DELETE",
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`
+          }
+        });
+      } catch (e) {}
+    }
+
+    return res.json({ success: true });
+  });
+
   // Dedicated API: Get all characters linked to a campaign (bypasses RLS using service role and local store)
   app.get("/api/campaigns/:campaignId/characters", async (req, res) => {
     const { campaignId } = req.params;
@@ -544,15 +831,42 @@ async function startServer() {
 
     const charMap = new Map<string, any>();
 
-    // Fetch directly from Supabase using SERVICE_ROLE_KEY
+    // 1. ALWAYS load currently persisted characters from disk store first!
+    try {
+      const store = getCampaignCharactersStore();
+      const storedList = store[campaignId] || [];
+      storedList.forEach((c: any) => {
+        if (c && c.id) {
+          charMap.set(c.id, { ...c, campaignId });
+        }
+      });
+    } catch (e) {
+      console.error("[Characters API] Error loading disk store:", e);
+    }
+
+    // 2. Also check if campaign store on disk has embedded playerCharacters
+    try {
+      const campStore = getCampaignsStore();
+      const camp = campStore[campaignId];
+      if (camp) {
+        const pcs = camp.playerCharacters || camp.data?.playerCharacters || [];
+        if (Array.isArray(pcs)) {
+          pcs.forEach((pc: any) => {
+            if (pc && pc.id && !charMap.has(pc.id)) {
+              charMap.set(pc.id, { ...pc, campaignId });
+            }
+          });
+        }
+      }
+    } catch (e) {}
+
+    // 3. If Supabase is reachable, merge Supabase characters without wiping local disk store
     if (await isSupabaseReachable()) {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 2000);
 
-        // Embedded characters fetching removed to strictly enforce campaign folder linking
-
-        // B. Fetch characters where campaign_id = campaignId strictly
+        // A. Fetch characters where campaign_id = campaignId
         const charCampRes = await fetch(`${targetSupabase}/rest/v1/characters?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
           headers: {
             apikey: SERVICE_ROLE_KEY,
@@ -568,46 +882,52 @@ async function startServer() {
             rows.forEach((row: any) => {
               const cData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
               const charObj = { ...row, ...cData, id: row.id, campaignId };
-              if (row.campaign_id === campaignId || cData.campaignId === campaignId) {
-                charMap.set(row.id, charObj);
-              }
+              charMap.set(row.id, charObj);
             });
           }
         }
 
-        clearTimeout(timeout);
-      } catch {
-        // Fallback to local store if Supabase unreachable, filtering strictly by campaignId
-        try {
-          const store = getCampaignCharactersStore();
-          const storedList = store[campaignId] || [];
-          storedList.forEach((c: any) => {
-            if (c && c.id && (c.campaignId === campaignId || c.campaign_id === campaignId)) {
-              charMap.set(c.id, c);
-            }
-          });
-        } catch (e) {}
-      }
-    } else {
-      // Supabase offline, use local store filtered strictly by campaignId
-      try {
-        const store = getCampaignCharactersStore();
-        const storedList = store[campaignId] || [];
-        storedList.forEach((c: any) => {
-          if (c && c.id && (c.campaignId === campaignId || c.campaign_id === campaignId)) {
-            charMap.set(c.id, c);
-          }
+        // B. Fetch campaign row in Supabase and check if playerCharacters has any character
+        const campRes = await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            Accept: "application/json"
+          },
+          signal: controller.signal
         });
-      } catch (e) {}
+
+        if (campRes.ok) {
+          const cRows = await campRes.json();
+          if (Array.isArray(cRows) && cRows.length > 0) {
+            const cRow = cRows[0];
+            const cData = typeof cRow.data === "string" ? JSON.parse(cRow.data) : (cRow.data || {});
+            const pcs = cData.playerCharacters || [];
+            if (Array.isArray(pcs)) {
+              pcs.forEach((pc: any) => {
+                if (pc && pc.id && !charMap.has(pc.id)) {
+                  charMap.set(pc.id, { ...pc, campaignId });
+                }
+              });
+            }
+          }
+        }
+
+        clearTimeout(timeout);
+      } catch (err) {
+        console.warn("[Characters API] Supabase fetch handled gracefully:", err);
+      }
     }
 
     const characters = Array.from(charMap.values());
     
-    // Update local disk cache with freshest strictly filtered state
+    // Update local disk cache with freshest merged state (only if non-empty or if disk store already has an entry)
     try {
       const store = getCampaignCharactersStore();
-      store[campaignId] = characters;
-      saveCampaignCharactersStore(store);
+      if (characters.length > 0 || store[campaignId]) {
+        store[campaignId] = characters;
+        saveCampaignCharactersStore(store);
+      }
     } catch (e) {}
 
     return res.json({ success: true, count: characters.length, characters });
@@ -635,7 +955,21 @@ async function startServer() {
       console.error("[API link character] Store error:", e);
     }
 
-    // 2. Persist to Supabase using SERVICE_ROLE_KEY only if reachable
+    // 2. Also update in campaigns_store if campaign exists
+    try {
+      const campStore = getCampaignsStore();
+      const camp = campStore[campaignId];
+      if (camp) {
+        let playerCharacters = camp.playerCharacters || [];
+        if (!Array.isArray(playerCharacters)) playerCharacters = [];
+        playerCharacters = [...playerCharacters.filter((c: any) => c.id !== cleanChar.id), cleanChar];
+        camp.playerCharacters = playerCharacters;
+        campStore[campaignId] = camp;
+        saveCampaignsStore(campStore);
+      }
+    } catch (e) {}
+
+    // 3. Persist to Supabase using SERVICE_ROLE_KEY only if reachable
     if (await isSupabaseReachable()) {
       try {
         const targetUserId = cleanChar.userId || cleanChar.userEmail || "anonymous";
@@ -721,7 +1055,7 @@ async function startServer() {
       return res.status(400).json({ error: "campaignId e characterId são obrigatórios." });
     }
 
-    // 1. Remove from disk store
+    // 1. Remove from characters disk store
     try {
       const store = getCampaignCharactersStore();
       if (store[campaignId]) {
@@ -730,7 +1064,18 @@ async function startServer() {
       }
     } catch (e) {}
 
-    // 2. Remove campaign_id in Supabase only if reachable
+    // 2. Remove from campaign disk store
+    try {
+      const campStore = getCampaignsStore();
+      const camp = campStore[campaignId];
+      if (camp && Array.isArray(camp.playerCharacters)) {
+        camp.playerCharacters = camp.playerCharacters.filter((c: any) => c.id !== characterId);
+        campStore[campaignId] = camp;
+        saveCampaignsStore(campStore);
+      }
+    } catch (e) {}
+
+    // 3. Remove campaign_id in Supabase only if reachable
     if (await isSupabaseReachable()) {
       try {
         await fetch(`${targetSupabase}/rest/v1/characters?id=eq.${encodeURIComponent(characterId)}`, {
@@ -746,7 +1091,7 @@ async function startServer() {
           })
         });
 
-        // Update campaign's playerCharacters array
+        // Update campaign's playerCharacters array in Supabase
         const campGetRes = await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
           headers: {
             apikey: SERVICE_ROLE_KEY,
@@ -763,7 +1108,6 @@ async function startServer() {
             let playerCharacters = campData.playerCharacters || [];
             if (Array.isArray(playerCharacters)) {
               playerCharacters = playerCharacters.filter((c: any) => c.id !== characterId);
-              const updatedCampData = { ...campData, playerCharacters };
               await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
                 method: "PATCH",
                 headers: {
@@ -772,19 +1116,17 @@ async function startServer() {
                   "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                  data: updatedCampData,
+                  data: { ...campData, playerCharacters },
                   updated_at: new Date().toISOString()
                 })
               });
             }
           }
         }
-      } catch {
-        isSupabaseOnline = false;
-      }
+      } catch (e) {}
     }
 
-    return res.json({ success: true, characterId });
+    return res.json({ success: true });
   });
 
   // chat oracle endpoint
