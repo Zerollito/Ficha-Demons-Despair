@@ -1760,9 +1760,20 @@ function App() {
       const charMap = new Map(prev.characters.map(c => [c.id, c]));
 
       campaignCharacters.forEach(cc => {
-        if (cc && cc.id && !deletedCharsRef.current.has(cc.id) && !charMap.has(cc.id)) {
-          charMap.set(cc.id, cc);
-          changed = true;
+        if (cc && cc.id && !deletedCharsRef.current.has(cc.id)) {
+          const existing = charMap.get(cc.id);
+          if (!existing) {
+            charMap.set(cc.id, cc);
+            changed = true;
+          } else {
+            // Atualiza se houver dados novos do jogador
+            const existingStr = JSON.stringify({ ...existing, dirty: undefined });
+            const incomingStr = JSON.stringify({ ...cc, dirty: undefined });
+            if (existingStr !== incomingStr) {
+              charMap.set(cc.id, { ...existing, ...cc });
+              changed = true;
+            }
+          }
         }
       });
 
@@ -1822,14 +1833,47 @@ function App() {
   };
 
   // Lista de personagens visíveis e permitidos para a conta atual (ou guest se deslogado)
+  // Inclui as fichas próprias E, se for Mestre, as fichas dos jogadores vinculadas às suas mesas!
   const visibleCharacters = useMemo(() => {
     if (!user) {
       // Quando não logado: isolamento estrito, exibe apenas fichas de visitante/convidado deste navegador
       return state.characters.filter(c => isCharacterOwnedByCurrentUser(c, null));
     }
-    // Quando logado: exibe as fichas pertencentes a este usuário ou fichas anônimas locais adotadas
-    return state.characters.filter(c => isCharacterOwnedByCurrentUser(c, user));
-  }, [state.characters, user]);
+
+    const userEmailLower = (user.email || '').trim().toLowerCase();
+    
+    // IDs de todas as campanhas em que o usuário atual é o MESTRE
+    const masterCampIds = new Set<string>();
+    masterCampaigns.forEach(c => masterCampIds.add(c.id));
+    campaigns.forEach(c => {
+      if ((c.masterEmail && c.masterEmail.toLowerCase() === userEmailLower) || (c.masterId && c.masterId === user.uid)) {
+        masterCampIds.add(c.id);
+      }
+    });
+
+    const charMap = new Map<string, Character>();
+
+    // 1. Fichas próprias do usuário ou fichas de campanhas onde o usuário é Mestre
+    state.characters.forEach(c => {
+      if (!c || !c.id || deletedCharsRef.current.has(c.id)) return;
+      if (isCharacterOwnedByCurrentUser(c, user)) {
+        charMap.set(c.id, c);
+      } else if (c.campaignId && masterCampIds.has(c.campaignId)) {
+        charMap.set(c.id, c);
+      }
+    });
+
+    // 2. Fichas carregadas da campanha ativa (se for mestre da campanha ou se houver fichas na campanha)
+    if (activeCampaignId && (masterCampIds.has(activeCampaignId) || campaigns.some(c => c.id === activeCampaignId && c.masterEmail?.toLowerCase() === userEmailLower))) {
+      campaignCharacters.forEach(c => {
+        if (c && c.id && !deletedCharsRef.current.has(c.id)) {
+          charMap.set(c.id, c);
+        }
+      });
+    }
+
+    return Array.from(charMap.values());
+  }, [state.characters, user, masterCampaigns, campaigns, activeCampaignId, campaignCharacters]);
 
   const activeChar = useMemo(() => {
     if (tocaEditingCreatureId) {
@@ -1862,11 +1906,23 @@ function App() {
         } as unknown as Character;
       }
     }
+
+    // 1. Prioridade para o ID selecionado dentro de visibleCharacters (que agora inclui os jogadores do Mestre)
     const char = visibleCharacters.find((c) => c.id === state.activeCharacterId);
     if (char) return char;
+
+    // 2. Procurar em campaignCharacters diretamente (caso tenha acabado de clicar na ficha pela campanha)
+    const campChar = campaignCharacters.find((c) => c.id === state.activeCharacterId);
+    if (campChar) return campChar;
+
+    // 3. Procurar em state.characters
+    const stateChar = state.characters.find((c) => c.id === state.activeCharacterId);
+    if (stateChar) return stateChar;
+
+    // 4. Fallback para primeira ficha visível
     if (visibleCharacters.length > 0) return visibleCharacters[0];
     return null;
-  }, [visibleCharacters, state.activeCharacterId, state.characters, tocaEditingCreatureId, bestiaryEditingMonsterId, bestiaryMonsters]);
+  }, [visibleCharacters, state.activeCharacterId, campaignCharacters, state.characters, tocaEditingCreatureId, bestiaryEditingMonsterId, bestiaryMonsters]);
 
   // Ensure there is at least one character
   useEffect(() => {
@@ -5282,6 +5338,56 @@ function App() {
                 >
                   Voltar para o Bestiário
                 </motion.button>
+              </div>
+            )}
+            {Boolean(
+              activeChar && 
+              user?.email && 
+              activeChar.userEmail && 
+              activeChar.userEmail.trim().toLowerCase() !== user.email.trim().toLowerCase() &&
+              !tocaEditingCreatureId &&
+              !bestiaryEditingMonsterId
+            ) && (
+              <div className="bg-purple-950/40 border border-purple-500/40 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-center gap-3 shadow-xl backdrop-blur-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-purple-900/60 border border-purple-500/50 flex items-center justify-center shrink-0 shadow-inner">
+                    <Shield className="text-purple-400" size={20} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-black text-purple-300 uppercase tracking-widest">
+                        Modo Mestre • Ficha de Jogador
+                      </p>
+                      <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full font-bold border border-purple-500/30">
+                        {activeChar.userEmail}
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      Você está visualizando a ficha de <strong>{activeChar.nome}</strong>. Modificações em vida, mana, itens e notas sincronizam automaticamente com a mesa.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setActivePage("master")}
+                    className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all shadow-md cursor-pointer"
+                  >
+                    Voltar à Campanha
+                  </motion.button>
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      const myChar = state.characters.find(c => isCharacterOwnedByCurrentUser(c, user));
+                      if (myChar) {
+                        setState(prev => ({ ...prev, activeCharacterId: myChar.id }));
+                      }
+                    }}
+                    className="px-3.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold uppercase tracking-wider transition-all border border-zinc-700 cursor-pointer"
+                  >
+                    Minha Ficha
+                  </motion.button>
+                </div>
               </div>
             )}
             {/* All Sections Stacking Vertically */}
@@ -10477,9 +10583,16 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                         <h3 className="text-xl font-black text-white uppercase tracking-tighter truncate font-mono">
                           {char.nome || "Sem Nome"}
                         </h3>
-                        <p className="text-amber-500/80 text-xs font-bold uppercase tracking-wider">
-                          {char.etnia || "Etnia não definida"}
-                        </p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-amber-500/80 text-xs font-bold uppercase tracking-wider">
+                            {char.etnia || "Etnia não definida"}
+                          </p>
+                          {Boolean(user?.email && char.userEmail && char.userEmail.toLowerCase() !== user.email.toLowerCase()) && (
+                            <span className="text-[9px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded font-bold border border-purple-500/30">
+                              Jogador: {char.userEmail}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                     
@@ -10549,7 +10662,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                               : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
                           )}
                         >
-                          Jogar
+                          {Boolean(user?.email && char.userEmail && char.userEmail.toLowerCase() !== user.email.toLowerCase()) ? "Ver Ficha" : "Jogar"}
                         </motion.button>
                         
                         <div className="flex items-center gap-1">
@@ -11788,7 +11901,18 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                           {campaignCharacters.map(char => (
                             <div 
                               key={char.id}
-                              className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex items-center justify-between group hover:border-purple-500/50 transition-all overflow-hidden shadow-lg"
+                              onClick={() => {
+                                setState(prev => {
+                                  const filtered = prev.characters.filter(c => c.id !== char.id);
+                                  return { 
+                                    ...prev, 
+                                    characters: [...filtered, char],
+                                    activeCharacterId: char.id
+                                  };
+                                });
+                                setActivePage("sheet");
+                              }}
+                              className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex items-center justify-between group hover:border-purple-500/50 transition-all overflow-hidden shadow-lg cursor-pointer hover:bg-zinc-850/80"
                             >
                               <div className="flex items-center gap-3 min-w-0">
                                 <div className="shrink-0 w-12 h-12 bg-zinc-800 rounded-lg overflow-hidden flex items-center justify-center border border-zinc-700/50">
@@ -11799,7 +11923,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                                   )}
                                 </div>
                                 <div className="min-w-0">
-                                  <h4 className="font-bold text-white leading-none mb-1 truncate">{char.nome}</h4>
+                                  <h4 className="font-bold text-white leading-none mb-1 truncate group-hover:text-purple-400 transition-colors">{char.nome}</h4>
                                   {char.userEmail && (
                                     <p className="text-[9px] text-zinc-500 font-medium truncate mb-1">{char.userEmail}</p>
                                   )}
@@ -11809,20 +11933,17 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                                   </div>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-1.5 shrink-0">
+                              <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                                 <button 
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     setState(prev => {
-                                      const exists = prev.characters.find(c => c.id === char.id);
-                                      if (exists) {
-                                        return { ...prev, activeCharacterId: char.id };
-                                      } else {
-                                        return { 
-                                          ...prev, 
-                                          characters: [...prev.characters, char],
-                                          activeCharacterId: char.id
-                                        };
-                                      }
+                                      const filtered = prev.characters.filter(c => c.id !== char.id);
+                                      return { 
+                                        ...prev, 
+                                        characters: [...filtered, char],
+                                        activeCharacterId: char.id
+                                      };
                                     });
                                     setActivePage("sheet");
                                   }}
@@ -11967,6 +12088,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                 onRollResult={handleRollResult}
                 isVttSheetOpen={isVttSheetOpen}
                 setIsVttSheetOpen={setIsVttSheetOpen}
+                onSelectActiveCharacter={(id) => setState(prev => ({ ...prev, activeCharacterId: id }))}
               />
             ) : (
               <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/10 border border-dashed border-zinc-800 rounded-3xl max-w-md mx-auto">
