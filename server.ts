@@ -335,91 +335,108 @@ async function startServer() {
     return isSupabaseOnline;
   }
 
-  // Dedicated VTT API: Get tokens and table config for a campaign
+  // Real-time VTT Event Stream (Server-Sent Events for instant zero-latency multi-player sync)
+  const vttClients = new Map<string, Set<express.Response>>();
+
+  function broadcastVtt(campaignId: string, payload: { type: string; tokens?: any[]; config?: any }) {
+    const clients = vttClients.get(campaignId);
+    if (!clients || clients.size === 0) return;
+    const data = `data: ${JSON.stringify(payload)}\n\n`;
+    clients.forEach((client) => {
+      try {
+        client.write(data);
+      } catch {
+        clients.delete(client);
+      }
+    });
+  }
+
+  // SSE Stream endpoint: provides instant push updates whenever tokens or table config change
+  app.get("/api/campaigns/:campaignId/vtt/stream", (req, res) => {
+    const { campaignId } = req.params;
+    if (!campaignId) return res.status(400).end();
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no"
+    });
+
+    res.write(": connected\n\n");
+
+    if (!vttClients.has(campaignId)) {
+      vttClients.set(campaignId, new Set());
+    }
+    const set = vttClients.get(campaignId)!;
+    set.add(res);
+
+    // Send immediate state on connect
+    const store = getVttStore();
+    const campVtt = store[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000" } };
+    const initialPayload = {
+      type: "vtt_init",
+      tokens: campVtt.tokens || [],
+      config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000", ...(campVtt.config || {}) }
+    };
+    try {
+      res.write(`data: ${JSON.stringify(initialPayload)}\n\n`);
+    } catch {}
+
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(": heartbeat\n\n");
+      } catch {
+        clearInterval(heartbeat);
+      }
+    }, 15000);
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      set.delete(res);
+      if (set.size === 0) {
+        vttClients.delete(campaignId);
+      }
+    });
+  });
+
+  // Dedicated VTT API: Get tokens and table config for a campaign (sub-millisecond instant memory return)
   app.get("/api/campaigns/:campaignId/vtt", async (req, res) => {
     const { campaignId } = req.params;
     if (!campaignId) return res.status(400).json({ error: "campaignId é obrigatório" });
 
     const store = getVttStore();
-    const campVtt = store[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "" } };
-    const tokenMap = new Map<string, any>();
+    const campVtt = store[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000" } };
+    
+    const tokens = campVtt.tokens || [];
+    const mergedConfig = { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000", ...(campVtt.config || {}) };
 
-    (campVtt.tokens || []).forEach((t: any) => {
-      if (t && t.id) tokenMap.set(t.id, t);
-    });
-
-    let mergedConfig: any = { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", ...(campVtt.config || {}) };
-
-    // Fetch directly from Supabase with SERVICE_ROLE_KEY only if Supabase is reachable
-    if (await isSupabaseReachable()) {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 2000);
-
-        // Fetch tokens
-        const tokenRes = await fetch(`${targetSupabase}/rest/v1/tokens?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
-          headers: {
-            apikey: SERVICE_ROLE_KEY,
-            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-            Accept: "application/json"
-          },
-          signal: controller.signal
-        });
-
-        if (tokenRes.ok) {
-          const rows = await tokenRes.json();
-          if (Array.isArray(rows)) {
-            rows.forEach((row: any) => {
-              const tkData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
-              const tkObj = { ...row, ...tkData, id: row.id };
-              tokenMap.set(row.id, tkObj);
-            });
-          }
-        }
-
-        // Fetch config
-        const configRes = await fetch(`${targetSupabase}/rest/v1/campaign_configs?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
-          headers: {
-            apikey: SERVICE_ROLE_KEY,
-            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-            Accept: "application/json"
-          },
-          signal: controller.signal
-        });
-
-        if (configRes.ok) {
-          const cRows = await configRes.json();
-          if (Array.isArray(cRows)) {
-            cRows.forEach((row: any) => {
-              const cData = typeof row.data === "string" ? JSON.parse(row.data) : (row.data || {});
-              const merged = { ...row, ...cData };
-              const { id, campaign_id, campaignId: _, config_id, configId: __, data, updated_at, ...configProps } = merged;
-              Object.assign(mergedConfig, configProps);
-              if (merged.mapUrl || merged.map_url) {
-                mergedConfig.mapUrl = merged.mapUrl || merged.map_url;
+    // Background seed from Supabase ONLY if store has no data yet
+    if (!store[campaignId] && await isSupabaseReachable()) {
+      (async () => {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 1500);
+          const tokenRes = await fetch(`${targetSupabase}/rest/v1/tokens?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+            headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, Accept: "application/json" },
+            signal: controller.signal
+          });
+          if (tokenRes.ok) {
+            const rows = await tokenRes.json();
+            if (Array.isArray(rows) && rows.length > 0) {
+              const currentStore = getVttStore();
+              if (!currentStore[campaignId] || !currentStore[campaignId].tokens || currentStore[campaignId].tokens.length === 0) {
+                const loadedTokens = rows.map((r: any) => ({ ...(typeof r.data === 'string' ? JSON.parse(r.data) : (r.data || {})), id: r.id }));
+                currentStore[campaignId] = { ...(currentStore[campaignId] || {}), tokens: loadedTokens };
+                saveVttStore(currentStore);
+                broadcastVtt(campaignId, { type: "vtt_tokens", tokens: loadedTokens, config: currentStore[campaignId].config });
               }
-            });
+            }
           }
-        }
-
-        clearTimeout(timeout);
-      } catch {
-        isSupabaseOnline = false;
-      }
+          clearTimeout(timeout);
+        } catch {}
+      })();
     }
-
-    // Retain mapUrl from server memory/file store if query didn't return a non-empty mapUrl
-    if (!mergedConfig.mapUrl && campVtt.config?.mapUrl) {
-      mergedConfig.mapUrl = campVtt.config.mapUrl;
-    }
-
-    const tokens = Array.from(tokenMap.values());
-
-    // Sync back to local store
-    try {
-      store[campaignId] = { tokens, config: mergedConfig };
-      saveVttStore(store);
-    } catch (e) {}
 
     return res.json({ success: true, tokens, config: mergedConfig });
   });
@@ -432,7 +449,7 @@ async function startServer() {
     if (!campaignId) return res.status(400).json({ error: "campaignId é obrigatório" });
 
     const store = getVttStore();
-    const campVtt = store[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "" } };
+    const campVtt = store[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000" } };
     let currentTokens = campVtt.tokens || [];
 
     const incoming: any[] = bulkTokens && Array.isArray(bulkTokens) ? bulkTokens : (token ? [token] : []);
@@ -448,6 +465,9 @@ async function startServer() {
     campVtt.tokens = currentTokens;
     store[campaignId] = campVtt;
     saveVttStore(store);
+
+    // Instant zero-latency SSE push to all other players in this campaign
+    broadcastVtt(campaignId, { type: "vtt_tokens", tokens: currentTokens, config: campVtt.config });
 
     // Save to Supabase in background
     try {
@@ -483,6 +503,8 @@ async function startServer() {
     if (store[campaignId]) {
       store[campaignId].tokens = (store[campaignId].tokens || []).filter((t: any) => t.id !== tokenId);
       saveVttStore(store);
+      // Instant SSE broadcast
+      broadcastVtt(campaignId, { type: "vtt_tokens", tokens: store[campaignId].tokens || [], config: store[campaignId].config });
     }
 
     try {
@@ -507,6 +529,8 @@ async function startServer() {
     if (store[campaignId]) {
       store[campaignId].tokens = [];
       saveVttStore(store);
+      // Instant SSE broadcast
+      broadcastVtt(campaignId, { type: "vtt_tokens", tokens: [], config: store[campaignId].config });
     }
 
     try {
@@ -530,13 +554,16 @@ async function startServer() {
     if (!campaignId || !config) return res.status(400).json({ error: "campaignId e config são obrigatórios" });
 
     const store = getVttStore();
-    const campVtt = store[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "" } };
+    const campVtt = store[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000" } };
     const updatedConfig = { ...(campVtt.config || {}), ...config, updatedAt: new Date().toISOString() };
     campVtt.config = updatedConfig;
     store[campaignId] = campVtt;
     saveVttStore(store);
 
-    // Save map config to Supabase
+    // Instant SSE broadcast
+    broadcastVtt(campaignId, { type: "vtt_config", tokens: campVtt.tokens || [], config: updatedConfig });
+
+    // Save map config to Supabase in background
     try {
       fetch(`${targetSupabase}/rest/v1/campaign_configs`, {
         method: "POST",

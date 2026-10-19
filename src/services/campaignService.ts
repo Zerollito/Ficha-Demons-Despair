@@ -603,37 +603,8 @@ export const optimizeCharactersForCache = (characters: Character[]): Character[]
         optAny.historico = optAny.historico.slice(0, 5);
       }
 
-      // 5. Clean large base64 avatar images
-      if (optimized.imagem && typeof optimized.imagem === 'string' && optimized.imagem.startsWith('data:image/') && optimized.imagem.length > 20000) {
-        optimized.imagem = "";
-      }
-      
-      // 6. Recursively clean huge base64 strings
-      const cleanObject = (obj: any): any => {
-        if (!obj) return obj;
-        if (typeof obj === 'string') {
-          if (obj.startsWith('data:image/') && obj.length > 15000) {
-            // Remove excessive base64 images from campaign characters cache to save storage space
-            return "";
-          }
-          return obj;
-        }
-        if (Array.isArray(obj)) {
-          return obj.map(item => cleanObject(item));
-        }
-        if (typeof obj === 'object') {
-          const cleaned: any = {};
-          for (const k in obj) {
-            if (Object.prototype.hasOwnProperty.call(obj, k)) {
-              cleaned[k] = cleanObject(obj[k]);
-            }
-          }
-          return cleaned;
-        }
-        return obj;
-      };
-      
-      return cleanObject(optimized) as Character;
+      // DO NOT erase character avatar (imagem)! It is vital for VTT tokens, character cards, and sheet displays.
+      return optimized;
     } catch (err) {
       console.warn("Warning optimizing character for cache:", err);
       return char;

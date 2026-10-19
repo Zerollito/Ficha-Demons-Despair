@@ -1008,7 +1008,7 @@ function App() {
   }, [state.characters, campaigns, isLoadingSync, isJoinedCampaignsLoaded]);
   const [campaignCharacters, setCampaignCharacters] = useState<Character[]>([]);
   const [tokens, setTokens] = useState<TableToken[]>([]);
-  const [tableConfig, setTableConfig] = useState<TableConfig>({ gridSize: 50, showGrid: true, masterFog: false });
+  const [tableConfig, setTableConfig] = useState<TableConfig>({ gridSize: 50, showGrid: true, masterFog: false, gridColor: '#000000' });
   const [masterReminderModal, setMasterReminderModal] = useState<{
     showHungerThirst: boolean;
     showFatigue: boolean;
@@ -1700,7 +1700,7 @@ function App() {
     if (!activeCampaignId) {
         setCampaignCharacters([]);
         setTokens([]);
-        setTableConfig({ gridSize: 50, showGrid: true, masterFog: false });
+        setTableConfig({ gridSize: 50, showGrid: true, masterFog: false, gridColor: '#000000' });
         return;
     }
     

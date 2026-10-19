@@ -87,7 +87,7 @@ const notifyTokenListeners = (campaignId: string, tokens: TableToken[]) => {
 };
 
 export const getLocalConfig = (campaignId: string): TableConfig => {
-  let result: TableConfig = { gridSize: 50, showGrid: true, masterFog: false, mapUrl: '' };
+  let result: TableConfig = { gridSize: 50, showGrid: true, masterFog: false, mapUrl: '', gridColor: '#000000' };
   try {
     const stored = safeLocalStorageGetItem(`vtt_config_${campaignId}`) || localStorage.getItem(`vtt_config_${campaignId}`);
     if (stored) {
@@ -96,6 +96,10 @@ export const getLocalConfig = (campaignId: string): TableConfig => {
     }
   } catch (e) {
     console.warn("Warning reading local config:", e);
+  }
+
+  if (!result.gridColor) {
+    result.gridColor = '#000000';
   }
 
   // If mapUrl is missing or empty, attempt robust multi-source recovery
@@ -149,7 +153,8 @@ export const getLocalConfig = (campaignId: string): TableConfig => {
 
 export const saveLocalConfig = (campaignId: string, config: TableConfig) => {
   try {
-    safeLocalStorageSetItem(`vtt_config_${campaignId}`, JSON.stringify(config));
+    const finalCfg = { gridColor: '#000000', ...config };
+    safeLocalStorageSetItem(`vtt_config_${campaignId}`, JSON.stringify(finalCfg));
     
     // Also mirror to supabase_table_campaign_configs
     try {
@@ -164,16 +169,16 @@ export const saveLocalConfig = (campaignId: string, config: TableConfig) => {
         id: `${campaignId}_main`,
         campaign_id: campaignId,
         config_id: 'main',
-        data: config,
+        data: finalCfg,
         updated_at: nowStr
       });
-      if (config.mapUrl) {
+      if (finalCfg.mapUrl) {
         list.push({
           id: `${campaignId}_map`,
           campaign_id: campaignId,
           config_id: 'map',
-          data: { mapUrl: config.mapUrl, updatedAt: nowStr },
-          mapUrl: config.mapUrl,
+          data: { mapUrl: finalCfg.mapUrl, updatedAt: nowStr },
+          mapUrl: finalCfg.mapUrl,
           updated_at: nowStr
         });
       }
@@ -221,7 +226,103 @@ const notifyLogListeners = (campaignId: string, logs: any[]) => {
   }
 };
 
-// Subscriptions using Supabase Realtime with bulletproof local fallback preservation
+// Shared Real-Time SSE Stream Manager for zero-latency instant updates across master and players
+interface SseCampaignState {
+  eventSource: EventSource | null;
+  refCount: number;
+  pollTimer: any;
+}
+
+const activeSseStreams = new Map<string, SseCampaignState>();
+
+function connectVttStream(campaignId: string) {
+  if (typeof window === 'undefined') return;
+
+  let entry = activeSseStreams.get(campaignId);
+  if (!entry) {
+    entry = { eventSource: null, refCount: 0, pollTimer: null };
+    activeSseStreams.set(campaignId, entry);
+  }
+  entry.refCount++;
+
+  if (!entry.eventSource) {
+    try {
+      const url = `/api/campaigns/${encodeURIComponent(campaignId)}/vtt/stream`;
+      const es = new EventSource(url);
+      entry.eventSource = es;
+
+      es.onmessage = (event) => {
+        try {
+          if (!event.data) return;
+          const payload = JSON.parse(event.data);
+          if (payload.tokens && Array.isArray(payload.tokens)) {
+            saveLocalTokens(campaignId, payload.tokens);
+            notifyTokenListeners(campaignId, payload.tokens);
+          }
+          if (payload.config && typeof payload.config === 'object') {
+            const finalCfg = { gridColor: '#000000', ...payload.config };
+            saveLocalConfig(campaignId, finalCfg);
+            notifyConfigListeners(campaignId, finalCfg);
+          }
+        } catch (err) {
+          console.warn("[VTT SSE] Message parse warning:", err);
+        }
+      };
+
+      es.onerror = () => {
+        // Browser EventSource automatically reconnects on network drop
+      };
+    } catch (err) {
+      console.warn("[VTT SSE] Could not start EventSource, relying on polling fallback:", err);
+    }
+  }
+
+  // Failsafe background polling (every 2.5s) to guarantee consistency without flooding the server
+  if (!entry.pollTimer) {
+    entry.pollTimer = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.tokens)) {
+            const current = getLocalTokens(campaignId);
+            if (JSON.stringify(current) !== JSON.stringify(data.tokens)) {
+              saveLocalTokens(campaignId, data.tokens);
+              notifyTokenListeners(campaignId, data.tokens);
+            }
+          }
+          if (data && data.config) {
+            const currentCfg = getLocalConfig(campaignId);
+            const mergedCfg = { gridColor: '#000000', ...data.config };
+            if (JSON.stringify(currentCfg) !== JSON.stringify(mergedCfg)) {
+              saveLocalConfig(campaignId, mergedCfg);
+              notifyConfigListeners(campaignId, mergedCfg);
+            }
+          }
+        }
+      } catch {}
+    }, 2500);
+  }
+}
+
+function disconnectVttStream(campaignId: string) {
+  const entry = activeSseStreams.get(campaignId);
+  if (!entry) return;
+  entry.refCount--;
+  if (entry.refCount <= 0) {
+    if (entry.eventSource) {
+      entry.eventSource.close();
+      entry.eventSource = null;
+    }
+    if (entry.pollTimer) {
+      clearInterval(entry.pollTimer);
+      entry.pollTimer = null;
+    }
+    activeSseStreams.delete(campaignId);
+  }
+}
+
+// Subscriptions using instant real-time SSE stream with bulletproof local fallback preservation
 export const subscribeToTokens = (campaignId: string, onUpdate: (tokens: TableToken[]) => void) => {
   if (!tokenListeners.has(campaignId)) {
     tokenListeners.set(campaignId, new Set());
@@ -232,65 +333,21 @@ export const subscribeToTokens = (campaignId: string, onUpdate: (tokens: TableTo
   const localTokens = getLocalTokens(campaignId);
   onUpdate(localTokens);
 
-  let active = true;
-  let isFetching = false;
-  let lastSerialized = '';
+  connectVttStream(campaignId);
 
-  const fetchAndNotify = async () => {
-    if (!active || isFetching) return;
-    isFetching = true;
-    try {
-      // 1. Fetch from server VTT API (/api/campaigns/:id/vtt)
-      let remoteTokens: TableToken[] = [];
-      try {
-        const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data && Array.isArray(data.tokens)) {
-            remoteTokens = data.tokens;
-          }
-        }
-      } catch (e) {}
-
-      // Combine server tokens with local tokens
-      const local = getLocalTokens(campaignId);
-      const tokenMap = new Map<string, TableToken>();
-      remoteTokens.forEach(t => { if (t && t.id) tokenMap.set(t.id, t); });
-      local.forEach(t => { if (t && t.id && !tokenMap.has(t.id)) tokenMap.set(t.id, t); });
-
-      const finalTokens = Array.from(tokenMap.values());
-      saveLocalTokens(campaignId, finalTokens);
-
-      const serialized = JSON.stringify(finalTokens);
-      if (serialized !== lastSerialized) {
-        lastSerialized = serialized;
-        notifyTokenListeners(campaignId, finalTokens);
+  // Initial fast fetch
+  fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt`)
+    .then(res => res.json())
+    .then(data => {
+      if (data && Array.isArray(data.tokens)) {
+        saveLocalTokens(campaignId, data.tokens);
+        notifyTokenListeners(campaignId, data.tokens);
       }
-    } catch (err) {
-    } finally {
-      isFetching = false;
-    }
-  };
-
-  fetchAndNotify();
-
-  // Polling loop at 600ms for sub-second real-time token movements across devices
-  const pollInterval = setInterval(fetchAndNotify, 600);
-
-  // Also setup Supabase snapshot / realtime as dual channel
-  const q = query(
-    collection(db, 'tokens'),
-    where('campaign_id', '==', campaignId)
-  );
-
-  const unsubscribe = onSnapshot(q, () => {
-    fetchAndNotify();
-  });
+    })
+    .catch(() => {});
 
   return () => {
-    active = false;
-    clearInterval(pollInterval);
-    unsubscribe();
+    disconnectVttStream(campaignId);
     const listeners = tokenListeners.get(campaignId);
     if (listeners) {
       listeners.delete(onUpdate);
@@ -308,66 +365,22 @@ export const subscribeToTableConfig = (campaignId: string, onUpdate: (config: Ta
   const localConfig = getLocalConfig(campaignId);
   onUpdate(localConfig);
 
-  let active = true;
-  let isFetching = false;
-  let lastSerialized = '';
+  connectVttStream(campaignId);
 
-  const fetchAndNotify = async () => {
-    if (!active || isFetching) return;
-    isFetching = true;
-    try {
-      let remoteConfig: Partial<TableConfig> | null = null;
-      try {
-        const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.config) {
-            remoteConfig = data.config;
-          }
-        }
-      } catch (e) {}
-
-      const local = getLocalConfig(campaignId);
-      const mergedConfig = { ...local, ...(remoteConfig || {}) } as TableConfig;
-
-      if (remoteConfig) {
-        if (remoteConfig.mapUrl && remoteConfig.mapUrl.trim() !== '') {
-          mergedConfig.mapUrl = remoteConfig.mapUrl;
-        } else if (!remoteConfig.mapUrl && local.mapUrl && remoteConfig.mapUrl !== "") {
-          mergedConfig.mapUrl = local.mapUrl;
-        }
+  // Initial fast fetch
+  fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt`)
+    .then(res => res.json())
+    .then(data => {
+      if (data && data.config) {
+        const merged = { gridColor: '#000000', ...data.config };
+        saveLocalConfig(campaignId, merged);
+        notifyConfigListeners(campaignId, merged);
       }
-
-      saveLocalConfig(campaignId, mergedConfig);
-
-      const serialized = JSON.stringify(mergedConfig);
-      if (serialized !== lastSerialized) {
-        lastSerialized = serialized;
-        notifyConfigListeners(campaignId, mergedConfig);
-      }
-    } catch (err) {
-    } finally {
-      isFetching = false;
-    }
-  };
-
-  fetchAndNotify();
-
-  const pollInterval = setInterval(fetchAndNotify, 600);
-
-  const q = query(
-    collection(db, 'campaign_configs'),
-    where('campaign_id', '==', campaignId)
-  );
-
-  const unsubscribe = onSnapshot(q, () => {
-    fetchAndNotify();
-  });
+    })
+    .catch(() => {});
 
   return () => {
-    active = false;
-    clearInterval(pollInterval);
-    unsubscribe();
+    disconnectVttStream(campaignId);
     const listeners = configListeners.get(campaignId);
     if (listeners) {
       listeners.delete(onUpdate);

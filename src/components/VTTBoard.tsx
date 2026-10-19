@@ -37,6 +37,33 @@ import { getSurvivalPenalties } from '../rules/survivalRules';
 import { Season, getSeason, getSeasonIcon } from '../rules/timeRules';
 import { compressImageDataUrl } from '../lib/imageUtils';
 import { DiceImage } from './ui/DiceImage';
+import { DEFAULT_MONSTERS } from '../constants/defaultMonsters';
+
+export const getMonsterImageByName = (name?: string): string => {
+  if (!name) return '';
+  const cleanName = name.toLowerCase().trim();
+  const found = DEFAULT_MONSTERS.find(m => {
+    const mName = m.name.toLowerCase();
+    return mName === cleanName || mName.includes(cleanName) || cleanName.includes(mName.split('/')[0].trim());
+  });
+  return found?.imageUrl || '';
+};
+
+export const formatTokenImageUrl = (raw?: string): string => {
+  if (!raw || typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('data:')) return trimmed;
+  let formatted = trimmed;
+  if (!formatted.startsWith('http://') && !formatted.startsWith('https://') && !formatted.startsWith('/')) {
+    formatted = '/' + formatted;
+  }
+  try {
+    return encodeURI(decodeURI(formatted));
+  } catch {
+    return formatted;
+  }
+};
 
 const updateDoc = async (ref: any, data: any) => {
   if (isFirebaseQuotaExceeded()) {
@@ -135,8 +162,8 @@ interface VTTBoardProps {
 const HEX_RATIO = 1.1547005; // 2 / sqrt(3)
 
 const GRID_COLORS = [
-  { name: 'Branco', value: '#ffffff' },
   { name: 'Preto', value: '#000000' },
+  { name: 'Branco', value: '#ffffff' },
   { name: 'Cinza', value: '#6b7280' },
   { name: 'Bege', value: '#f5f5dc' },
   { name: 'Azul', value: '#3b82f6' },
@@ -159,11 +186,9 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, onRotate, isAtt
   fetchedCharacters?: Record<string, Character>;
 }) => {
   const char = token.characterId ? (availableCharacters.find(c => c.id === token.characterId) || fetchedCharacters?.[token.characterId]) : null;
-  const rawImageUrl = token.imageUrl || char?.imagem || '';
-  const imageUrlToUse = (rawImageUrl && !rawImageUrl.startsWith('http') && !rawImageUrl.startsWith('/') && !rawImageUrl.startsWith('data:'))
-    ? '/' + rawImageUrl
-    : rawImageUrl;
-  const [image] = useImage(imageUrlToUse);
+  const rawImageUrl = token.imageUrl || char?.imagem || (token.type === 'creature' ? getMonsterImageByName(token.name) : '') || '';
+  const imageUrlToUse = formatTokenImageUrl(rawImageUrl);
+  const [image] = useImage(imageUrlToUse, imageUrlToUse.startsWith('http') ? 'anonymous' : undefined);
   const radius = (token.size * gridSize) / 2;
   const [dragDist, setDragDist] = useState(0);
   const lastPos = useRef({ x: token.x, y: token.y });
@@ -672,10 +697,6 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, onRotate, isAtt
             image={image}
             width={token.size * gridSize}
             height={token.size * gridSize}
-            filters={isDead ? [Konva.Filters.Grayscale] : []}
-            onBeforeRender={(e) => {
-               if (isDead) e.target.cache();
-            }}
           />
         ) : (
           <Rect
@@ -3545,7 +3566,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           }
           context.fillStrokeShape(shape);
         }}
-        stroke={config.gridColor || "#ffffff"}
+        stroke={config.gridColor || "#000000"}
         strokeWidth={1}
         opacity={1}
         listening={false}
@@ -3790,14 +3811,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                         onClick={() => onUpdateConfig?.({ gridColor: color.value })}
                         className={cn(
                           "h-6 rounded-md border flex items-center justify-center transition-all",
-                          (config.gridColor || '#ffffff') === color.value 
+                          (config.gridColor || '#000000') === color.value 
                             ? "border-white scale-110 shadow-lg" 
                             : "border-transparent opacity-60 hover:opacity-100"
                         )}
                         style={{ backgroundColor: color.value }}
                       >
-                        {(config.gridColor || '#ffffff') === color.value && (
-                          <div className={cn("w-1 h-1 rounded-full", color.value === '#ffffff' ? 'bg-black' : 'bg-white')} />
+                        {(config.gridColor || '#000000') === color.value && (
+                          <div className={cn("w-1 h-1 rounded-full", color.value === '#000000' ? 'bg-white' : 'bg-black')} />
                         )}
                       </button>
                     ))}
@@ -4696,14 +4717,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1 py-1 custom-scrollbar scroll-smooth text-left">
                 {tokens.filter(t => t.type === 'creature').map(token => {
                   const char = token.characterId ? (availableCharacters.find(c => c.id === token.characterId) || fetchedCharacters?.[token.characterId]) : null;
-                  const tkImage = token.imageUrl || char?.imagem;
+                  const tkImage = token.imageUrl || char?.imagem || getMonsterImageByName(token.name);
+                  const formattedTkImage = formatTokenImageUrl(tkImage);
                   return (
                     <div key={token.id} className="bg-zinc-950/80 border border-zinc-800 rounded-xl p-3 flex flex-col gap-2.5 group hover:border-red-500/30 transition-all shadow-lg">
                       <div className="flex items-center gap-2.5">
                         <div className="relative">
                           <div className="w-8 h-8 rounded-lg overflow-hidden border border-zinc-800 flex items-center justify-center bg-zinc-900 shrink-0">
-                            {tkImage ? (
-                              <img src={tkImage.startsWith('http') || tkImage.startsWith('/') || tkImage.startsWith('data:') ? tkImage : `/${tkImage}`} alt={token.name} className="w-full h-full object-cover" />
+                            {formattedTkImage ? (
+                              <img src={formattedTkImage} alt={token.name} className="w-full h-full object-cover" />
                             ) : (
                               <User size={14} className="text-zinc-600" />
                             )}
