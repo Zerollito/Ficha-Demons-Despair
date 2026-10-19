@@ -654,6 +654,7 @@ export const updateTableConfig = async (campaignId: string, config: Partial<Tabl
   saveLocalConfig(campaignId, updatedConfig);
   notifyConfigListeners(campaignId, updatedConfig);
   
+  // Persist directly to server VTT store
   try {
     fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt/config`, {
       method: "POST",
@@ -662,15 +663,15 @@ export const updateTableConfig = async (campaignId: string, config: Partial<Tabl
     }).catch(() => {});
   } catch (e) {}
 
+  // Background sync to Supabase without blocking the client UI thread
   const { mapUrl, ...rest } = config;
   try {
     if (Object.keys(rest).length > 0) {
-      // Get exact stored local main config to merge
       const fullLocal = getLocalConfig(campaignId);
       const { mapUrl: _, ...localMain } = fullLocal;
       const mergedMain = { ...localMain, ...rest, updatedAt: nowStr };
 
-      const { error } = await supabase
+      supabase
         .from('campaign_configs')
         .upsert({
           id: `${campaignId}_main`,
@@ -678,13 +679,17 @@ export const updateTableConfig = async (campaignId: string, config: Partial<Tabl
           config_id: 'main',
           data: mergedMain,
           updated_at: nowStr
+        })
+        .then(({ error }) => {
+          if (error) console.error("[Supabase updateTableConfig main] Error:", error);
+        })
+        .catch(err => {
+          console.error("[Supabase updateTableConfig] Exception:", err);
         });
-
-      if (error) console.error("[Supabase updateTableConfig main] Error:", error);
     }
     
     if (mapUrl !== undefined) {
-      const { error } = await supabase
+      supabase
         .from('campaign_configs')
         .upsert({
           id: `${campaignId}_map`,
@@ -693,13 +698,17 @@ export const updateTableConfig = async (campaignId: string, config: Partial<Tabl
           data: { mapUrl, updatedAt: nowStr },
           mapUrl: mapUrl,
           updated_at: nowStr
-        });
-
-      if (error) console.error("[Supabase updateTableConfig map] Error:", error);
+        })
+        .then(({ error }) => {
+          if (error) console.error("[Supabase updateTableConfig map] Error:", error);
+        })
+        .catch(() => {});
     }
   } catch (error) {
     console.error("[Supabase updateTableConfig] Exception:", error);
   }
+
+  return updatedConfig;
 };
 
 export const addCombatLog = async (campaignId: string, log: any) => {

@@ -1675,6 +1675,13 @@ function App() {
     }
   }, [masterCampaigns, joinedCampaigns, campaignCharacters.length, activeCampaignId, user?.uid, isLoadingSync, isCampaignsLoaded, isJoinedCampaignsLoaded]);
 
+  // Auto-select first master campaign when navigating to master panel if none currently active
+  useEffect(() => {
+    if (activePage === "master" && !activeCampaignId && masterCampaigns.length > 0) {
+      setActiveCampaignIdWithSync(masterCampaigns[0].id);
+    }
+  }, [activePage, activeCampaignId, masterCampaigns]);
+
   // Redirect to library if there are no characters (activeChar is null) and we are not on the DM/library/oracle pages
   useEffect(() => {
     if (!isLoadingSync && state.characters.length === 0) {
@@ -2080,21 +2087,86 @@ function App() {
     }
   }, [activeCampaignId]);
 
-  const [localHour, setLocalHour] = useState<string>("");
-  const [localMinute, setLocalMinute] = useState<string>("");
-  const [localDay, setLocalDay] = useState<string>("");
-  const [localYear, setLocalYear] = useState<string>("");
+  const [localHour, setLocalHour] = useState<string>("0");
+  const [localMinute, setLocalMinute] = useState<string>("00");
+  const [localDay, setLocalDay] = useState<string>("1");
+  const [localMonth, setLocalMonth] = useState<number>(tableConfig.date?.month || 1);
+  const [localYear, setLocalYear] = useState<string>("2024");
+  const [isSavingDateTime, setIsSavingDateTime] = useState<boolean>(false);
 
   useEffect(() => {
     if (tableConfig.time) {
       setLocalHour(tableConfig.time.hour.toString());
       setLocalMinute(tableConfig.time.minute.toString().padStart(2, '0'));
+    } else {
+      setLocalHour("0");
+      setLocalMinute("00");
     }
     if (tableConfig.date) {
       setLocalDay(tableConfig.date.day.toString());
+      setLocalMonth(tableConfig.date.month || 1);
       setLocalYear(tableConfig.date.year.toString());
+    } else {
+      setLocalDay("1");
+      setLocalMonth(1);
+      setLocalYear("2024");
     }
-  }, [tableConfig.time?.hour, tableConfig.time?.minute, tableConfig.date?.day, tableConfig.date?.year]);
+  }, [tableConfig.time?.hour, tableConfig.time?.minute, tableConfig.date?.day, tableConfig.date?.month, tableConfig.date?.year]);
+
+  const handleSaveDateTime = useCallback(async (overrides?: { day?: number; month?: number; year?: number; hour?: number; minute?: number }) => {
+    if (!activeCampaignId) {
+      showToast("Selecione uma campanha ativa no Painel do Mestre.", "error");
+      return;
+    }
+    setIsSavingDateTime(true);
+    try {
+      const h = overrides?.hour !== undefined ? overrides.hour : Math.max(0, Math.min(23, parseInt(localHour) || 0));
+      const m = overrides?.minute !== undefined ? overrides.minute : Math.max(0, Math.min(59, parseInt(localMinute) || 0));
+      const mo = overrides?.month !== undefined ? overrides.month : Math.max(1, Math.min(12, localMonth || 1));
+      const y = overrides?.year !== undefined ? overrides.year : (parseInt(localYear) || (tableConfig.date?.year ?? 2024));
+      const maxDays = getDaysInMonth(mo, y);
+      const d = overrides?.day !== undefined ? overrides.day : Math.max(1, Math.min(maxDays, parseInt(localDay) || 1));
+
+      const season = getSeason(mo);
+      const currentHour = tableConfig.time?.hour ?? 0;
+      const isCrossing18 = currentHour < 18 && h >= 18;
+      const newWeather = (overrides?.day !== undefined || isCrossing18) ? generateWeather(season) : (tableConfig.weather || "Céu limpo");
+
+      await updateTableConfig(activeCampaignId, {
+        time: { hour: h, minute: m },
+        date: { day: d, month: mo, year: y },
+        weather: newWeather
+      });
+
+      setLocalHour(h.toString());
+      setLocalMinute(m.toString().padStart(2, '0'));
+      setLocalDay(d.toString());
+      setLocalMonth(mo);
+      setLocalYear(y.toString());
+      setCalendarViewMonth(mo);
+      setCalendarViewYear(y);
+
+      showToast(`Data atualizada: ${formatDate(d, mo, y)} às ${formatTime(h, m)}`, "success");
+
+      // Check reminders
+      const hungerHours = [0, 4, 8, 12, 16, 20];
+      const fatigueHours = [20, 22, 0, 2];
+      const showHungerThirst = remindersEnabled.hungerThirst && hungerHours.includes(h);
+      const showFatigue = remindersEnabled.fatigue && fatigueHours.includes(h);
+      if (showHungerThirst || showFatigue) {
+        setMasterReminderModal({
+          showHungerThirst,
+          showFatigue,
+          hour: h
+        });
+      }
+    } catch (err: any) {
+      console.error("Erro ao salvar data/hora:", err);
+      showToast("Erro ao salvar data e hora.", "error");
+    } finally {
+      setIsSavingDateTime(false);
+    }
+  }, [activeCampaignId, localHour, localMinute, localDay, localMonth, localYear, tableConfig.time, tableConfig.date, tableConfig.weather, remindersEnabled, showToast]);
 
   const setActiveCampaignIdWithSync = (id: string | null) => {
       setActiveCampaignId(id);
@@ -10902,128 +10974,100 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                       </div>
 
                       {/* Manual Controls */}
-                      <div className="mt-6 pt-6 border-t border-zinc-900/50 grid grid-cols-2 md:grid-cols-5 gap-4">
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest ml-1">Hora</label>
-                          <input 
-                            type="number"
-                            min="0"
-                            max="23"
-                            value={localHour}
-                            onChange={(e) => setLocalHour(e.target.value)}
-                            onBlur={async () => {
-                              const h = Math.max(0, Math.min(23, parseInt(localHour) || 0));
-                              try {
-                                const currentHour = tableConfig.time?.hour ?? 0;
-                                const season = getSeason(tableConfig.date?.month || 1);
-                                const isCrossing18 = currentHour < 18 && h >= 18;
-                                const newWeather = isCrossing18 ? generateWeather(season) : tableConfig.weather;
-
-                                await updateTableConfig(activeCampaignId!, { 
-                                  time: { ...(tableConfig.time || { hour: 0, minute: 0 }), hour: h },
-                                  weather: newWeather
-                                });
-
-                                // Check reminders for manual edit
-                                const hungerHours = [0, 4, 8, 12, 16, 20];
-                                const fatigueHours = [20, 22, 0, 2];
-                                const showHungerThirst = remindersEnabled.hungerThirst && hungerHours.includes(h);
-                                const showFatigue = remindersEnabled.fatigue && fatigueHours.includes(h);
-                                if (showHungerThirst || showFatigue) {
-                                  setMasterReminderModal({
-                                    showHungerThirst,
-                                    showFatigue,
-                                    hour: h
-                                  });
-                                }
-                              } catch (err) {
-                                showToast("Erro ao salvar", "error");
-                              }
-                            }}
-                            className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white font-mono focus:border-cyan-500/50 outline-none transition-colors"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest ml-1">Minuto</label>
-                          <input 
-                            type="number"
-                            min="0"
-                            max="59"
-                            value={localMinute}
-                            onChange={(e) => setLocalMinute(e.target.value)}
-                            onBlur={async () => {
-                              const m = Math.max(0, Math.min(59, parseInt(localMinute) || 0));
-                              try {
-                                await updateTableConfig(activeCampaignId!, { 
-                                  time: { ...(tableConfig.time || { hour: 0, minute: 0 }), minute: m } 
-                                });
-                              } catch (err) {
-                                showToast("Erro ao salvar", "error");
-                              }
-                            }}
-                            className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white font-mono focus:border-cyan-500/50 outline-none transition-colors"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest ml-1">Dia</label>
-                          <input 
-                            type="number"
-                            min="1"
-                            max="31"
-                            value={localDay}
-                            onChange={(e) => setLocalDay(e.target.value)}
-                            onBlur={async () => {
-                              try {
-                                const d = Math.max(1, Math.min(31, parseInt(localDay) || 1));
-                                await updateTableConfig(activeCampaignId!, { 
-                                  date: { ...(tableConfig.date || { day: 1, month: 1, year: 2024 }), day: d } 
-                                });
-                              } catch (err) {
-                                showToast("Erro ao salvar", "error");
-                              }
-                            }}
-                            className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white font-mono focus:border-cyan-500/50 outline-none transition-colors"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest ml-1">Mês</label>
-                          <select 
-                            value={tableConfig.date?.month ?? 1}
-                            onChange={async (e) => {
-                              try {
-                                await updateTableConfig(activeCampaignId!, { 
-                                  date: { ...(tableConfig.date || { day: 1, month: 1, year: 2024 }), month: parseInt(e.target.value) || 1 } 
-                                });
-                              } catch (err) {
-                                showToast("Erro ao salvar", "error");
-                              }
-                            }}
-                            className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white focus:border-cyan-500/50 outline-none transition-colors appearance-none"
+                      <div className="mt-6 pt-6 border-t border-zinc-900/50">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                          <div>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-300 flex items-center gap-1.5">
+                              <Clock size={12} className="text-cyan-400" /> Ajustar Data e Horário da Campanha
+                            </span>
+                            <p className="text-[9px] text-zinc-500 font-medium">
+                              Edite qualquer campo e pressione Enter, mude o foco ou clique em Salvar.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveDateTime()}
+                            disabled={isSavingDateTime}
+                            className="px-4 py-1.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-cyan-950/40 cursor-pointer self-start sm:self-auto"
                           >
-                            {Array.from({ length: 12 }).map((_, i) => (
-                              <option key={i + 1} value={i + 1} className="bg-zinc-900 text-white">
-                                {new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date(2024, i, 1))}
-                              </option>
-                            ))}
-                          </select>
+                            <Check size={13} /> {isSavingDateTime ? "Salvando..." : "Salvar Data & Hora"}
+                          </button>
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest ml-1">Ano (Era)</label>
-                          <input 
-                            type="number"
-                            value={localYear}
-                            onChange={(e) => setLocalYear(e.target.value)}
-                            onBlur={async () => {
-                              try {
-                                await updateTableConfig(activeCampaignId!, { 
-                                  date: { ...(tableConfig.date || { day: 1, month: 1, year: 2024 }), year: parseInt(localYear) || 0 } 
-                                });
-                              } catch (err) {
-                                showToast("Erro ao salvar", "error");
-                              }
-                            }}
-                            className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white font-mono focus:border-cyan-500/50 outline-none transition-colors"
-                          />
+
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Hora (0-23)</label>
+                            <input 
+                              type="number"
+                              min="0"
+                              max="23"
+                              value={localHour}
+                              onChange={(e) => setLocalHour(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveDateTime(); }}
+                              onBlur={() => handleSaveDateTime()}
+                              className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white font-mono focus:border-cyan-500/50 outline-none transition-colors"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Minuto (0-59)</label>
+                            <input 
+                              type="number"
+                              min="0"
+                              max="59"
+                              value={localMinute}
+                              onChange={(e) => setLocalMinute(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveDateTime(); }}
+                              onBlur={() => handleSaveDateTime()}
+                              className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white font-mono focus:border-cyan-500/50 outline-none transition-colors"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Dia</label>
+                            <input 
+                              type="number"
+                              min="1"
+                              max={getDaysInMonth(localMonth, parseInt(localYear) || 2024)}
+                              value={localDay}
+                              onChange={(e) => setLocalDay(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveDateTime(); }}
+                              onBlur={() => handleSaveDateTime()}
+                              className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white font-mono focus:border-cyan-500/50 outline-none transition-colors"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Mês</label>
+                            <div className="relative">
+                              <select 
+                                value={localMonth}
+                                onChange={(e) => {
+                                  const newMonth = parseInt(e.target.value) || 1;
+                                  setLocalMonth(newMonth);
+                                  handleSaveDateTime({ month: newMonth });
+                                }}
+                                className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 pr-8 text-sm text-white focus:border-cyan-500/50 outline-none transition-colors appearance-none cursor-pointer"
+                              >
+                                {MONTHS.map((monthName, i) => (
+                                  <option key={i + 1} value={i + 1} className="bg-zinc-900 text-white">
+                                    {monthName}
+                                  </option>
+                                ))}
+                              </select>
+                              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400">
+                                <ChevronDown size={14} />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="space-y-1 col-span-2 sm:col-span-1">
+                            <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest ml-1">Ano (Era)</label>
+                            <input 
+                              type="number"
+                              value={localYear}
+                              onChange={(e) => setLocalYear(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveDateTime(); }}
+                              onBlur={() => handleSaveDateTime()}
+                              className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white font-mono focus:border-cyan-500/50 outline-none transition-colors"
+                            />
+                          </div>
                         </div>
                       </div>
 
@@ -11270,9 +11314,10 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                                 <button
                                   key={day}
                                   onClick={() => setSelectedCalendarDay(day)}
-                                  title={`${day} de ${MONTHS[calendarViewMonth - 1]} de ${calendarViewYear} - ${moon.name}: ${moon.description}${hasEvents ? ` (${dayEvents.length} evento(s))` : ''}`}
+                                  onDoubleClick={() => handleSaveDateTime({ day, month: calendarViewMonth, year: calendarViewYear })}
+                                  title={`${day} de ${MONTHS[calendarViewMonth - 1]} de ${calendarViewYear} - ${moon.name}: ${moon.description}${hasEvents ? ` (${dayEvents.length} evento(s))` : ''} • Duplo clique para definir como data atual do jogo`}
                                   className={cn(
-                                    "aspect-square rounded-lg text-[10px] font-bold flex flex-col items-center justify-between p-1 relative transition-all border group",
+                                    "aspect-square rounded-lg text-[10px] font-bold flex flex-col items-center justify-between p-1 relative transition-all border group cursor-pointer",
                                     isToday 
                                       ? "bg-amber-500/20 border-amber-500 text-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.2)]" 
                                       : isSelected
@@ -11302,24 +11347,45 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                         <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 space-y-4">
                           {selectedCalendarDay ? (
                             <>
-                              <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-zinc-800">
                                 <div>
-                                  <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest block">
-                                    Eventos: {selectedCalendarDay} de {MONTHS[calendarViewMonth - 1]} ({calendarViewYear})
+                                  <span className="text-[11px] font-black text-amber-500 uppercase tracking-widest block">
+                                    Dia {selectedCalendarDay} de {MONTHS[calendarViewMonth - 1]} ({calendarViewYear})
                                   </span>
-                                  {tableConfig.date?.day === selectedCalendarDay && tableConfig.date?.month === calendarViewMonth && (tableConfig.date?.year === undefined || tableConfig.date?.year === calendarViewYear) && (
-                                    <span className="text-[8px] font-black uppercase text-cyan-400 tracking-wider">
-                                      ★ Dia Atual da Campanha
-                                    </span>
-                                  )}
+                                  <span className="text-[9px] text-zinc-500 font-medium">
+                                    {getMoonPhase(selectedCalendarDay, calendarViewMonth, calendarViewYear).name}
+                                  </span>
                                 </div>
-                                <button 
-                                  onClick={() => setSelectedCalendarDay(null)} 
-                                  className="text-zinc-600 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition-colors"
-                                  title="Ver todos do mês"
-                                >
-                                  <X size={14} />
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  {tableConfig.date?.day === selectedCalendarDay && tableConfig.date?.month === calendarViewMonth && (tableConfig.date?.year === undefined || tableConfig.date?.year === calendarViewYear) ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[9px] font-black uppercase tracking-wider">
+                                      ★ Em Jogo
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleSaveDateTime({
+                                          day: selectedCalendarDay,
+                                          month: calendarViewMonth,
+                                          year: calendarViewYear
+                                        });
+                                      }}
+                                      disabled={isSavingDateTime}
+                                      className="px-3 py-1 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-black rounded-lg text-[9px] uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer shadow-md"
+                                      title={`Definir ${selectedCalendarDay} de ${MONTHS[calendarViewMonth - 1]} de ${calendarViewYear} como data atual da campanha`}
+                                    >
+                                      <Check size={11} /> Definir como Data do Jogo
+                                    </button>
+                                  )}
+                                  <button 
+                                    onClick={() => setSelectedCalendarDay(null)} 
+                                    className="text-zinc-600 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
+                                    title="Ver todos do mês"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
                               </div>
 
                               <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">

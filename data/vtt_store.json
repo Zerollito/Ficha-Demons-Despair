@@ -82,7 +82,13 @@
       "gridSize": 50,
       "showGrid": true,
       "masterFog": false,
-      "mapUrl": ""
+      "mapUrl": "",
+      "date": {
+        "day": 12,
+        "month": 7,
+        "year": 1524
+      },
+      "updatedAt": "2026-10-19T00:39:16.747Z"
     }
   },
   "camp_gjg9xdodv": {
