@@ -13,6 +13,7 @@ import { cn } from '../lib/utils';
 import { 
   db, 
   auth, 
+  supabase,
   isFirebaseQuotaExceeded, 
   handleFirestoreError, 
   OperationType, 
@@ -39,13 +40,34 @@ import { compressImageDataUrl } from '../lib/imageUtils';
 import { DiceImage } from './ui/DiceImage';
 import { DEFAULT_MONSTERS } from '../constants/defaultMonsters';
 
+const normalizeMonsterName = (str: string): string => {
+  return (str || '')
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s*\([^)]*\)/g, "")
+    .replace(/\s*#?\d+$/, "")
+    .trim();
+};
+
 export const getMonsterImageByName = (name?: string): string => {
   if (!name) return '';
-  const cleanName = name.toLowerCase().trim();
+  const cleanName = normalizeMonsterName(name);
+  if (!cleanName) return '';
+
   const found = DEFAULT_MONSTERS.find(m => {
-    const mName = m.name.toLowerCase();
-    return mName === cleanName || mName.includes(cleanName) || cleanName.includes(mName.split('/')[0].trim());
+    const rawMName = m.name.toLowerCase();
+    const cleanMName = normalizeMonsterName(m.name);
+    const mAliases = rawMName.split('/').map(part => normalizeMonsterName(part));
+
+    if (cleanMName === cleanName || mAliases.includes(cleanName)) return true;
+    if (cleanName.includes(cleanMName) || cleanMName.includes(cleanName)) return true;
+    for (const alias of mAliases) {
+      if (alias && (cleanName.includes(alias) || alias.includes(cleanName))) return true;
+    }
+    return false;
   });
+
   return found?.imageUrl || '';
 };
 
@@ -53,9 +75,14 @@ export const formatTokenImageUrl = (raw?: string): string => {
   if (!raw || typeof raw !== 'string') return '';
   const trimmed = raw.trim();
   if (!trimmed) return '';
-  if (trimmed.startsWith('data:')) return trimmed;
+  if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) return trimmed;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+
   let formatted = trimmed;
-  if (!formatted.startsWith('http://') && !formatted.startsWith('https://') && !formatted.startsWith('/')) {
+  if (formatted.startsWith('./')) {
+    formatted = formatted.substring(2);
+  }
+  if (!formatted.startsWith('/')) {
     formatted = '/' + formatted;
   }
   try {
@@ -63,6 +90,84 @@ export const formatTokenImageUrl = (raw?: string): string => {
   } catch {
     return formatted;
   }
+};
+
+const tokenImageMemoryCache = new Map<string, HTMLImageElement>();
+
+export const useTokenImage = (rawUrl?: string): [HTMLImageElement | null, 'loading' | 'loaded' | 'failed'] => {
+  const url = formatTokenImageUrl(rawUrl);
+  const [image, setImage] = useState<HTMLImageElement | null>(() => {
+    if (!url) return null;
+    return tokenImageMemoryCache.get(url) || null;
+  });
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'failed'>(() => {
+    if (!url) return 'failed';
+    return tokenImageMemoryCache.has(url) ? 'loaded' : 'loading';
+  });
+
+  useEffect(() => {
+    if (!url) {
+      setImage(null);
+      setStatus('failed');
+      return;
+    }
+
+    if (tokenImageMemoryCache.has(url)) {
+      setImage(tokenImageMemoryCache.get(url)!);
+      setStatus('loaded');
+      return;
+    }
+
+    let isCurrent = true;
+    setStatus('loading');
+
+    const tryLoad = (targetSrc: string) => {
+      const img = new Image();
+
+      img.onload = () => {
+        if (!isCurrent) return;
+        tokenImageMemoryCache.set(url, img);
+        setImage(img);
+        setStatus('loaded');
+      };
+
+      img.onerror = () => {
+        if (!isCurrent) return;
+        // If relative URL failed (e.g. /Armis%20aranea.jpg), retry with origin prefix
+        if (!targetSrc.startsWith('data:') && !targetSrc.startsWith('blob:') && !targetSrc.startsWith('http')) {
+          const fallbackOrigin = typeof window !== 'undefined' ? `${window.location.origin}${targetSrc.startsWith('/') ? '' : '/'}${targetSrc}` : '';
+          if (fallbackOrigin && fallbackOrigin !== targetSrc) {
+            const retryImg = new Image();
+            retryImg.onload = () => {
+              if (!isCurrent) return;
+              tokenImageMemoryCache.set(url, retryImg);
+              setImage(retryImg);
+              setStatus('loaded');
+            };
+            retryImg.onerror = () => {
+              if (!isCurrent) return;
+              setImage(null);
+              setStatus('failed');
+            };
+            retryImg.src = fallbackOrigin;
+            return;
+          }
+        }
+        setImage(null);
+        setStatus('failed');
+      };
+
+      img.src = targetSrc;
+    };
+
+    tryLoad(url);
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [url]);
+
+  return [image, status];
 };
 
 const updateDoc = async (ref: any, data: any) => {
@@ -186,9 +291,8 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, onRotate, isAtt
   fetchedCharacters?: Record<string, Character>;
 }) => {
   const char = token.characterId ? (availableCharacters.find(c => c.id === token.characterId) || fetchedCharacters?.[token.characterId]) : null;
-  const rawImageUrl = token.imageUrl || char?.imagem || (token.type === 'creature' ? getMonsterImageByName(token.name) : '') || '';
-  const imageUrlToUse = formatTokenImageUrl(rawImageUrl);
-  const [image] = useImage(imageUrlToUse, imageUrlToUse.startsWith('http') ? 'anonymous' : undefined);
+  const rawImageUrl = token.imageUrl || char?.imagem || getMonsterImageByName(token.name) || '';
+  const [image] = useTokenImage(rawImageUrl);
   const radius = (token.size * gridSize) / 2;
   const [dragDist, setDragDist] = useState(0);
   const lastPos = useRef({ x: token.x, y: token.y });
@@ -699,11 +803,25 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, onRotate, isAtt
             height={token.size * gridSize}
           />
         ) : (
-          <Rect
-            width={token.size * gridSize}
-            height={token.size * gridSize}
-            fill={isDead ? '#444' : (token.color || (token.type === 'character' ? '#3b82f6' : '#ef4444'))}
-          />
+          <Group>
+            <Rect
+              width={token.size * gridSize}
+              height={token.size * gridSize}
+              fill={isDead ? '#333333' : (token.color || (token.type === 'character' ? '#1e3a8a' : '#7f1d1d'))}
+            />
+            <Text
+              text={(token.name || '?').trim().slice(0, 2).toUpperCase()}
+              fontSize={Math.max(12, Math.floor(radius * 0.7))}
+              fontStyle="bold"
+              fill="#ffffff"
+              align="center"
+              width={token.size * gridSize}
+              x={0}
+              y={radius - Math.max(6, Math.floor(radius * 0.35))}
+              shadowColor="black"
+              shadowBlur={3}
+            />
+          </Group>
         )}
 
         {isDead && (
@@ -1016,14 +1134,57 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       if (cid && !availableCharacters.some(c => c.id === cid) && !fetchedCharacters[cid] && !fetchingIdsRef.current.has(cid)) {
         fetchingIdsRef.current.add(cid);
         try {
-          console.log(`🔍 [VTTBoard] Auto-buscando ficha ausente para o token ${token.name} (${cid})`);
-          const charDoc = await getDoc(doc(db, 'characters', cid));
-          if (charDoc.exists()) {
-            const docData = charDoc.data();
-            const charData = docData?.data || docData;
-            const data = sanitizeLocalCharacter(charData);
-            setFetchedCharacters(prev => ({ ...prev, [cid]: data }));
+          // 1. Try local campaign character cache first
+          const localCampaignChars = safeLocalStorageGetItem(`campaign_characters_${campaignId}`);
+          if (localCampaignChars) {
+            try {
+              const parsedList = JSON.parse(localCampaignChars);
+              const found = Array.isArray(parsedList) && parsedList.find((c: any) => c.id === cid);
+              if (found) {
+                setFetchedCharacters(prev => ({ ...prev, [cid]: sanitizeLocalCharacter(found) }));
+                return;
+              }
+            } catch {}
           }
+
+          // 2. Try fetching from server campaign characters endpoint
+          try {
+            const resp = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/characters`);
+            if (resp.ok) {
+              const data = await resp.json();
+              const chars = data.characters || (Array.isArray(data) ? data : []);
+              const found = Array.isArray(chars) && chars.find((c: any) => c.id === cid);
+              if (found) {
+                setFetchedCharacters(prev => ({ ...prev, [cid]: sanitizeLocalCharacter(found) }));
+                return;
+              }
+            }
+          } catch {}
+
+          // 3. Try Supabase
+          try {
+            const { data: supaChar } = await supabase
+              .from('characters')
+              .select('*')
+              .eq('id', cid)
+              .single();
+            if (supaChar) {
+              const charData = supaChar.data || supaChar;
+              setFetchedCharacters(prev => ({ ...prev, [cid]: sanitizeLocalCharacter(charData) }));
+              return;
+            }
+          } catch {}
+
+          // 4. Firestore fallback if available
+          try {
+            const charDoc = await getDoc(doc(db, 'characters', cid));
+            if (charDoc.exists()) {
+              const docData = charDoc.data();
+              const charData = docData?.data || docData;
+              const data = sanitizeLocalCharacter(charData);
+              setFetchedCharacters(prev => ({ ...prev, [cid]: data }));
+            }
+          } catch {}
         } catch (err) {
           console.error(`Erro ao buscar ficha ${cid} para token ${token.name}:`, err);
         } finally {
@@ -1031,7 +1192,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         }
       }
     });
-  }, [tokens, availableCharacters, fetchedCharacters]);
+  }, [tokens, availableCharacters, fetchedCharacters, campaignId]);
 
   // Mobile sidebar mutual exclusion
   useEffect(() => {
@@ -4325,13 +4486,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     const monsterId = generateId();
                     
                     // Create a character sheet for the monster so it's lootable
+                    const resolvedMonsterImage = monster.imageUrl || getMonsterImageByName(monster.name);
                     const monsterChar: Character = {
                       id: monsterId,
                       campaignId: campaignId,
                       userId: auth.currentUser?.uid || 'monster',
                       nome: monster.name,
                       etnia: 'Monstro',
-                      imagem: monster.imageUrl,
+                      imagem: resolvedMonsterImage,
                       vidaAtual: parseNum(monster.maxHp),
                       manaAtual: 0,
                       sanidadeAtual: 0,
@@ -4419,7 +4581,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       x: centerX,
                       y: centerY,
                       size: inputCreatureSize,
-                      imageUrl: monster.imageUrl,
+                      imageUrl: resolvedMonsterImage,
                       type: 'creature',
                       characterId: monsterId,
                       hp: parseNum(monster.maxHp),

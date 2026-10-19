@@ -284,27 +284,37 @@ async function startServer() {
 
   // VTT Table persistence store (tokens and map configs for real-time sub-second sync)
   const VTT_STORE_PATH = path.join(process.cwd(), "data", "vtt_store.json");
+  let vttStoreCache: Record<string, { tokens?: any[]; config?: any }> | null = null;
+  let saveVttTimer: any = null;
 
   function getVttStore(): Record<string, { tokens?: any[]; config?: any }> {
+    if (vttStoreCache) return vttStoreCache;
     try {
       if (fs.existsSync(VTT_STORE_PATH)) {
         const raw = fs.readFileSync(VTT_STORE_PATH, "utf-8");
-        return JSON.parse(raw) || {};
+        vttStoreCache = JSON.parse(raw) || {};
+        return vttStoreCache!;
       }
     } catch (e) {
       console.error("[VttStore] Read error:", e);
     }
-    return {};
+    vttStoreCache = {};
+    return vttStoreCache;
   }
 
   function saveVttStore(data: Record<string, { tokens?: any[]; config?: any }>) {
-    try {
-      const dir = path.dirname(VTT_STORE_PATH);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(VTT_STORE_PATH, JSON.stringify(data, null, 2), "utf-8");
-    } catch (e) {
-      console.error("[VttStore] Save error:", e);
-    }
+    vttStoreCache = data;
+    // Debounce disk writes to never block the event loop or real-time broadcasts
+    if (saveVttTimer) clearTimeout(saveVttTimer);
+    saveVttTimer = setTimeout(async () => {
+      try {
+        const dir = path.dirname(VTT_STORE_PATH);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        await fs.promises.writeFile(VTT_STORE_PATH, JSON.stringify(data, null, 2), "utf-8");
+      } catch (e) {
+        console.error("[VttStore] Save error:", e);
+      }
+    }, 250);
   }
 
   const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM7JyUXp7fZ83VvlN-BRwsPIgtcqbyUTR21s-TqF4";
@@ -408,11 +418,12 @@ async function startServer() {
       ws.on('message', (raw) => {
         try {
           const msg = JSON.parse(raw.toString());
-          if (msg.type === 'token_move' || msg.type === 'update_tokens') {
+          const currentStore = getVttStore();
+          const currentCampVtt = currentStore[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000" } };
+
+          if (msg.type === 'token_move' || msg.type === 'update_tokens' || msg.type === 'token_add' || msg.type === 'add_token') {
             const incomingTokens = msg.tokens || (msg.token ? [msg.token] : []);
             if (incomingTokens.length > 0) {
-              const currentStore = getVttStore();
-              const currentCampVtt = currentStore[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000" } };
               let list = currentCampVtt.tokens || [];
               for (const tk of incomingTokens) {
                 if (!tk || !tk.id) continue;
@@ -420,18 +431,64 @@ async function startServer() {
               }
               currentCampVtt.tokens = list;
               currentStore[campaignId] = currentCampVtt;
-              saveVttStore(currentStore);
+
+              // 1. Instant zero-delay broadcast to all other players (< 2ms)
               broadcastVtt(campaignId, { type: "vtt_tokens", tokens: list, config: currentCampVtt.config });
+
+              // 2. Debounced asynchronous file persist
+              saveVttStore(currentStore);
+
+              // 3. Background mirror to Supabase
+              try {
+                for (const tk of incomingTokens) {
+                  if (!tk || !tk.id) continue;
+                  fetch(`${targetSupabase}/rest/v1/tokens`, {
+                    method: "POST",
+                    headers: {
+                      apikey: SERVICE_ROLE_KEY,
+                      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+                      "Content-Type": "application/json",
+                      Prefer: "resolution=merge-duplicates"
+                    },
+                    body: JSON.stringify({
+                      id: tk.id,
+                      campaign_id: campaignId,
+                      data: tk,
+                      updated_at: new Date().toISOString()
+                    })
+                  }).catch(() => {});
+                }
+              } catch {}
             }
+          } else if (msg.type === 'token_remove' || msg.type === 'remove_token') {
+            const tokenId = msg.tokenId || (msg.token && msg.token.id);
+            if (tokenId) {
+              currentCampVtt.tokens = (currentCampVtt.tokens || []).filter((t: any) => t.id !== tokenId);
+              currentStore[campaignId] = currentCampVtt;
+
+              broadcastVtt(campaignId, { type: "vtt_tokens", tokens: currentCampVtt.tokens, config: currentCampVtt.config });
+              saveVttStore(currentStore);
+
+              try {
+                fetch(`${targetSupabase}/rest/v1/tokens?id=eq.${encodeURIComponent(tokenId)}`, {
+                  method: "DELETE",
+                  headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` }
+                }).catch(() => {});
+              } catch {}
+            }
+          } else if (msg.type === 'clear_tokens') {
+            currentCampVtt.tokens = [];
+            currentStore[campaignId] = currentCampVtt;
+            broadcastVtt(campaignId, { type: "vtt_tokens", tokens: [], config: currentCampVtt.config });
+            saveVttStore(currentStore);
           } else if (msg.type === 'update_config') {
             if (msg.config) {
-              const currentStore = getVttStore();
-              const currentCampVtt = currentStore[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000" } };
               const updatedConfig = { ...(currentCampVtt.config || {}), ...msg.config, updatedAt: new Date().toISOString() };
               currentCampVtt.config = updatedConfig;
               currentStore[campaignId] = currentCampVtt;
-              saveVttStore(currentStore);
+
               broadcastVtt(campaignId, { type: "vtt_config", tokens: currentCampVtt.tokens || [], config: updatedConfig });
+              saveVttStore(currentStore);
             }
           }
         } catch (err) {
@@ -1532,6 +1589,16 @@ Escreva o relatório em português técnico, refinado, mas muito prático e pres
       res.status(500).json({ error: errorMsg });
     }
   });
+
+  // Explicitly serve /public directory with caching & CORS headers so all monster and token images load reliably
+  const publicPath = path.join(process.cwd(), 'public');
+  app.use(express.static(publicPath, {
+    maxAge: '1h',
+    setHeaders: (res) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    }
+  }));
 
   // Production / Static
   if (process.env.NODE_ENV === "production") {

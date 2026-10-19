@@ -594,7 +594,10 @@ export const updateTokenPosition = async (
   const matchedToken = updatedTokens.find(t => t.id === tokenId);
   if (!matchedToken) return;
 
-  // Post to backend server VTT API for instant sub-second sync across devices
+  // 1. Instant sub-5ms duplex WebSocket transmission to all peers
+  sendVttRealtimeMessage(campaignId, { type: 'token_move', token: matchedToken, tokens: updatedTokens });
+
+  // 2. Post to backend server VTT API as fast HTTP backup
   try {
     fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt/tokens`, {
       method: "POST",
@@ -603,22 +606,23 @@ export const updateTokenPosition = async (
     }).catch(() => {});
   } catch (e) {}
 
+  // 3. Background asynchronous write to Supabase (never block UI execution)
   try {
-    const { error } = await supabase
+    supabase
       .from('tokens')
       .upsert({
         id: tokenId,
         campaign_id: campaignId,
         data: matchedToken,
         updated_at: new Date().toISOString()
+      })
+      .then(({ error }) => {
+        if (error) console.error("[Supabase updateTokenPosition] Error:", error);
+      })
+      .catch((err) => {
+        console.error("[Supabase updateTokenPosition] Exception:", err);
       });
-
-    if (error) {
-      console.error("[Supabase updateTokenPosition] Error:", error);
-    }
-  } catch (error) {
-    console.error("[Supabase updateTokenPosition] Exception:", error);
-  }
+  } catch (e) {}
 };
 
 export const updateMultipleTokens = async (
@@ -658,6 +662,10 @@ export const updateMultipleTokens = async (
   saveLocalTokens(campaignId, updatedTokens);
   notifyTokenListeners(campaignId, updatedTokens);
 
+  // 1. Instant WebSocket push
+  sendVttRealtimeMessage(campaignId, { type: 'update_tokens', tokens: updatedTokens });
+
+  // 2. HTTP push in background
   try {
     fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt/tokens`, {
       method: "POST",
@@ -666,20 +674,21 @@ export const updateMultipleTokens = async (
     }).catch(() => {});
   } catch (e) {}
 
+  // 3. Background parallel Supabase sync
   try {
-    for (const { id } of tokenUpdates) {
+    const upserts = tokenUpdates.map(({ id }) => {
       const matchedToken = baseMap.get(id);
-      if (matchedToken) {
-        await supabase
-          .from('tokens')
-          .upsert({
-            id: id,
-            campaign_id: campaignId,
-            data: matchedToken,
-            updated_at: new Date().toISOString()
-          });
-      }
-    }
+      if (!matchedToken) return Promise.resolve();
+      return supabase
+        .from('tokens')
+        .upsert({
+          id: id,
+          campaign_id: campaignId,
+          data: matchedToken,
+          updated_at: new Date().toISOString()
+        });
+    });
+    Promise.allSettled(upserts).catch(() => {});
   } catch (error) {
     console.error("[Supabase updateMultipleTokens] Error:", error);
   }
@@ -692,6 +701,10 @@ export const addToken = async (campaignId: string, token: TableToken) => {
   saveLocalTokens(campaignId, updatedTokens);
   notifyTokenListeners(campaignId, updatedTokens);
 
+  // 1. Instant WebSocket broadcast to other players
+  sendVttRealtimeMessage(campaignId, { type: 'token_add', token, tokens: updatedTokens });
+
+  // 2. Server persistence backup
   try {
     fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt/tokens`, {
       method: "POST",
@@ -700,22 +713,23 @@ export const addToken = async (campaignId: string, token: TableToken) => {
     }).catch(() => {});
   } catch (e) {}
 
+  // 3. Supabase background sync
   try {
-    const { error } = await supabase
+    supabase
       .from('tokens')
       .upsert({
         id: token.id,
         campaign_id: campaignId,
         data: token,
         updated_at: new Date().toISOString()
+      })
+      .then(({ error }) => {
+        if (error) console.error("[Supabase addToken] Error:", error);
+      })
+      .catch((err) => {
+        console.error("[Supabase addToken] Exception:", err);
       });
-
-    if (error) {
-      console.error("[Supabase addToken] Error:", error);
-    }
-  } catch (error) {
-    console.error("[Supabase addToken] Exception:", error);
-  }
+  } catch (e) {}
 };
 
 export const removeToken = async (campaignId: string, tokenId: string) => {
@@ -725,24 +739,29 @@ export const removeToken = async (campaignId: string, tokenId: string) => {
   saveLocalTokens(campaignId, updatedTokens);
   notifyTokenListeners(campaignId, updatedTokens);
 
+  // 1. Instant WebSocket broadcast to other players
+  sendVttRealtimeMessage(campaignId, { type: 'token_remove', tokenId, tokens: updatedTokens });
+
+  // 2. Server delete
   try {
     fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt/tokens/${encodeURIComponent(tokenId)}`, {
       method: "DELETE"
     }).catch(() => {});
   } catch (e) {}
 
+  // 3. Supabase background delete
   try {
-    const { error } = await supabase
+    supabase
       .from('tokens')
       .delete()
-      .eq('id', tokenId);
-
-    if (error) {
-      console.error("[Supabase removeToken] Error:", error);
-    }
-  } catch (error) {
-    console.error("[Supabase removeToken] Exception:", error);
-  }
+      .eq('id', tokenId)
+      .then(({ error }) => {
+        if (error) console.error("[Supabase removeToken] Error:", error);
+      })
+      .catch((err) => {
+        console.error("[Supabase removeToken] Exception:", err);
+      });
+  } catch (e) {}
 };
 
 export const updateTableConfig = async (campaignId: string, config: Partial<TableConfig>) => {
@@ -755,7 +774,10 @@ export const updateTableConfig = async (campaignId: string, config: Partial<Tabl
   saveLocalConfig(campaignId, updatedConfig);
   notifyConfigListeners(campaignId, updatedConfig);
   
-  // Persist directly to server VTT store
+  // 1. Instant WebSocket push
+  sendVttRealtimeMessage(campaignId, { type: 'update_config', config: updatedConfig });
+
+  // 2. Persist directly to server VTT store as backup
   try {
     fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt/config`, {
       method: "POST",

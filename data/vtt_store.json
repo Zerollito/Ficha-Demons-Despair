@@ -41,5 +41,23 @@
       "weather": "Céu limpo",
       "gridColor": "#000000"
     }
+  },
+  "test-broad": {
+    "tokens": [
+      {
+        "id": "tk1",
+        "name": "Test Token",
+        "x": 200,
+        "y": 300,
+        "size": 1
+      }
+    ],
+    "config": {
+      "gridSize": 50,
+      "showGrid": true,
+      "masterFog": false,
+      "mapUrl": "",
+      "gridColor": "#000000"
+    }
   }
 }
