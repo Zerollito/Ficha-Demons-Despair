@@ -4,7 +4,7 @@ import { Stage, Layer, Image as KonvaImage, Rect, Circle, Line, Text, Group, Reg
 import useImage from 'use-image';
 import Konva from 'konva';
 import { TableToken, TableConfig, Character, MonsterAction, NegativeEffect } from '../types';
-import { updateTokenPosition, updateMultipleTokens, addCombatLog, subscribeToCombatLogs, broadcastTokenLivePosition } from '../services/vttService';
+import { updateTokenPosition, updateMultipleTokens, addCombatLog, subscribeToCombatLogs, broadcastTokenLivePosition, setActivelyDraggedToken } from '../services/vttService';
 import { saveCharacterToFirestore } from '../services/characterService';
 import { optimizeCharactersForCache } from '../services/campaignService';
 import { Shield, User, UserPlus, Trash2, Plus, Settings, ZoomIn, ZoomOut, Maximize, Eye, EyeOff, Upload, ChevronLeft, ChevronRight, Skull, Info, Heart, Minus, FileText, Zap, Dices, Swords, AlertTriangle, RefreshCw, Calendar, Clock, Sun, Cloud, Wind, Snowflake, Target, X, Package, PawPrint, ChevronUp, ChevronDown, GripHorizontal, RotateCw, RotateCcw } from 'lucide-react';
@@ -277,9 +277,10 @@ const GRID_COLORS = [
   { name: 'Vermelho', value: '#ef4444' },
 ];
 
-const Token = React.memo(({ token, gridSize, onDragEnd, onDragMove, onClick, onRotate, isAttacker, isTarget, isSelected, isMaster, availableCharacters, fetchedCharacters }: { 
+const Token = React.memo(({ token, gridSize, onDragStart, onDragEnd, onDragMove, onClick, onRotate, isAttacker, isTarget, isSelected, isMaster, availableCharacters, fetchedCharacters }: { 
   token: TableToken; 
   gridSize: number; 
+  onDragStart?: (id: string) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
   onDragMove?: (id: string, x: number, y: number) => void;
   onClick?: () => void;
@@ -295,7 +296,9 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onDragMove, onClick, onR
   const rawImageUrl = token.imageUrl || char?.imagem || getMonsterImageByName(token.name) || '';
   const [image] = useTokenImage(rawImageUrl);
   const radius = (token.size * gridSize) / 2;
-  const [dragDist, setDragDist] = useState(0);
+  const isDraggingSelf = useRef(false);
+  const dragDistRef = useRef(0);
+  const distTextRef = useRef<any>(null);
   const lastPos = useRef({ x: token.x, y: token.y });
 
   if (token.type === 'aoe') {
@@ -338,8 +341,14 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onDragMove, onClick, onR
         offsetX={0}
         offsetY={0}
         onDragStart={(e) => {
+          isDraggingSelf.current = true;
           lastPos.current = { x: e.target.x(), y: e.target.y() };
-          setDragDist(0);
+          dragDistRef.current = 0;
+          if (distTextRef.current) {
+            distTextRef.current.text('0.0m');
+            distTextRef.current.visible(true);
+          }
+          if (onDragStart) onDragStart(token.id);
         }}
         onDragMove={(e) => {
           const nx = e.target.x();
@@ -348,15 +357,23 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onDragMove, onClick, onR
           const dy = ny - lastPos.current.y;
           const d = Math.sqrt(dx * dx + dy * dy);
           if (d > 1) {
-            setDragDist(prev => prev + (d / gridSize));
+            dragDistRef.current += (d / gridSize);
             lastPos.current = { x: nx, y: ny };
+            if (distTextRef.current) {
+              distTextRef.current.text(`${dragDistRef.current.toFixed(1)}m`);
+              distTextRef.current.visible(true);
+            }
           }
           if (onDragMove) {
             onDragMove(token.id, nx, ny);
           }
         }}
         onDragEnd={(e) => {
-          setDragDist(0);
+          isDraggingSelf.current = false;
+          if (distTextRef.current) {
+            distTextRef.current.visible(false);
+          }
+          dragDistRef.current = 0;
           onDragEnd(token.id, e.target.x(), e.target.y());
         }}
         onClick={(e) => {
@@ -687,20 +704,20 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onDragMove, onClick, onR
           );
         })()}
 
-        {dragDist > 0 && (
-          <Text
-            text={`${dragDist.toFixed(1)}m`}
-            fontSize={12}
-            fontStyle="bold"
-            fill="#3b82f6"
-            align="center"
-            width={120}
-            x={-60}
-            y={handleY - 14}
-            shadowColor="black"
-            shadowBlur={4}
-          />
-        )}
+        <Text
+          ref={distTextRef}
+          visible={false}
+          text="0.0m"
+          fontSize={12}
+          fontStyle="bold"
+          fill="#3b82f6"
+          align="center"
+          width={120}
+          x={-60}
+          y={handleY - 14}
+          shadowColor="black"
+          shadowBlur={4}
+        />
 
         <Text
           text={token.name}
@@ -759,8 +776,15 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onDragMove, onClick, onR
       offsetX={radius}
       offsetY={radius}
       onDragStart={(e) => {
+        isDraggingSelf.current = true;
         lastPos.current = { x: e.target.x(), y: e.target.y() };
-        setDragDist(0);
+        dragDistRef.current = 0;
+        if (distTextRef.current) {
+          distTextRef.current.text('0.0m');
+          distTextRef.current.fill('#3b82f6');
+          distTextRef.current.visible(true);
+        }
+        if (onDragStart) onDragStart(token.id);
       }}
       onDragMove={(e) => {
         const nx = e.target.x();
@@ -770,15 +794,24 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onDragMove, onClick, onR
         const d = Math.sqrt(dx * dx + dy * dy);
         
         if (d > 1) { // Threshold to avoid noise
-          setDragDist(prev => prev + (d / gridSize));
+          dragDistRef.current += (d / gridSize);
           lastPos.current = { x: nx, y: ny };
+          if (distTextRef.current) {
+            distTextRef.current.text(`${dragDistRef.current.toFixed(1)}m`);
+            distTextRef.current.fill(dragDistRef.current > maxMovement ? "#ef4444" : "#3b82f6");
+            distTextRef.current.visible(true);
+          }
         }
         if (onDragMove) {
           onDragMove(token.id, nx, ny);
         }
       }} 
       onDragEnd={(e) => {
-        setDragDist(0);
+        isDraggingSelf.current = false;
+        if (distTextRef.current) {
+          distTextRef.current.visible(false);
+        }
+        dragDistRef.current = 0;
         onDragEnd(token.id, e.target.x(), e.target.y());
       }}
       onClick={(e) => {
@@ -868,20 +901,20 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onDragMove, onClick, onR
         />
       )}
 
-      {dragDist > 0 && (
-        <Text
-          text={`${dragDist.toFixed(1)}m`}
-          fontSize={16}
-          fontStyle="bold"
-          fill={dragDist > maxMovement ? "#ef4444" : "#3b82f6"}
-          align="center"
-          width={120}
-          x={radius - 60}
-          y={-60}
-          shadowColor="black"
-          shadowBlur={4}
-        />
-      )}
+      <Text
+        ref={distTextRef}
+        visible={false}
+        text="0.0m"
+        fontSize={16}
+        fontStyle="bold"
+        fill="#3b82f6"
+        align="center"
+        width={120}
+        x={radius - 60}
+        y={-60}
+        shadowColor="black"
+        shadowBlur={4}
+      />
 
       <Text
         text={token.name}
@@ -2359,6 +2392,10 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     return () => observer.disconnect();
   }, []);
 
+  const handleTokenDragStart = (id: string) => {
+    setActivelyDraggedToken(id);
+  };
+
   const lastLiveDragTime = useRef<number>(0);
   const handleTokenDragMove = (id: string, x: number, y: number) => {
     const now = Date.now();
@@ -2369,6 +2406,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   };
 
   const handleDragEnd = (id: string, x: number, y: number) => {
+    setActivelyDraggedToken(null);
     const token = tokens.find(t => t.id === id);
     if (token) {
       updateTokenPosition(campaignId, id, { x, y, prevX: token.x, prevY: token.y }, tokens);
@@ -4762,6 +4800,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 key={token.id}
                 token={token}
                 gridSize={gridSize}
+                onDragStart={handleTokenDragStart}
                 onDragEnd={handleDragEnd}
                 onDragMove={handleTokenDragMove}
                 onClick={() => handleTokenClick(token.id)}

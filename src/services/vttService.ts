@@ -237,6 +237,18 @@ interface RealtimeCampaignState {
 
 const activeRealtimeStreams = new Map<string, RealtimeCampaignState>();
 
+const vttClientId = typeof window !== 'undefined'
+  ? ((window as any).__vtt_client_id || ((window as any).__vtt_client_id = Math.random().toString(36).slice(2) + Date.now().toString(36)))
+  : 'srv';
+
+export const getVttClientId = () => vttClientId;
+
+let activelyDraggedTokenId: string | null = null;
+export const setActivelyDraggedToken = (tokenId: string | null) => {
+  activelyDraggedTokenId = tokenId;
+};
+export const getActivelyDraggedToken = () => activelyDraggedTokenId;
+
 export const sendVttRealtimeMessage = (campaignId: string, payload: any) => {
   const entry = activeRealtimeStreams.get(campaignId);
   if (entry && entry.ws && entry.ws.readyState === WebSocket.OPEN) {
@@ -265,6 +277,11 @@ function connectVttStream(campaignId: string) {
     
     // Live Drag Movement from another player: update smoothly in real time (<1ms)
     if (payload.type === 'token_live_move' && payload.tokenId) {
+      // 1. Ignore own echoed packets
+      if (payload.senderId && payload.senderId === vttClientId) return;
+      // 2. Ignore if WE are actively moving this token with mouse/touch to prevent flicker/jitter
+      if (activelyDraggedTokenId && activelyDraggedTokenId === payload.tokenId) return;
+
       const current = getLocalTokens(campaignId);
       const updated = current.map(t => t.id === payload.tokenId ? { ...t, x: payload.x, y: payload.y } : t);
       saveLocalTokens(campaignId, updated);
@@ -273,8 +290,17 @@ function connectVttStream(campaignId: string) {
     }
 
     if (payload.tokens && Array.isArray(payload.tokens)) {
-      saveLocalTokens(campaignId, payload.tokens);
-      notifyTokenListeners(campaignId, payload.tokens);
+      let finalTokens = payload.tokens;
+      // If we are actively dragging a token, do NOT overwrite its local drag position with remote snapshots!
+      if (activelyDraggedTokenId) {
+        const current = getLocalTokens(campaignId);
+        const dragging = current.find(t => t.id === activelyDraggedTokenId);
+        if (dragging) {
+          finalTokens = payload.tokens.map((t: any) => t.id === activelyDraggedTokenId ? { ...t, x: dragging.x, y: dragging.y } : t);
+        }
+      }
+      saveLocalTokens(campaignId, finalTokens);
+      notifyTokenListeners(campaignId, finalTokens);
     }
     if (payload.config && typeof payload.config === 'object') {
       const finalCfg = { gridColor: '#000000', ...payload.config };
@@ -375,9 +401,14 @@ function connectVttStream(campaignId: string) {
   // Start with WebSocket for immediate sub-10ms duplex reactivity
   startWebSocket();
 
-  // Failsafe background polling (every 600ms for high-frequency real-time resilience)
+  // Failsafe background polling (every 4000ms as relaxed fallback, skips when WS is active or during drag)
   if (!entry.pollTimer) {
     entry.pollTimer = setInterval(async () => {
+      // If WebSocket is active and live, skip polling to avoid unnecessary network traffic and state churn
+      if (entry?.ws && entry.ws.readyState === WebSocket.OPEN) return;
+      // If user is currently dragging a token, pause polling so it doesn't disturb interaction
+      if (activelyDraggedTokenId) return;
+
       try {
         const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt`);
         if (res.ok) {
@@ -399,7 +430,7 @@ function connectVttStream(campaignId: string) {
           }
         }
       } catch {}
-    }, 600);
+    }, 4000);
   }
 }
 
@@ -591,7 +622,8 @@ export const broadcastTokenLivePosition = (
     type: 'token_live_move',
     tokenId,
     x,
-    y
+    y,
+    senderId: vttClientId
   });
 
   // 2. Fast HTTP fallback if WebSocket is temporarily buffering
@@ -600,7 +632,7 @@ export const broadcastTokenLivePosition = (
       fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt/live-move`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tokenId, x, y })
+        body: JSON.stringify({ tokenId, x, y, senderId: vttClientId })
       }).catch(() => {});
     } catch {}
   }
