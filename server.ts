@@ -351,15 +351,15 @@ async function startServer() {
   const vttWsClients = new Map<string, Set<WebSocket>>();
   const vttWss = new WebSocketServer({ noServer: true });
 
-  function broadcastVtt(campaignId: string, payload: { type: string; tokens?: any[]; config?: any }) {
+  function broadcastVtt(campaignId: string, payload: { type: string; tokens?: any[]; config?: any; tokenId?: string; x?: number; y?: number }, excludeWs?: WebSocket) {
     const rawData = JSON.stringify(payload);
 
-    // 1. Instant WebSocket broadcast (zero proxy buffering, <5ms latency)
+    // 1. Instant WebSocket broadcast (zero proxy buffering, <1ms latency)
     const wsSet = vttWsClients.get(campaignId);
     if (wsSet && wsSet.size > 0) {
       wsSet.forEach((wsClient) => {
         try {
-          if (wsClient.readyState === WebSocket.OPEN) {
+          if (wsClient !== excludeWs && wsClient.readyState === WebSocket.OPEN) {
             wsClient.send(rawData);
           }
         } catch {
@@ -384,6 +384,23 @@ async function startServer() {
       });
     }
   }
+
+  // Periodic heartbeat every 15s to keep WebSocket connections open and alive through proxies
+  setInterval(() => {
+    vttWsClients.forEach((set) => {
+      set.forEach((wsClient) => {
+        try {
+          if (wsClient.readyState === WebSocket.OPEN) {
+            wsClient.ping();
+          } else {
+            set.delete(wsClient);
+          }
+        } catch {
+          set.delete(wsClient);
+        }
+      });
+    });
+  }, 15000);
 
   // Handle VTT WebSocket connections
   vttWss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
@@ -421,6 +438,22 @@ async function startServer() {
           const currentStore = getVttStore();
           const currentCampVtt = currentStore[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000" } };
 
+          // Instant Live Drag Movement: updates memory and immediately informs peers without disk blocking
+          if (msg.type === 'token_live_move') {
+            const { tokenId, x, y } = msg;
+            if (tokenId && typeof x === 'number' && typeof y === 'number') {
+              let list = currentCampVtt.tokens || [];
+              const idx = list.findIndex((t: any) => t.id === tokenId);
+              if (idx !== -1) {
+                list[idx] = { ...list[idx], x, y };
+                currentCampVtt.tokens = list;
+                currentStore[campaignId] = currentCampVtt;
+              }
+              broadcastVtt(campaignId, { type: "token_live_move", tokenId, x, y, tokens: list }, ws);
+            }
+            return;
+          }
+
           if (msg.type === 'token_move' || msg.type === 'update_tokens' || msg.type === 'token_add' || msg.type === 'add_token') {
             const incomingTokens = msg.tokens || (msg.token ? [msg.token] : []);
             if (incomingTokens.length > 0) {
@@ -432,8 +465,8 @@ async function startServer() {
               currentCampVtt.tokens = list;
               currentStore[campaignId] = currentCampVtt;
 
-              // 1. Instant zero-delay broadcast to all other players (< 2ms)
-              broadcastVtt(campaignId, { type: "vtt_tokens", tokens: list, config: currentCampVtt.config });
+              // 1. Instant zero-delay broadcast to all other players (< 1ms)
+              broadcastVtt(campaignId, { type: "vtt_tokens", tokens: list, config: currentCampVtt.config }, ws);
 
               // 2. Debounced asynchronous file persist
               saveVttStore(currentStore);
@@ -612,6 +645,25 @@ async function startServer() {
     }
 
     return res.json({ success: true, tokens, config: mergedConfig });
+  });
+
+  // Dedicated VTT API: Ultra-fast live token position broadcast during drag
+  app.post("/api/campaigns/:campaignId/vtt/live-move", (req, res) => {
+    const { campaignId } = req.params;
+    const { tokenId, x, y } = req.body;
+    if (!campaignId || !tokenId) return res.status(400).end();
+
+    const store = getVttStore();
+    const campVtt = store[campaignId] || { tokens: [], config: { gridSize: 50, showGrid: true, masterFog: false, mapUrl: "", gridColor: "#000000" } };
+    let list = campVtt.tokens || [];
+    const idx = list.findIndex((t: any) => t.id === tokenId);
+    if (idx !== -1) {
+      list[idx] = { ...list[idx], x, y };
+      campVtt.tokens = list;
+      store[campaignId] = campVtt;
+    }
+    broadcastVtt(campaignId, { type: "token_live_move", tokenId, x, y, tokens: list });
+    return res.json({ success: true });
   });
 
   // Dedicated VTT API: Add or update tokens

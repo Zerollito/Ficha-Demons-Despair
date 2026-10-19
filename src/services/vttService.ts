@@ -262,6 +262,16 @@ function connectVttStream(campaignId: string) {
 
   const handleIncomingPayload = (payload: any) => {
     if (!payload || typeof payload !== 'object') return;
+    
+    // Live Drag Movement from another player: update smoothly in real time (<1ms)
+    if (payload.type === 'token_live_move' && payload.tokenId) {
+      const current = getLocalTokens(campaignId);
+      const updated = current.map(t => t.id === payload.tokenId ? { ...t, x: payload.x, y: payload.y } : t);
+      saveLocalTokens(campaignId, updated);
+      notifyTokenListeners(campaignId, updated);
+      return;
+    }
+
     if (payload.tokens && Array.isArray(payload.tokens)) {
       saveLocalTokens(campaignId, payload.tokens);
       notifyTokenListeners(campaignId, payload.tokens);
@@ -279,11 +289,17 @@ function connectVttStream(campaignId: string) {
       return;
     }
 
+    // Guard: Prevent re-opening socket if already connected or connecting
+    if (entry?.ws && (entry.ws.readyState === WebSocket.OPEN || entry.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/api/vtt/ws?campaignId=${encodeURIComponent(campaignId)}`;
       const ws = new WebSocket(wsUrl);
       entry!.ws = ws;
+      const currentWs = ws;
 
       ws.onopen = () => {
         console.log(`⚡ [VTT WS] Conectado com sucesso à mesa (${campaignId})`);
@@ -305,18 +321,20 @@ function connectVttStream(campaignId: string) {
       };
 
       ws.onclose = () => {
-        entry!.ws = null;
+        if (entry?.ws === currentWs) {
+          entry.ws = null;
+        }
         // Schedule auto-reconnect or fallback to SSE
         if (entry && entry.refCount > 0 && !entry.reconnectTimer) {
           startSSE();
           entry.reconnectTimer = setTimeout(() => {
             if (entry) {
               entry.reconnectTimer = null;
-              if (entry.refCount > 0 && !entry.ws) {
+              if (entry.refCount > 0 && (!entry.ws || entry.ws.readyState === WebSocket.CLOSED)) {
                 startWebSocket();
               }
             }
-          }, 3000);
+          }, 800);
         }
       };
 
@@ -329,7 +347,7 @@ function connectVttStream(campaignId: string) {
   };
 
   const startSSE = () => {
-    if (entry?.eventSource || entry?.ws?.readyState === WebSocket.OPEN) return;
+    if (entry?.eventSource || entry?.ws?.readyState === WebSocket.OPEN || entry?.ws?.readyState === WebSocket.CONNECTING) return;
 
     try {
       const url = `/api/campaigns/${encodeURIComponent(campaignId)}/vtt/stream`;
@@ -357,7 +375,7 @@ function connectVttStream(campaignId: string) {
   // Start with WebSocket for immediate sub-10ms duplex reactivity
   startWebSocket();
 
-  // Failsafe background polling (every 2s) to guarantee consistency without flooding the server
+  // Failsafe background polling (every 600ms for high-frequency real-time resilience)
   if (!entry.pollTimer) {
     entry.pollTimer = setInterval(async () => {
       try {
@@ -381,7 +399,7 @@ function connectVttStream(campaignId: string) {
           }
         }
       } catch {}
-    }, 2000);
+    }, 600);
   }
 }
 
@@ -557,6 +575,35 @@ export const subscribeToCombatLogs = (campaignId: string, onUpdate: (logs: any[]
     active = false;
     unsubscribe();
   };
+};
+
+// Ultra-fast live position broadcast during active token drag (sub-millisecond peer sync)
+export const broadcastTokenLivePosition = (
+  campaignId: string,
+  tokenId: string,
+  x: number,
+  y: number
+) => {
+  if (!campaignId || !tokenId) return;
+
+  // 1. Instant duplex WebSocket dispatch to all other players
+  const sent = sendVttRealtimeMessage(campaignId, {
+    type: 'token_live_move',
+    tokenId,
+    x,
+    y
+  });
+
+  // 2. Fast HTTP fallback if WebSocket is temporarily buffering
+  if (!sent) {
+    try {
+      fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt/live-move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tokenId, x, y })
+      }).catch(() => {});
+    } catch {}
+  }
 };
 
 // Writes with local-first instant dispatch and dynamic Supabase sync

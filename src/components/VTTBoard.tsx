@@ -4,7 +4,7 @@ import { Stage, Layer, Image as KonvaImage, Rect, Circle, Line, Text, Group, Reg
 import useImage from 'use-image';
 import Konva from 'konva';
 import { TableToken, TableConfig, Character, MonsterAction, NegativeEffect } from '../types';
-import { updateTokenPosition, updateMultipleTokens, addCombatLog, subscribeToCombatLogs } from '../services/vttService';
+import { updateTokenPosition, updateMultipleTokens, addCombatLog, subscribeToCombatLogs, broadcastTokenLivePosition } from '../services/vttService';
 import { saveCharacterToFirestore } from '../services/characterService';
 import { optimizeCharactersForCache } from '../services/campaignService';
 import { Shield, User, UserPlus, Trash2, Plus, Settings, ZoomIn, ZoomOut, Maximize, Eye, EyeOff, Upload, ChevronLeft, ChevronRight, Skull, Info, Heart, Minus, FileText, Zap, Dices, Swords, AlertTriangle, RefreshCw, Calendar, Clock, Sun, Cloud, Wind, Snowflake, Target, X, Package, PawPrint, ChevronUp, ChevronDown, GripHorizontal, RotateCw, RotateCcw } from 'lucide-react';
@@ -277,10 +277,11 @@ const GRID_COLORS = [
   { name: 'Vermelho', value: '#ef4444' },
 ];
 
-const Token = React.memo(({ token, gridSize, onDragEnd, onClick, onRotate, isAttacker, isTarget, isSelected, isMaster, availableCharacters, fetchedCharacters }: { 
+const Token = React.memo(({ token, gridSize, onDragEnd, onDragMove, onClick, onRotate, isAttacker, isTarget, isSelected, isMaster, availableCharacters, fetchedCharacters }: { 
   token: TableToken; 
   gridSize: number; 
   onDragEnd: (id: string, x: number, y: number) => void;
+  onDragMove?: (id: string, x: number, y: number) => void;
   onClick?: () => void;
   onRotate?: (id: string, rotation: number) => void;
   isAttacker?: boolean;
@@ -349,6 +350,9 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, onRotate, isAtt
           if (d > 1) {
             setDragDist(prev => prev + (d / gridSize));
             lastPos.current = { x: nx, y: ny };
+          }
+          if (onDragMove) {
+            onDragMove(token.id, nx, ny);
           }
         }}
         onDragEnd={(e) => {
@@ -768,6 +772,9 @@ const Token = React.memo(({ token, gridSize, onDragEnd, onClick, onRotate, isAtt
         if (d > 1) { // Threshold to avoid noise
           setDragDist(prev => prev + (d / gridSize));
           lastPos.current = { x: nx, y: ny };
+        }
+        if (onDragMove) {
+          onDragMove(token.id, nx, ny);
         }
       }} 
       onDragEnd={(e) => {
@@ -2351,6 +2358,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
+
+  const lastLiveDragTime = useRef<number>(0);
+  const handleTokenDragMove = (id: string, x: number, y: number) => {
+    const now = Date.now();
+    // Max 25 updates/sec (~40ms throttle) for buttery-smooth peer updates without network overhead
+    if (now - lastLiveDragTime.current < 40) return;
+    lastLiveDragTime.current = now;
+    broadcastTokenLivePosition(campaignId, id, x, y);
+  };
 
   const handleDragEnd = (id: string, x: number, y: number) => {
     const token = tokens.find(t => t.id === id);
@@ -4747,6 +4763,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 token={token}
                 gridSize={gridSize}
                 onDragEnd={handleDragEnd}
+                onDragMove={handleTokenDragMove}
                 onClick={() => handleTokenClick(token.id)}
                 onRotate={(id, rot) => updateTokenPosition(campaignId, id, { rotation: rot }, tokens)}
                 isSelected={selectedTokenId === token.id}
