@@ -1021,18 +1021,37 @@ const getMaxCapacity = (weapon: any): number => {
   return 6;
 };
 
-const isArmorItem = (item: any): boolean => {
+const isArmorItem = (item: any, char?: Character): boolean => {
   if (!item) return false;
   const t = ((item.tipo || "") as string).toLowerCase().trim();
   const cat = ((item.categoria || "") as string).toLowerCase().trim();
   const n = ((item.nome || item.name || "") as string).toLowerCase().trim();
+  
+  if (t === 'armadura' || t === 'armaduras' || cat === 'armadura' || cat === 'armaduras') return true;
+  if (t === 'acessório' || t === 'acessorio' || t === 'acessórios' || t === 'acessorios' || cat === 'acessório' || cat === 'acessorio') return true;
+  if (t === 'vestimenta' || t === 'vestimentas' || t === 'vestuário' || t === 'vestuario') return true;
+  if (t === 'escudo' || t === 'escudos') return true;
   if (item.reducaoDano !== undefined && item.reducaoDano !== null && item.reducaoDano !== "") return true;
-  if (t === 'armadura' || cat === 'armadura' || t === 'acessório' || t === 'acessorio' || cat === 'acessório' || cat === 'acessorio') return true;
+  if (item.defesaCorpo || item.parteCorpo || item.localCorpo || item.localizacao) return true;
+
+  if (char && char.armaduras) {
+    const isEquippedArmor = char.armaduras.some((a: any) => 
+      (a.id && item.id && a.id === item.id) || 
+      (a.nome && item.nome && a.nome.toLowerCase().trim() === n)
+    );
+    if (isEquippedArmor) return true;
+  }
+
   const armorKeywords = [
     'armadura', 'capacete', 'elmo', 'botas', 'bota', 'manoplas', 'manopla',
     'perneiras', 'perneira', 'grevas', 'greva', 'rebraço', 'rebraco', 'escudo',
     'peitoral', 'braçadeiras', 'braçadeira', 'bracadeira', 'manto', 'veste',
-    'cota', 'gibão', 'gibao', 'trapos', 'panos', 'carapaça', 'carapaca', 'túnica', 'tunica'
+    'cota', 'gibão', 'gibao', 'trapos', 'panos', 'carapaça', 'carapaca', 'túnica', 'tunica',
+    'colete', 'jaqueta', 'casaco', 'capa', 'ombreira', 'ombreiras', 'caneleiras',
+    'broquel', 'tarja', 'pavês', 'pavise', 'malha', 'placas', 'placa', 'couro',
+    'gorro', 'mascara', 'máscara', 'viseira', 'tiara', 'coroa', 'anel', 'colar',
+    'amuleto', 'brinco', 'talismã', 'talisma', 'bracelete', 'cinto', 'faixa',
+    'calça', 'calca', 'saia', 'sandalia', 'sandálias', 'sandalias', 'sapato', 'sapatos'
   ];
   return armorKeywords.some(k => n.includes(k) || cat.includes(k));
 };
@@ -1043,28 +1062,28 @@ const getWeaponDisplayDano = (weapon: any, char?: Character): string => {
   const isBow = isBowItem(weapon);
 
   if (isFirearm || isBow) {
-    if (weapon.magazineAmmo && weapon.magazineAmmo.length > 0 && weapon.magazineAmmo[0].dano && weapon.magazineAmmo[0].dano !== '0') {
+    if (weapon.magazineAmmo && weapon.magazineAmmo.length > 0 && weapon.magazineAmmo[0].dano && weapon.magazineAmmo[0].dano !== '0' && weapon.magazineAmmo[0].dano !== 'Falta Bala') {
       return weapon.magazineAmmo[0].dano;
     }
     const inv = char?.compartimentos?.flatMap((c: any) => c.itens || []) || [];
     const ammoId = isBow ? (weapon.arrowId || weapon.bulletId) : (weapon.bulletId || weapon.arrowId);
     const loadedAmmo = inv.find((i: any) => (ammoId && i.id === ammoId) || (weapon.magazineAmmo?.[0] && (i.id === weapon.magazineAmmo[0].id || i.nome === weapon.magazineAmmo[0].nome)));
-    if (loadedAmmo && loadedAmmo.dano && loadedAmmo.dano !== '0') {
+    if (loadedAmmo && loadedAmmo.dano && loadedAmmo.dano !== '0' && loadedAmmo.dano !== 'Falta Bala') {
       return loadedAmmo.dano;
     }
-    if (weapon.municaoDano && weapon.municaoDano !== '0') {
+    if (weapon.municaoDano && weapon.municaoDano !== '0' && weapon.municaoDano !== 'Falta Bala') {
       return weapon.municaoDano;
     }
-    if (weapon.dano && weapon.dano !== '0' && weapon.dano !== 'Sem Dano') {
+    if (weapon.dano && weapon.dano !== '0' && weapon.dano !== 'Sem Dano' && weapon.dano !== 'Falta Bala' && weapon.dano !== 'Falta Flecha') {
       return weapon.dano;
     }
     if (isFirearm && (!weapon.municaoCarregada || weapon.municaoCarregada <= 0)) {
-      return "Falta Bala";
+      return (weapon.dano && weapon.dano !== '0' && weapon.dano !== 'Sem Dano') ? weapon.dano : "Falta Bala";
     }
     if (isBow && !ammoId) {
-      return "Falta Flecha";
+      return (weapon.dano && weapon.dano !== '0' && weapon.dano !== 'Sem Dano') ? weapon.dano : "Falta Flecha";
     }
-    return isBow ? "1d6" : "2d6";
+    return weapon.dano || (isBow ? "1d6" : "2d6");
   }
 
   return weapon.dano || "0";
@@ -2631,7 +2650,16 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         if (weapon) {
           hydratedAction = { 
             ...weapon, 
+            ...actionOrWeapon,
             type: 'weapon',
+            dano: (actionOrWeapon.dano && actionOrWeapon.dano !== '0' && actionOrWeapon.dano !== 'Falta Bala' && actionOrWeapon.dano !== 'Falta Flecha') 
+              ? actionOrWeapon.dano 
+              : (weapon.dano && weapon.dano !== '0' && weapon.dano !== 'Sem Dano') 
+                ? weapon.dano 
+                : (weapon.municaoDano || actionOrWeapon.municaoDano || (isBowItem(weapon) ? '1d6' : isFirearmItem(weapon) ? '2d6' : '1d6')),
+            municaoDano: actionOrWeapon.municaoDano || weapon.municaoDano,
+            bulletId: actionOrWeapon.bulletId || weapon.bulletId,
+            arrowId: actionOrWeapon.arrowId || weapon.arrowId,
             corte: actionOrWeapon.corte !== undefined ? actionOrWeapon.corte : weapon.corte,
             perfuracao: actionOrWeapon.perfuracao !== undefined ? actionOrWeapon.perfuracao : weapon.perfuracao,
             impacto: actionOrWeapon.impacto !== undefined ? actionOrWeapon.impacto : weapon.impacto,
@@ -2639,9 +2667,9 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             magazineAmmo: actionOrWeapon.magazineAmmo !== undefined ? actionOrWeapon.magazineAmmo : weapon.magazineAmmo
           };
         }
-        else if (spell) hydratedAction = { ...spell, type: 'spell' };
-        else if (ability) hydratedAction = { ...ability, type: 'ability' };
-        else if (item) hydratedAction = { ...item, type: 'item' };
+        else if (spell) hydratedAction = { ...spell, ...actionOrWeapon, type: 'spell' };
+        else if (ability) hydratedAction = { ...ability, ...actionOrWeapon, type: 'ability' };
+        else if (item) hydratedAction = { ...item, ...actionOrWeapon, type: 'item', dano: actionOrWeapon.dano || item.dano || '1d4' };
       }
       const action = hydratedAction;
 
@@ -3196,13 +3224,13 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           (action.arrowId && i.id === action.arrowId) || 
           (actingBullet && (i.id === actingBullet.id || i.nome === actingBullet.nome))
         );
-        const resolvedBulletDano = (actingBullet && actingBullet.dano && actingBullet.dano !== "0")
+        const resolvedBulletDano = (actingBullet && actingBullet.dano && actingBullet.dano !== "0" && actingBullet.dano !== "Falta Bala")
           ? actingBullet.dano
-          : (ammoInInv?.dano && ammoInInv.dano !== "0")
+          : (ammoInInv?.dano && ammoInInv.dano !== "0" && ammoInInv.dano !== "Falta Bala")
             ? ammoInInv.dano
-            : (action.municaoDano && action.municaoDano !== "0")
+            : (action.municaoDano && action.municaoDano !== "0" && action.municaoDano !== "Falta Bala")
               ? action.municaoDano
-              : (action.dano && action.dano !== "0")
+              : (action.dano && action.dano !== "0" && action.dano !== "Falta Bala" && action.dano !== "Sem Dano")
                 ? action.dano
                 : (isBow ? "1d6" : "2d6");
         effectiveDanoFormula = resolvedBulletDano;
@@ -6269,7 +6297,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 const attacker = tokens.find(t => t.id === weaponSelectTokenId);
                 const attackerChar = availableCharacters.find(c => c.id === attacker?.characterId) || 
                   (attacker?.characterId ? fetchedCharacters[attacker.characterId] : undefined);
-                const weapons = (attackerChar?.armas || []).filter(w => !isArmorItem(w));
+                const weapons = (attackerChar?.armas || []).filter(w => !isArmorItem(w, attackerChar));
                 const catalysts = attackerChar?.catalisadores || [];
                 const spells = attackerChar?.magias || [];
                 // If it is a monster/creature on VTT, show its natural actions (acoes)
@@ -6279,11 +6307,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 
                 const inventoryItems = attackerChar?.compartimentos?.flatMap(c => c.itens || []) || [];
                 const inventoryWeapons = inventoryItems.filter(i => {
-                  if (isArmorItem(i)) return false;
-                  const t = ((i as any).tipo || "").toLowerCase();
-                  const cat = ((i as any).categoria || "").toLowerCase();
-                  if (t === 'munição' || t === 'municao' || t === 'geral') return false;
-                  return t === 'arma' || ((i.corte || i.perfuracao || i.impacto) && (i.dano || cat.includes('arma') || isFirearmItem(i) || isBowItem(i)));
+                  if (isArmorItem(i, attackerChar)) return false;
+                  const t = ((i as any).tipo || "").toLowerCase().trim();
+                  const cat = ((i as any).categoria || "").toLowerCase().trim();
+                  if (t === 'munição' || t === 'municao' || t === 'geral' || t === 'consumível' || t === 'consumivel' || t === 'utilitário' || t === 'utilitario' || t === 'armadura' || t === 'acessório' || t === 'acessorio') return false;
+                  if (t === 'arma' || cat === 'arma branca' || cat === 'arma de fogo' || cat === 'arco') return true;
+                  if (isFirearmItem(i) || isBowItem(i)) return true;
+                  const hasLevels = (Number(i.corte) || 0) > 0 || (Number(i.perfuracao) || 0) > 0 || (Number(i.impacto) || 0) > 0;
+                  const hasDiceDano = typeof i.dano === 'string' && i.dano.includes('d') && i.dano !== '0';
+                  return hasLevels && hasDiceDano;
                 }) as any[];
                 const inventoryCatalysts = inventoryItems.filter(i => i.tipo === 'Catalisador' || i.feitico || i.elemental || i.magiaNegra) as any[];
                 
@@ -6728,17 +6760,17 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                                  </div>
                                </div>
                                <div className="flex bg-zinc-900/30">
-                                 {availTypes.length === 0 ? (
-                                   <div className="flex-1 py-3 text-[9px] font-black uppercase text-red-500/50 bg-red-500/5 border border-dashed border-red-500/10 transition-all text-center flex items-center justify-center gap-1.5">
-                                     <Skull size={10} /> Sem nível de ataque (Inutilizável)
-                                   </div>
-                                 ) : isRanged ? (
+                                 {isRanged ? (
                                    <button
                                      onClick={() => setSelectedAmmoWeaponId(weapon.id)}
                                      className="flex-1 py-3 text-[9px] font-black uppercase text-blue-500 hover:text-white hover:bg-blue-600 transition-all flex items-center justify-center gap-2"
                                    >
                                      <Target size={12}/> Preparar Munir e Atacar
                                    </button>
+                                 ) : availTypes.length === 0 ? (
+                                   <div className="flex-1 py-3 text-[9px] font-black uppercase text-red-500/50 bg-red-500/5 border border-dashed border-red-500/10 transition-all text-center flex items-center justify-center gap-1.5">
+                                     <Skull size={10} /> Sem nível de ataque (Inutilizável)
+                                   </div>
                                  ) : availTypes.map(t => (
                                    <button
                                      key={t.type}

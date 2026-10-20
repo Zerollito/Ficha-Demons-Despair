@@ -23,16 +23,20 @@ export function WeaponProperties({ item, onChange, character, updateCharacter, o
 
   const ammoItems = React.useMemo(() => {
     return allCompartmentItems.filter((i: any) => {
-      const lowerTipo = (i.tipo || "").toLowerCase();
-      const lowerNome = (i.nome || "").toLowerCase();
+      const lowerTipo = (i.tipo || "").toLowerCase().trim();
+      const lowerNome = (i.nome || "").toLowerCase().trim();
 
-      // Apenas itens classificados como munição
-      const isAmmoType = lowerTipo === 'munição' || lowerTipo === 'municao';
+      // Reconhece pelo tipo ou por palavras-chave comuns de munições
+      const isAmmoType = lowerTipo === 'munição' || lowerTipo === 'municao' ||
+        lowerNome.includes('bala') || lowerNome.includes('cartucho') || lowerNome.includes('flecha') ||
+        lowerNome.includes('virote') || lowerNome.includes('munição') || lowerNome.includes('municao') ||
+        lowerNome.includes('cal .') || lowerNome.includes('calibre') || lowerNome.includes('ogival') ||
+        lowerNome.includes('chumbo');
       if (!isAmmoType) return false;
 
       if (isBow) {
         // Exclui balas e cartuchos de armas de fogo
-        if (lowerNome.includes('bala') || lowerNome.includes('cartucho') || lowerNome.includes('chumbo')) {
+        if (lowerNome.includes('bala') || lowerNome.includes('cartucho') || lowerNome.includes('chumbo') || lowerNome.includes('cal .') || lowerNome.includes('ogival')) {
           return false;
         }
         return true;
@@ -40,7 +44,7 @@ export function WeaponProperties({ item, onChange, character, updateCharacter, o
 
       if (isFirearm) {
         // Exclui flechas e virotes de arcos
-        if (lowerNome.includes('flecha') || lowerNome.includes('virote') || lowerNome.includes('arco')) {
+        if (lowerNome.includes('flecha') || lowerNome.includes('virote')) {
           return false;
         }
         return true;
@@ -131,7 +135,11 @@ export function WeaponProperties({ item, onChange, character, updateCharacter, o
       <div className="grid grid-cols-2 gap-2">
         <MiniInput 
           label={(isFirearm || isBow) ? "Dano (Munição/Base)" : "Dano"} 
-          value={item.dano && item.dano !== '0' ? item.dano : (activeAmmo?.dano || item.municaoDano || item.dano || '0')} 
+          value={
+            item.dano && item.dano !== '0' && item.dano !== 'Sem Dano'
+              ? item.dano 
+              : (activeAmmo?.dano || item.municaoDano || item.dano || (isBow ? "1d6" : isFirearm ? "2d6" : "1d6"))
+          } 
           onChange={v => onChange({ dano: v })} 
         />
         <MiniInput label="Acerto" value={item.acerto || 0} type="number" onChange={v => onChange({ acerto: parseInt(v) || 0 })} />

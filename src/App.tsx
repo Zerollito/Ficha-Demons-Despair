@@ -2830,82 +2830,94 @@ function App() {
   };
 
   const handleReloadChar = (char: Character, weaponId: string, ammoId: string, all: boolean = false) => {
-    let weapon = char.armas.find(w => w.id === weaponId);
-    let inArmas = !!weapon;
-    if (!weapon) {
-      weapon = (char.compartimentos || []).flatMap(comp => comp.itens || []).find(it => it.id === weaponId) as any;
-    }
-    if (!weapon) return;
-    
-    const isBow = (weapon.categoria || "").toLowerCase() === "arco" || ((weapon as any).tipo || "").toLowerCase().includes("arco");
-    const inventoryItems = char.compartimentos?.flatMap(comp => comp.itens || []) || [];
-    const getQty = (it: any) => typeof it?.quantidade === 'number' ? it.quantidade : (parseInt(it?.quantidade) || (it ? 1 : 0));
-    
-    // Find matching ammo by ID or fallback to any compatible ammo with quantity > 0
-    let ammo = inventoryItems.find(it => it.id === ammoId);
-    if (!ammo || getQty(ammo) <= 0) {
-      ammo = inventoryItems.find(it => {
-        const lowerTipo = (it.tipo || "").toLowerCase();
-        const lowerNome = (it.nome || "").toLowerCase();
-        const isAmmoType = lowerTipo === 'munição' || lowerTipo === 'municao';
-        if (!isAmmoType) return false;
-        if (isBow) {
-          if (lowerNome.includes('bala') || lowerNome.includes('cartucho')) return false;
-        } else {
-          if (lowerNome.includes('flecha') || lowerNome.includes('virote')) return false;
-        }
-        return getQty(it) > 0;
-      });
-    }
-
-    if (!ammo || getQty(ammo) <= 0) {
-      showToast(isBow ? "Sem flechas disponíveis nos compartimentos!" : "Sem munição disponível nos compartimentos!", "error");
-      return;
-    }
-    const actualAmmoId = ammo.id;
-    const availableQty = getQty(ammo);
-    
-    // Sync currentMagazine with municaoCarregada to prevent full-magazine lock
-    let currentMagazine = Array.isArray((weapon as any).magazineAmmo) ? [...(weapon as any).magazineAmmo] : [];
-    if (typeof weapon.municaoCarregada === 'number' && weapon.municaoCarregada < currentMagazine.length) {
-      currentMagazine = currentMagazine.slice(0, weapon.municaoCarregada);
-    }
-    const maxCapacity = getMaxCapacity(weapon);
-    if (currentMagazine.length >= maxCapacity) {
-      showToast(isBow ? "O arco/aljava já está com capacidade máxima!" : "O pente da arma já está cheio!", "info");
-      return;
-    }
-    
-    const needed = all ? (maxCapacity - currentMagazine.length) : 1;
-    const amountToLoad = Math.min(availableQty, needed);
-    if (amountToLoad <= 0) {
-      showToast("Munição insuficiente para carregar!", "error");
-      return;
-    }
-
-    const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ 
-      ...ammo as any, 
-      id: generateId(), 
-      dano: ammo.dano || weapon.dano || (isBow ? '1d6' : '2d6'),
-      quantidade: 1 
-    }));
-    const newMagazine = [...currentMagazine, ...ammoToAdd];
-
-    const updatedWeaponProps = {
-      ...weapon,
-      municaoCarregada: newMagazine.length,
-      magazineAmmo: newMagazine,
-      bulletId: !isBow ? actualAmmoId : undefined,
-      arrowId: isBow ? actualAmmoId : undefined,
-      corte: Number(ammo.corte) || 0,
-      perfuracao: Number(ammo.perfuracao) || 0,
-      impacto: Number(ammo.impacto) || 0,
-      resistencia: Number(ammo.resistencia) || 0,
-      dano: ammo.dano || weapon.dano || (isBow ? "1d6" : "2d6"),
-      municaoDano: ammo.dano || weapon.municaoDano
-    };
+    if (!char) return;
 
     updateChar((c) => {
+      let weapon = (c.armas || []).find(w => w.id === weaponId);
+      let inArmas = !!weapon;
+      if (!weapon) {
+        weapon = (c.compartimentos || []).flatMap(comp => comp.itens || []).find(it => it.id === weaponId) as any;
+      }
+      if (!weapon) {
+        showToast("Arma não encontrada para recarregar!", "error");
+        return c;
+      }
+      
+      const isBow = (weapon.categoria || "").toLowerCase() === "arco" || ((weapon as any).tipo || "").toLowerCase().includes("arco");
+      const inventoryItems = (c.compartimentos || []).flatMap(comp => comp.itens || []);
+      const getQty = (it: any) => typeof it?.quantidade === 'number' ? it.quantidade : (parseInt(it?.quantidade) || (it ? 1 : 0));
+      
+      // Encontra a munição pelo ID ou busca qualquer munição compatível nos compartimentos
+      let ammo = inventoryItems.find(it => it.id === ammoId);
+      if (!ammo || getQty(ammo) <= 0) {
+        ammo = inventoryItems.find(it => {
+          const lowerTipo = (it.tipo || "").toLowerCase().trim();
+          const lowerNome = (it.nome || "").toLowerCase().trim();
+          const isAmmoType = lowerTipo === 'munição' || lowerTipo === 'municao' ||
+            lowerNome.includes('bala') || lowerNome.includes('cartucho') || lowerNome.includes('flecha') ||
+            lowerNome.includes('virote') || lowerNome.includes('munição') || lowerNome.includes('municao') ||
+            lowerNome.includes('cal .') || lowerNome.includes('calibre') || lowerNome.includes('ogival') ||
+            lowerNome.includes('chumbo');
+          if (!isAmmoType) return false;
+          if (isBow) {
+            if (lowerNome.includes('bala') || lowerNome.includes('cartucho') || lowerNome.includes('chumbo') || lowerNome.includes('cal .') || lowerNome.includes('ogival')) return false;
+          } else {
+            if (lowerNome.includes('flecha') || lowerNome.includes('virote')) return false;
+          }
+          return getQty(it) > 0;
+        });
+      }
+
+      if (!ammo || getQty(ammo) <= 0) {
+        showToast(isBow ? "Sem flechas disponíveis nos compartimentos!" : "Sem munição disponível nos compartimentos!", "error");
+        return c;
+      }
+
+      const actualAmmoId = ammo.id;
+      const availableQty = getQty(ammo);
+      
+      // Sincroniza magazineAmmo com municaoCarregada
+      let currentMagazine = Array.isArray((weapon as any).magazineAmmo) ? [...(weapon as any).magazineAmmo] : [];
+      if (typeof weapon.municaoCarregada === 'number' && weapon.municaoCarregada < currentMagazine.length) {
+        currentMagazine = currentMagazine.slice(0, weapon.municaoCarregada);
+      }
+      const maxCapacity = getMaxCapacity(weapon);
+      const currentlyLoaded = typeof weapon.municaoCarregada === 'number' ? weapon.municaoCarregada : currentMagazine.length;
+
+      if (currentlyLoaded >= maxCapacity && currentMagazine.length >= maxCapacity) {
+        showToast(isBow ? "O arco/aljava já está com capacidade máxima!" : "O pente da arma já está cheio!", "info");
+        return c;
+      }
+      
+      const needed = all ? Math.max(1, maxCapacity - currentMagazine.length) : 1;
+      const amountToLoad = Math.min(availableQty, needed);
+      if (amountToLoad <= 0) {
+        showToast("Munição insuficiente para carregar!", "error");
+        return c;
+      }
+
+      const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ 
+        ...ammo as any, 
+        id: generateId(), 
+        dano: ammo.dano || weapon.dano || (isBow ? '1d6' : '2d6'),
+        quantidade: 1 
+      }));
+      const newMagazine = [...currentMagazine, ...ammoToAdd];
+
+      const updatedWeaponProps = {
+        ...weapon,
+        municaoCarregada: newMagazine.length,
+        magazineAmmo: newMagazine,
+        bulletId: !isBow ? actualAmmoId : undefined,
+        arrowId: isBow ? actualAmmoId : undefined,
+        corte: Number(ammo.corte) || 0,
+        perfuracao: Number(ammo.perfuracao) || 0,
+        impacto: Number(ammo.impacto) || 0,
+        resistencia: Number(ammo.resistencia) || 0,
+        dano: ammo.dano || weapon.dano || (isBow ? "1d6" : "2d6"),
+        municaoDano: ammo.dano || weapon.municaoDano
+      };
+
       const newArmas = (c.armas || []).map(w => w.id === weaponId ? updatedWeaponProps : w);
       const newCompartimentos = (c.compartimentos || []).map(comp => ({
         ...comp,
@@ -2920,15 +2932,15 @@ function App() {
         })
       }));
 
+      showToast(amountToLoad > 1 ? `${amountToLoad} munições recarregadas com sucesso!` : `1 munição recarregada com sucesso!`, "success");
       return { ...c, armas: newArmas, compartimentos: newCompartimentos };
-    });
-
-    showToast(amountToLoad > 1 ? `${amountToLoad} munições recarregadas com sucesso!` : `1 munição recarregada com sucesso!`, "success");
+    }, char.id);
   };
 
   const handleMaintenanceChar = (char: Character, weaponId: string) => {
+    if (!char) return;
     updateChar((c) => {
-      let weapon = c.armas.find(w => w.id === weaponId);
+      let weapon = (c.armas || []).find(w => w.id === weaponId);
       let inArmas = !!weapon;
       if (!weapon) {
         weapon = (c.compartimentos || []).flatMap(comp => comp.itens || []).find(it => it.id === weaponId) as any;
@@ -2942,9 +2954,10 @@ function App() {
         ...comp,
         itens: comp.itens.map(it => it.id === weaponId ? updatedWeapon : it)
       }));
-      
+
+      showToast(`Manutenção de "${weapon.nome}" concluída! Durabilidade restaurada.`, "success");
       return { ...c, armas: newArmas, compartimentos: newCompartimentos };
-    });
+    }, char.id);
   };
 
   const getCreaturePesoTotal = (creature: any) => {
