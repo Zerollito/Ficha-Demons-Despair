@@ -2914,8 +2914,8 @@ function App() {
         perfuracao: Number(ammo.perfuracao) || 0,
         impacto: Number(ammo.impacto) || 0,
         resistencia: Number(ammo.resistencia) || 0,
-        dano: ammo.dano || weapon.dano || (isBow ? "1d6" : "2d6"),
-        municaoDano: ammo.dano || weapon.municaoDano
+        dano: weapon.dano && weapon.dano !== '0' && weapon.dano !== 'Sem Dano' && weapon.dano !== 'Falta Bala' ? weapon.dano : (isBow ? "1d6" : "2d6"),
+        municaoDano: undefined
       };
 
       const newArmas = (c.armas || []).map(w => w.id === weaponId ? updatedWeaponProps : w);
@@ -3684,7 +3684,14 @@ function App() {
       }
 
       const targetId = characterId || prev.activeCharacterId;
-      const charIndex = characters.findIndex(c => c.id === targetId);
+      let charIndex = characters.findIndex(c => c.id === targetId);
+      if (charIndex === -1) {
+        const campChar = campaignCharacters.find(c => c.id === targetId);
+        if (campChar) {
+          characters.push(campChar);
+          charIndex = characters.length - 1;
+        }
+      }
       
       if (charIndex === -1) {
         // Se pediu um ID específico mas não achamos, não fazemos nada para evitar resetar a ficha errada

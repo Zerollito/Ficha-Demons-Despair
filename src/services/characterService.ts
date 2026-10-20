@@ -356,8 +356,8 @@ export const handleReload = async (
     perfuracao: Number(ammo.perfuracao) || 0,
     impacto: Number(ammo.impacto) || 0,
     resistencia: Number(ammo.resistencia) || 0,
-    dano: ammo.dano || weapon.dano || (isBow ? "1d6" : "2d6"),
-    municaoDano: ammo.dano || weapon.municaoDano
+    dano: weapon.dano && weapon.dano !== '0' && weapon.dano !== 'Sem Dano' && weapon.dano !== 'Falta Bala' ? weapon.dano : (isBow ? "1d6" : "2d6"),
+    municaoDano: undefined
   };
 
   charUpdates.armas = char.armas.map(w => w.id === weaponId ? updatedWeaponProps : w);
@@ -445,8 +445,8 @@ export const handleReloadAll = async (
     perfuracao: Number(ammo.perfuracao) || 0,
     impacto: Number(ammo.impacto) || 0,
     resistencia: Number(ammo.resistencia) || 0,
-    dano: ammo.dano || weapon.dano || (isBow ? "1d6" : "2d6"),
-    municaoDano: ammo.dano || weapon.municaoDano
+    dano: weapon.dano && weapon.dano !== '0' && weapon.dano !== 'Sem Dano' && weapon.dano !== 'Falta Bala' ? weapon.dano : (isBow ? "1d6" : "2d6"),
+    municaoDano: undefined
   };
 
   charUpdates.armas = char.armas.map(w => w.id === weaponId ? updatedWeaponProps : w);

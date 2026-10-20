@@ -219,11 +219,13 @@ Certos materiais possuem propriedades que, embora úteis para jogadores em conte
 
 Munições são consumíveis necessários para o uso de armas à distância (arcos, bestas, armas de fogo). 
 
-### Derivação de Níveis de Dano e Resistência
-- **Arcos (`categoria: 'Arco'`)**: Possuem um sistema de escolha de flechas. Os níveis de **Corte**, **Perfuração**, **Impacto**, **Resistência** e a fórmula de **Dano** são determinados pela **flecha selecionada/carregada**. Se a flecha possuir dano cadastrado, ele é utilizado; caso contrário, é preservado o dano base da arma (ex: `1d8`, `2d6`) ou o padrão `1d6`.
-- **Armas de Fogo (`categoria: 'Arma de Fogo'`)**: Os níveis de **Corte**, **Perfuração**, **Impacto** e **Resistência** derivam da munição selecionada. A fórmula de **Dano** (ex: `3d8`, `4d8`) é derivada prioritariamente da bala ativa (`magazineAmmo`, `bulletId`, `municaoDano`); se a munição cadastrada não contiver fórmula de dano ou estiver neutra, utiliza-se integralmente o dano base cadastrado na própria arma de fogo (ou padrão `2d6`).
+### Regra Fundamental de Dano de Munições
+- **Balas e Flechas NÃO possuem dano por si próprias**: A fórmula de **Dano** (ex: `3d8`, `4d8`, `1d8`, `2d6`) pertence **exclusivamente à própria Arma** (ao revólver, rifle, pistola, arco, besta, etc.).
+- **O que as Munições Fornecem**: Balas e flechas determinam os níveis de ataque físico (**Corte**, **Perfuração**, **Impacto**) e **Resistência**, além do consumo por disparo, peso, volume e possíveis efeitos especiais.
+- **Armas de Fogo (`categoria: 'Arma de Fogo'`)**: O dano causado é o **dano cadastrado na arma** (ex: `3d8`). A bala carregada define os níveis de Corte, Perfuração, Impacto e Resistência do disparo.
+- **Arcos (`categoria: 'Arco'`)**: O dano causado é o **dano cadastrado no arco** (ex: `1d8`). A flecha carregada define os níveis de Corte, Perfuração, Impacto e Resistência do disparo.
 - **Armas Brancas (`categoria: 'Arma Branca'`)**: Mantêm seus próprios níveis de Corte, Perfuração, Impacto, Resistência e Dano configurados na própria arma, já que não utilizam projéteis.
-- **Caso sem Munição Selecionada/Carregada**: Caso nenhuma flecha ou bala esteja selecionada/carregada, os níveis de ataque físico e resistência derivados da munição são considerados 0, e a arma é marcada como descarregada ("Falta Bala" / "Falta Flecha").
+- **Caso sem Munição Selecionada/Carregada**: Caso nenhuma flecha ou bala esteja selecionada/carregada (ou a arma esteja descarregada), os níveis de ataque físico e resistência são 0, e a arma não pode disparar ("Falta Bala" / "Falta Flecha").
 
 ### Propriedades Base de Munição
 | Tipo de Munição | Peso (Un) | Volume (Un) |
@@ -233,9 +235,10 @@ Munições são consumíveis necessários para o uso de armas à distância (arc
 | **Flechas (Arco Longo)** | 0.6 | 1.3 |
 
 ### Integração VTT e Ficha Técnica
-- Tanto a Ficha Técnica quanto o VTT permitem selecionar a munição (flecha ou bala) a partir dos compartimentos do personagem.
-- Ao selecionar ou recarregar a munição, os níveis de Corte, Perfuração, Impacto, Resistência e o Dano da arma são atualizados para refletir a munição ativa. Na exibição de equipamentos (Ficha e VTT), armas de fogo e arcos exibem o dano efetivo (seja da bala/flecha ou o dano configurado na arma).
-- No seletor de armas para ataque do VTT, apenas armas e ações válidas de ataque são exibidas; peças de armadura e vestimentas (peitorais, elmos, grevas, braçadeiras, etc.) são filtradas rigorosamente e nunca aparecem como armas para atacar.
+- Tanto a Ficha Técnica quanto o VTT permitem selecionar e recarregar a munição (flecha ou bala) a partir dos compartimentos do personagem.
+- Ao selecionar ou recarregar a munição, os níveis de **Corte**, **Perfuração**, **Impacto** e **Resistência** da arma são atualizados com base na munição ativa. O **Dano** da arma permanece inalterado como o dano configurado na arma.
+- Na Ficha Técnica e no VTT, o dano exibido nas armas de fogo e arcos é sempre o dano da própria arma (`arma.dano` / `weapon.dano`).
+- No seletor de armas para ataque do VTT, apenas armas e ações válidas de ataque são exibidas; peças de armadura e vestimentas são filtradas rigorosamente e nunca aparecem como armas para atacar.
 - A cada disparo no VTT ou rolagem com consumo, a munição carregada é reduzida do pente (`magazineAmmo` / `municaoCarregada`).
 
 ---
@@ -245,7 +248,7 @@ Munições são consumíveis necessários para o uso de armas à distância (arc
 ### Recarga (Armas de Fogo e Arcos)
 - **Armas de Fogo**: Capacidade definida por `municaoTotal` (ou padrão 6 se não especificado). Permite recarregar 1 ou o pente completo a partir das balas com quantidade disponível nos compartimentos do inventário.
 - **Arcos**: Possuem sistema de seleção e carregamento de flechas a partir dos compartimentos (aljava/bolsa).
-- **Lógica**: Reduz a quantidade de munição no compartimento e armazena as instâncias de munição em `magazineAmmo` e `municaoCarregada` na arma, preservando o dano e atributos de cada projétil carregado. Se `municaoCarregada` for menor que o número de itens em `magazineAmmo`, a capacidade útil é sincronizada e permite recarregar até o limite. Feedback visual (toasts/logs) informa o sucesso ou impedimento (falta de balas ou capacidade cheia).
+- **Lógica**: Reduz a quantidade de munição no compartimento e armazena as instâncias de munição em `magazineAmmo` e `municaoCarregada` na arma, preservando os atributos físicos da bala/flecha carregada. O dano da arma permanece o dano da arma. Se `municaoCarregada` for menor que o número de itens em `magazineAmmo`, a capacidade útil é sincronizada e permite recarregar até o limite. Feedback visual (toasts/logs) informa o sucesso ou impedimento (falta de balas ou capacidade cheia).
 
 ### Manutenção (Exclusiva para Armas de Fogo)
 - **Exclusividade**: A manutenção é aplicada **apenas a Armas de Fogo**. Armas brancas e arcos não possuem ação de manutenção.

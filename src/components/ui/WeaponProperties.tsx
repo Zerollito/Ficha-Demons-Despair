@@ -134,11 +134,11 @@ export function WeaponProperties({ item, onChange, character, updateCharacter, o
       {/* Row 1: Dano & Acerto */}
       <div className="grid grid-cols-2 gap-2">
         <MiniInput 
-          label={(isFirearm || isBow) ? "Dano (Munição/Base)" : "Dano"} 
+          label={(isFirearm || isBow) ? "Dano da Arma" : "Dano"} 
           value={
-            item.dano && item.dano !== '0' && item.dano !== 'Sem Dano'
+            item.dano && item.dano !== '0' && item.dano !== 'Sem Dano' && item.dano !== 'Falta Bala'
               ? item.dano 
-              : (activeAmmo?.dano || item.municaoDano || item.dano || (isBow ? "1d6" : isFirearm ? "2d6" : "1d6"))
+              : (isBow ? "1d6" : isFirearm ? "2d6" : "1d4")
           } 
           onChange={v => onChange({ dano: v })} 
         />

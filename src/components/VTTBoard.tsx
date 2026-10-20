@@ -3218,22 +3218,10 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     if (hitSucceeded) {
       let effectiveDanoFormula = action.dano || "1d4";
       if (isFirearm || isBow) {
-        const inv = attackerChar?.compartimentos?.flatMap((c: any) => c.itens || []) || [];
-        const ammoInInv = inv.find((i: any) => 
-          (action.bulletId && i.id === action.bulletId) || 
-          (action.arrowId && i.id === action.arrowId) || 
-          (actingBullet && (i.id === actingBullet.id || i.nome === actingBullet.nome))
-        );
-        const resolvedBulletDano = (actingBullet && actingBullet.dano && actingBullet.dano !== "0" && actingBullet.dano !== "Falta Bala")
-          ? actingBullet.dano
-          : (ammoInInv?.dano && ammoInInv.dano !== "0" && ammoInInv.dano !== "Falta Bala")
-            ? ammoInInv.dano
-            : (action.municaoDano && action.municaoDano !== "0" && action.municaoDano !== "Falta Bala")
-              ? action.municaoDano
-              : (action.dano && action.dano !== "0" && action.dano !== "Falta Bala" && action.dano !== "Sem Dano")
-                ? action.dano
-                : (isBow ? "1d6" : "2d6");
-        effectiveDanoFormula = resolvedBulletDano;
+        const weaponDano = action.dano;
+        effectiveDanoFormula = (weaponDano && weaponDano !== "0" && weaponDano !== "Sem Dano" && weaponDano !== "Falta Bala" && weaponDano !== "Falta Flecha")
+          ? weaponDano
+          : (isBow ? "1d6" : "2d6");
       }
 
       if (isCriticalHit) {
@@ -6297,7 +6285,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 const attacker = tokens.find(t => t.id === weaponSelectTokenId);
                 const attackerChar = availableCharacters.find(c => c.id === attacker?.characterId) || 
                   (attacker?.characterId ? fetchedCharacters[attacker.characterId] : undefined);
-                const weapons = (attackerChar?.armas || []).filter(w => !isArmorItem(w, attackerChar));
+                const weapons = (attackerChar?.armas || []).filter(w => !isArmorItem(w, attackerChar) && ((w.tipo || "").toLowerCase() !== 'armadura') && !(w as any).reducaoDano);
                 const catalysts = attackerChar?.catalisadores || [];
                 const spells = attackerChar?.magias || [];
                 // If it is a monster/creature on VTT, show its natural actions (acoes)
@@ -6308,14 +6296,16 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 const inventoryItems = attackerChar?.compartimentos?.flatMap(c => c.itens || []) || [];
                 const inventoryWeapons = inventoryItems.filter(i => {
                   if (isArmorItem(i, attackerChar)) return false;
+                  if ((i as any).reducaoDano !== undefined && (i as any).reducaoDano !== null && (i as any).reducaoDano !== "") return false;
                   const t = ((i as any).tipo || "").toLowerCase().trim();
                   const cat = ((i as any).categoria || "").toLowerCase().trim();
-                  if (t === 'munição' || t === 'municao' || t === 'geral' || t === 'consumível' || t === 'consumivel' || t === 'utilitário' || t === 'utilitario' || t === 'armadura' || t === 'acessório' || t === 'acessorio') return false;
+                  if (['munição', 'municao', 'geral', 'consumível', 'consumivel', 'utilitário', 'utilitario', 'armadura', 'armaduras', 'acessório', 'acessorio', 'escudo', 'escudos', 'vestimenta', 'vestuário'].includes(t)) return false;
+                  if (['armadura', 'armaduras', 'acessório', 'acessorio', 'escudo', 'escudos'].includes(cat)) return false;
                   if (t === 'arma' || cat === 'arma branca' || cat === 'arma de fogo' || cat === 'arco') return true;
                   if (isFirearmItem(i) || isBowItem(i)) return true;
                   const hasLevels = (Number(i.corte) || 0) > 0 || (Number(i.perfuracao) || 0) > 0 || (Number(i.impacto) || 0) > 0;
-                  const hasDiceDano = typeof i.dano === 'string' && i.dano.includes('d') && i.dano !== '0';
-                  return hasLevels && hasDiceDano;
+                  const hasDiceDano = typeof i.dano === 'string' && i.dano.includes('d') && i.dano !== '0' && i.dano !== 'Sem Dano';
+                  return hasLevels && hasDiceDano && !isArmorItem(i, attackerChar);
                 }) as any[];
                 const inventoryCatalysts = inventoryItems.filter(i => i.tipo === 'Catalisador' || i.feitico || i.elemental || i.magiaNegra) as any[];
                 
