@@ -307,11 +307,26 @@ export const handleReload = async (
   if (!weapon) return;
 
   const isBow = (weapon.categoria || "").toLowerCase() === "arco" || (weapon.tipo || "").toLowerCase().includes("arco");
-  const ammo = inventoryItems.find(i => i.id === ammoId);
+  let ammo = inventoryItems.find(i => i.id === ammoId);
+  if (!ammo || (ammo.quantidade || 0) <= 0) {
+    ammo = inventoryItems.find(i => {
+      const lowerTipo = (i.tipo || "").toLowerCase();
+      const lowerNome = (i.nome || "").toLowerCase();
+      const isAmmoType = lowerTipo === 'munição' || lowerTipo === 'municao';
+      if (!isAmmoType) return false;
+      if (isBow) {
+        if (lowerNome.includes('bala') || lowerNome.includes('cartucho')) return false;
+      } else {
+        if (lowerNome.includes('flecha') || lowerNome.includes('virote')) return false;
+      }
+      return (i.quantidade || 0) > 0;
+    });
+  }
   if (!ammo || (ammo.quantidade || 0) <= 0) {
     await addCombatLog(campaignId, { msg: isBow ? "Você não possui flechas!" : "Você não possui munição!", type: 'error' });
     return;
   }
+  const actualAmmoId = ammo.id;
 
   const currentMagazine = (weapon as any).magazineAmmo || [];
   const maxCapacity = getMaxCapacity(weapon);
@@ -331,8 +346,8 @@ export const handleReload = async (
     ...weapon,
     municaoCarregada: newMagazine.length,
     magazineAmmo: newMagazine,
-    bulletId: !isBow ? ammo.id : undefined,
-    arrowId: isBow ? ammo.id : undefined,
+    bulletId: !isBow ? actualAmmoId : undefined,
+    arrowId: isBow ? actualAmmoId : undefined,
     corte: Number(ammo.corte) || 0,
     perfuracao: Number(ammo.perfuracao) || 0,
     impacto: Number(ammo.impacto) || 0,
@@ -344,7 +359,7 @@ export const handleReload = async (
   charUpdates.compartimentos = char.compartimentos.map(comp => ({
     ...comp,
     itens: comp.itens.map(it => {
-      if (it.id === ammoId) {
+      if (it.id === actualAmmoId) {
         return { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) };
       }
       if (it.id === weaponId) {
@@ -374,11 +389,26 @@ export const handleReloadAll = async (
   if (!weapon) return;
 
   const isBow = (weapon.categoria || "").toLowerCase() === "arco" || (weapon.tipo || "").toLowerCase().includes("arco");
-  const ammo = inventoryItems.find(i => i.id === ammoId);
+  let ammo = inventoryItems.find(i => i.id === ammoId);
+  if (!ammo || (ammo.quantidade || 0) <= 0) {
+    ammo = inventoryItems.find(i => {
+      const lowerTipo = (i.tipo || "").toLowerCase();
+      const lowerNome = (i.nome || "").toLowerCase();
+      const isAmmoType = lowerTipo === 'munição' || lowerTipo === 'municao';
+      if (!isAmmoType) return false;
+      if (isBow) {
+        if (lowerNome.includes('bala') || lowerNome.includes('cartucho')) return false;
+      } else {
+        if (lowerNome.includes('flecha') || lowerNome.includes('virote')) return false;
+      }
+      return (i.quantidade || 0) > 0;
+    });
+  }
   if (!ammo || (ammo.quantidade || 0) <= 0) {
     await addCombatLog(campaignId, { msg: isBow ? "Você não possui flechas!" : "Você não possui munição!", type: 'error' });
     return;
   }
+  const actualAmmoId = ammo.id;
 
   const currentMagazine = (weapon as any).magazineAmmo || [];
   const maxCapacity = getMaxCapacity(weapon);
@@ -400,8 +430,8 @@ export const handleReloadAll = async (
     ...weapon,
     municaoCarregada: newMagazine.length,
     magazineAmmo: newMagazine,
-    bulletId: !isBow ? ammo.id : undefined,
-    arrowId: isBow ? ammo.id : undefined,
+    bulletId: !isBow ? actualAmmoId : undefined,
+    arrowId: isBow ? actualAmmoId : undefined,
     corte: Number(ammo.corte) || 0,
     perfuracao: Number(ammo.perfuracao) || 0,
     impacto: Number(ammo.impacto) || 0,
@@ -413,7 +443,7 @@ export const handleReloadAll = async (
   charUpdates.compartimentos = char.compartimentos.map(comp => ({
     ...comp,
     itens: comp.itens.map(it => {
-      if (it.id === ammoId) {
+      if (it.id === actualAmmoId) {
         return { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) };
       }
       if (it.id === weaponId) {

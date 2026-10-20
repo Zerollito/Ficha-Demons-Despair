@@ -220,10 +220,10 @@ Certos materiais possuem propriedades que, embora úteis para jogadores em conte
 Munições são consumíveis necessários para o uso de armas à distância (arcos, bestas, armas de fogo). 
 
 ### Derivação de Níveis de Dano e Resistência
-- **Arcos (`categoria: 'Arco'`)**: Possuem um sistema de escolha de flechas. Os níveis de **Corte**, **Perfuração**, **Impacto** e **Resistência** são determinados exclusivamente pela **flecha selecionada/carregada**, e **não pelo próprio arco**.
-- **Armas de Fogo (`categoria: 'Arma de Fogo'`)**: Os níveis de **Corte**, **Perfuração**, **Impacto** e **Resistência** são determinados exclusivamente pelas **balas selecionadas/carregadas**, e **não pela própria arma de fogo**.
-- **Armas Brancas (`categoria: 'Arma Branca'`)**: Mantêm seus próprios níveis de Corte, Perfuração, Impacto e Resistência configurados na própria arma, já que não utilizam projéteis.
-- **Caso sem Munição Selecionada/Carregada**: Caso nenhuma flecha ou bala esteja selecionada/carregada, os níveis de ataque físico e resistência derivados da munição são considerados 0.
+- **Arcos (`categoria: 'Arco'`)**: Possuem um sistema de escolha de flechas. Os níveis de **Corte**, **Perfuração**, **Impacto**, **Resistência** e a fórmula de **Dano** são determinados pela **flecha selecionada/carregada**, e **não pelo próprio arco** (cujo dano base costuma ser 0).
+- **Armas de Fogo (`categoria: 'Arma de Fogo'`)**: Os níveis de **Corte**, **Perfuração**, **Impacto**, **Resistência** e a fórmula de **Dano** (ex: `3d8`, `4d8`) são determinados exclusivamente pelas **balas selecionadas/carregadas** (`magazineAmmo`, `bulletId` ou `municaoDano`), sobrepondo qualquer valor neutro/zero (`0`) configurado na arma.
+- **Armas Brancas (`categoria: 'Arma Branca'`)**: Mantêm seus próprios níveis de Corte, Perfuração, Impacto, Resistência e Dano configurados na própria arma, já que não utilizam projéteis.
+- **Caso sem Munição Selecionada/Carregada**: Caso nenhuma flecha ou bala esteja selecionada/carregada, os níveis de ataque físico e resistência derivados da munição são considerados 0, e o dano padrão recai para a base ou disparo sem efeito.
 
 ### Propriedades Base de Munição
 | Tipo de Munição | Peso (Un) | Volume (Un) |
@@ -234,17 +234,18 @@ Munições são consumíveis necessários para o uso de armas à distância (arc
 
 ### Integração VTT e Ficha Técnica
 - Tanto a Ficha Técnica quanto o VTT permitem selecionar a munição (flecha ou bala) a partir dos compartimentos do personagem.
-- Ao selecionar ou recarregar a munição, os níveis de Corte, Perfuração, Impacto e Resistência são atualizados para refletir a munição ativa.
-- A cada disparo no VTT ou rolagem com consumo, a munição carregada é reduzida.
+- Ao selecionar ou recarregar a munição, os níveis de Corte, Perfuração, Impacto, Resistência e o Dano da arma são atualizados para refletir a munição ativa.
+- No seletor de armas para ataque do VTT, apenas armas e ações válidas de ataque são exibidas; peças de armadura e vestimentas (peitorais, elmos, grevas, braçadeiras, etc.) são filtradas e nunca aparecem como armas para atacar.
+- A cada disparo no VTT ou rolagem com consumo, a munição carregada é reduzida do pente (`magazineAmmo` / `municaoCarregada`).
 
 ---
 
 ## 9. Manutenção e Recarga
 
 ### Recarga (Armas de Fogo e Arcos)
-- **Armas de Fogo**: Capacidade definida por `municaoTotal`. Permite recarregar 1 ou o pente completo a partir das balas do inventário.
+- **Armas de Fogo**: Capacidade definida por `municaoTotal` (ou padrão 6 se não especificado). Permite recarregar 1 ou o pente completo a partir das balas com quantidade disponível nos compartimentos do inventário.
 - **Arcos**: Possuem sistema de seleção e carregamento de flechas a partir dos compartimentos (aljava/bolsa).
-- **Lógica**: Reduz a quantidade de munição no compartimento e armazena as instâncias de munição em `magazineAmmo` e `municaoCarregada` na arma.
+- **Lógica**: Reduz a quantidade de munição no compartimento e armazena as instâncias de munição em `magazineAmmo` e `municaoCarregada` na arma, preservando o dano e atributos de cada projétil carregado. Se `municaoCarregada` for menor que o número de itens em `magazineAmmo`, a capacidade útil é sincronizada e permite recarregar até o limite. Feedback visual (toasts/logs) informa o sucesso ou impedimento (falta de balas ou capacidade cheia).
 
 ### Manutenção (Exclusiva para Armas de Fogo)
 - **Exclusividade**: A manutenção é aplicada **apenas a Armas de Fogo**. Armas brancas e arcos não possuem ação de manutenção.

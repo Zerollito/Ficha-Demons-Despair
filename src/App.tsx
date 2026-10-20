@@ -2629,18 +2629,21 @@ function App() {
     const isFirearm = arma.categoria === 'Arma de Fogo';
     const isBow = arma.categoria === 'Arco';
     if (isFirearm || isBow) {
-      if (arma.magazineAmmo && arma.magazineAmmo.length > 0) {
-        bulletDano = arma.magazineAmmo[0].dano || arma.dano || (isBow ? "1d6" : "2d6");
+      const ammoId = isBow ? (arma.arrowId || arma.bulletId) : (arma.bulletId || arma.arrowId);
+      const loadedAmmo = (activeChar.compartimentos || [])
+        .flatMap((c: any) => (c.itens || []))
+        .find((i: any) => (ammoId && i.id === ammoId) || (arma.magazineAmmo?.[0] && (i.id === arma.magazineAmmo[0].id || i.nome === arma.magazineAmmo[0].nome)));
+
+      if (arma.magazineAmmo && arma.magazineAmmo.length > 0 && arma.magazineAmmo[0].dano && arma.magazineAmmo[0].dano !== '0') {
+        bulletDano = arma.magazineAmmo[0].dano;
+      } else if (loadedAmmo && loadedAmmo.dano && loadedAmmo.dano !== '0') {
+        bulletDano = loadedAmmo.dano;
+      } else if (arma.municaoDano && arma.municaoDano !== '0') {
+        bulletDano = arma.municaoDano;
+      } else if (arma.dano && arma.dano !== '0') {
+        bulletDano = arma.dano;
       } else {
-        const ammoId = isBow ? (arma.arrowId || arma.bulletId) : (arma.bulletId || arma.arrowId);
-        const loadedAmmo = (activeChar.compartimentos || [])
-          .flatMap((c: any) => (c.itens || []))
-          .find((i: any) => i.id === ammoId);
-        if (loadedAmmo && loadedAmmo.dano) {
-          bulletDano = loadedAmmo.dano;
-        } else {
-          bulletDano = arma.dano || (isBow ? "1d6" : "2d6");
-        }
+        bulletDano = isBow ? "1d6" : "2d6";
       }
     }
     const rollData = parseAndRollDice((isFirearm || isBow) ? bulletDano : (arma.dano || "1d6"));
@@ -2827,49 +2830,88 @@ function App() {
   };
 
   const handleReloadChar = (char: Character, weaponId: string, ammoId: string, all: boolean = false) => {
+    let weapon = char.armas.find(w => w.id === weaponId);
+    let inArmas = !!weapon;
+    if (!weapon) {
+      weapon = (char.compartimentos || []).flatMap(comp => comp.itens || []).find(it => it.id === weaponId) as any;
+    }
+    if (!weapon) return;
+    
+    const isBow = (weapon.categoria || "").toLowerCase() === "arco" || ((weapon as any).tipo || "").toLowerCase().includes("arco");
+    const inventoryItems = char.compartimentos?.flatMap(comp => comp.itens || []) || [];
+    const getQty = (it: any) => typeof it?.quantidade === 'number' ? it.quantidade : (parseInt(it?.quantidade) || (it ? 1 : 0));
+    
+    // Find matching ammo by ID or fallback to any compatible ammo with quantity > 0
+    let ammo = inventoryItems.find(it => it.id === ammoId);
+    if (!ammo || getQty(ammo) <= 0) {
+      ammo = inventoryItems.find(it => {
+        const lowerTipo = (it.tipo || "").toLowerCase();
+        const lowerNome = (it.nome || "").toLowerCase();
+        const isAmmoType = lowerTipo === 'munição' || lowerTipo === 'municao';
+        if (!isAmmoType) return false;
+        if (isBow) {
+          if (lowerNome.includes('bala') || lowerNome.includes('cartucho')) return false;
+        } else {
+          if (lowerNome.includes('flecha') || lowerNome.includes('virote')) return false;
+        }
+        return getQty(it) > 0;
+      });
+    }
+
+    if (!ammo || getQty(ammo) <= 0) {
+      showToast(isBow ? "Sem flechas disponíveis nos compartimentos!" : "Sem munição disponível nos compartimentos!", "error");
+      return;
+    }
+    const actualAmmoId = ammo.id;
+    const availableQty = getQty(ammo);
+    
+    // Sync currentMagazine with municaoCarregada to prevent full-magazine lock
+    let currentMagazine = Array.isArray((weapon as any).magazineAmmo) ? [...(weapon as any).magazineAmmo] : [];
+    if (typeof weapon.municaoCarregada === 'number' && weapon.municaoCarregada < currentMagazine.length) {
+      currentMagazine = currentMagazine.slice(0, weapon.municaoCarregada);
+    }
+    const maxCapacity = getMaxCapacity(weapon);
+    if (currentMagazine.length >= maxCapacity) {
+      showToast(isBow ? "O arco/aljava já está com capacidade máxima!" : "O pente da arma já está cheio!", "info");
+      return;
+    }
+    
+    const needed = all ? (maxCapacity - currentMagazine.length) : 1;
+    const amountToLoad = Math.min(availableQty, needed);
+    if (amountToLoad <= 0) {
+      showToast("Munição insuficiente para carregar!", "error");
+      return;
+    }
+
+    const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ 
+      ...ammo as any, 
+      id: generateId(), 
+      dano: ammo.dano || weapon.dano || (isBow ? '1d6' : '2d6'),
+      quantidade: 1 
+    }));
+    const newMagazine = [...currentMagazine, ...ammoToAdd];
+
+    const updatedWeaponProps = {
+      ...weapon,
+      municaoCarregada: newMagazine.length,
+      magazineAmmo: newMagazine,
+      bulletId: !isBow ? actualAmmoId : undefined,
+      arrowId: isBow ? actualAmmoId : undefined,
+      corte: Number(ammo.corte) || 0,
+      perfuracao: Number(ammo.perfuracao) || 0,
+      impacto: Number(ammo.impacto) || 0,
+      resistencia: Number(ammo.resistencia) || 0,
+      dano: ammo.dano || weapon.dano || (isBow ? "1d6" : "2d6"),
+      municaoDano: ammo.dano || weapon.municaoDano
+    };
+
     updateChar((c) => {
-      let weapon = c.armas.find(w => w.id === weaponId);
-      let inArmas = !!weapon;
-      if (!weapon) {
-        weapon = (c.compartimentos || []).flatMap(comp => comp.itens || []).find(it => it.id === weaponId) as any;
-      }
-      if (!weapon) return c;
-      
-      const ammo = c.compartimentos?.flatMap(comp => comp.itens || []).find(it => it.id === ammoId);
-      if (!ammo || (ammo.quantidade || 0) <= 0) return c;
-      
-      const currentMagazine = (weapon as any).magazineAmmo || [];
-      const maxCapacity = getMaxCapacity(weapon);
-      if (currentMagazine.length >= maxCapacity) return c;
-      
-      const needed = all ? (maxCapacity - currentMagazine.length) : 1;
-      const amountToLoad = Math.min(ammo.quantidade || 0, needed);
-      if (amountToLoad <= 0) return c;
-
-      const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...ammo as any, id: generateId(), quantidade: 1 }));
-      const newMagazine = [...currentMagazine, ...ammoToAdd];
-
-      const isBow = (weapon.categoria || "").toLowerCase() === "arco" || ((weapon as any).tipo || "").toLowerCase().includes("arco");
-      const updatedWeaponProps = {
-        ...weapon,
-        municaoCarregada: newMagazine.length,
-        magazineAmmo: newMagazine,
-        bulletId: !isBow ? ammo.id : undefined,
-        arrowId: isBow ? ammo.id : undefined,
-        corte: Number(ammo.corte) || 0,
-        perfuracao: Number(ammo.perfuracao) || 0,
-        impacto: Number(ammo.impacto) || 0,
-        resistencia: Number(ammo.resistencia) || 0,
-        ...(ammo.dano ? { municaoDano: ammo.dano } : {})
-      };
-
       const newArmas = (c.armas || []).map(w => w.id === weaponId ? updatedWeaponProps : w);
-
       const newCompartimentos = (c.compartimentos || []).map(comp => ({
         ...comp,
         itens: comp.itens.map(it => {
-          if (it.id === ammoId) {
-            return { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) };
+          if (it.id === actualAmmoId) {
+            return { ...it, quantidade: Math.max(0, getQty(it) - amountToLoad) };
           }
           if (!inArmas && it.id === weaponId) {
             return updatedWeaponProps;
@@ -2880,6 +2922,8 @@ function App() {
 
       return { ...c, armas: newArmas, compartimentos: newCompartimentos };
     });
+
+    showToast(amountToLoad > 1 ? `${amountToLoad} munições recarregadas com sucesso!` : `1 munição recarregada com sucesso!`, "success");
   };
 
   const handleMaintenanceChar = (char: Character, weaponId: string) => {
@@ -9633,20 +9677,25 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                         const isBow = arma.categoria === 'Arco';
                         const isFirearm = arma.categoria === 'Arma de Fogo';
                         if (isFirearm || isBow) {
-                          if (arma.magazineAmmo && arma.magazineAmmo.length > 0) {
-                            displayDano = arma.magazineAmmo[0].dano || arma.dano || (isBow ? "1d6" : "2d6");
+                          const ammoId = isBow ? (arma.arrowId || arma.bulletId) : (arma.bulletId || arma.arrowId);
+                          const loadedAmmo = (activeChar.compartimentos || [])
+                            .flatMap((c: any) => (c.itens || []))
+                            .find((i: any) => (ammoId && i.id === ammoId) || (arma.magazineAmmo?.[0] && (i.id === arma.magazineAmmo[0].id || i.nome === arma.magazineAmmo[0].nome)));
+
+                          if (arma.magazineAmmo && arma.magazineAmmo.length > 0 && arma.magazineAmmo[0].dano && arma.magazineAmmo[0].dano !== '0') {
+                            displayDano = arma.magazineAmmo[0].dano;
+                          } else if (loadedAmmo && loadedAmmo.dano && loadedAmmo.dano !== '0') {
+                            displayDano = loadedAmmo.dano;
+                          } else if (arma.municaoDano && arma.municaoDano !== '0') {
+                            displayDano = arma.municaoDano;
+                          } else if (arma.dano && arma.dano !== '0') {
+                            displayDano = arma.dano;
+                          } else if (isFirearm && (!arma.municaoCarregada || arma.municaoCarregada <= 0)) {
+                            displayDano = "Falta Bala";
+                          } else if (isBow && !ammoId) {
+                            displayDano = "Falta Flecha";
                           } else {
-                            const ammoId = isBow ? (arma.arrowId || arma.bulletId) : (arma.bulletId || arma.arrowId);
-                            const loadedAmmo = (activeChar.compartimentos || [])
-                              .flatMap((c: any) => (c.itens || []))
-                              .find((i: any) => i.id === ammoId);
-                            if (loadedAmmo && loadedAmmo.dano) {
-                              displayDano = loadedAmmo.dano;
-                            } else if ((arma.municaoCarregada || 0) <= 0) {
-                              displayDano = isBow ? "Falta Flecha" : "Falta Bala";
-                            } else {
-                              displayDano = arma.dano || (isBow ? "1d6" : "2d6");
-                            }
+                            displayDano = isBow ? "1d6" : "2d6";
                           }
                         }
                         const danoStr = displayDano.toLowerCase().replace(/\s+/g, "");

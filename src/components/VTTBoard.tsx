@@ -1021,6 +1021,55 @@ const getMaxCapacity = (weapon: any): number => {
   return 6;
 };
 
+const isArmorItem = (item: any): boolean => {
+  if (!item) return false;
+  const t = ((item.tipo || "") as string).toLowerCase().trim();
+  const cat = ((item.categoria || "") as string).toLowerCase().trim();
+  const n = ((item.nome || item.name || "") as string).toLowerCase().trim();
+  if (item.reducaoDano !== undefined && item.reducaoDano !== null && item.reducaoDano !== "") return true;
+  if (t === 'armadura' || cat === 'armadura' || t === 'acessório' || t === 'acessorio' || cat === 'acessório' || cat === 'acessorio') return true;
+  const armorKeywords = [
+    'armadura', 'capacete', 'elmo', 'botas', 'bota', 'manoplas', 'manopla',
+    'perneiras', 'perneira', 'grevas', 'greva', 'rebraço', 'rebraco', 'escudo',
+    'peitoral', 'braçadeiras', 'braçadeira', 'bracadeira', 'manto', 'veste',
+    'cota', 'gibão', 'gibao', 'trapos', 'panos', 'carapaça', 'carapaca', 'túnica', 'tunica'
+  ];
+  return armorKeywords.some(k => n.includes(k) || cat.includes(k));
+};
+
+const getWeaponDisplayDano = (weapon: any, char?: Character): string => {
+  if (!weapon) return "0";
+  const isFirearm = isFirearmItem(weapon);
+  const isBow = isBowItem(weapon);
+
+  if (isFirearm || isBow) {
+    if (weapon.magazineAmmo && weapon.magazineAmmo.length > 0 && weapon.magazineAmmo[0].dano && weapon.magazineAmmo[0].dano !== '0') {
+      return weapon.magazineAmmo[0].dano;
+    }
+    const inv = char?.compartimentos?.flatMap((c: any) => c.itens || []) || [];
+    const ammoId = isBow ? (weapon.arrowId || weapon.bulletId) : (weapon.bulletId || weapon.arrowId);
+    const loadedAmmo = inv.find((i: any) => (ammoId && i.id === ammoId) || (weapon.magazineAmmo?.[0] && (i.id === weapon.magazineAmmo[0].id || i.nome === weapon.magazineAmmo[0].nome)));
+    if (loadedAmmo && loadedAmmo.dano && loadedAmmo.dano !== '0') {
+      return loadedAmmo.dano;
+    }
+    if (weapon.municaoDano && weapon.municaoDano !== '0') {
+      return weapon.municaoDano;
+    }
+    if (weapon.dano && weapon.dano !== '0' && weapon.dano !== 'Sem Dano') {
+      return weapon.dano;
+    }
+    if (isFirearm && (!weapon.municaoCarregada || weapon.municaoCarregada <= 0)) {
+      return "Falta Bala";
+    }
+    if (isBow && !ammoId) {
+      return "Falta Flecha";
+    }
+    return isBow ? "1d6" : "2d6";
+  }
+
+  return weapon.dano || "0";
+};
+
 export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({ 
   campaignId, 
   isMaster, 
@@ -1575,13 +1624,27 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
     if (!weapon) return;
 
-    const ammo = inventoryItems.find(i => i.id === ammoId);
-    if (!ammo || (ammo.quantidade || 0) <= 0) {
-      await addCombatLog(campaignId, { msg: "Você não possui munição!", type: 'error' });
+    const getQty = (it: any) => typeof it?.quantidade === 'number' ? it.quantidade : (parseInt(it?.quantidade) || (it ? 1 : 0));
+    let ammo = inventoryItems.find(i => i.id === ammoId);
+    if (!ammo || getQty(ammo) <= 0) {
+      ammo = inventoryItems.find(i => {
+        const lowerTipo = (i.tipo || "").toLowerCase();
+        const lowerNome = (i.nome || "").toLowerCase();
+        const isAmmoType = lowerTipo === 'munição' || lowerTipo === 'municao';
+        if (!isAmmoType) return false;
+        return getQty(i) > 0;
+      });
+    }
+
+    if (!ammo || getQty(ammo) <= 0) {
+      await addCombatLog(campaignId, { msg: "Você não possui munição disponível!", type: 'error' });
       return;
     }
 
-    const currentMagazine = (weapon as any).magazineAmmo || [];
+    let currentMagazine = Array.isArray((weapon as any).magazineAmmo) ? [...(weapon as any).magazineAmmo] : [];
+    if (typeof weapon.municaoCarregada === 'number' && weapon.municaoCarregada < currentMagazine.length) {
+      currentMagazine = currentMagazine.slice(0, weapon.municaoCarregada);
+    }
     const maxCapacity = getMaxCapacity(weapon);
     
     if (currentMagazine.length >= maxCapacity) {
@@ -1589,9 +1652,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       return;
     }
 
+    const isBow = isBowItem(weapon);
     const amountToLoad = 1;
     const charUpdates: any = {};
-    const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...ammo as any, id: generateId(), quantidade: 1 }));
+    const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ 
+      ...ammo as any, 
+      id: generateId(), 
+      dano: ammo.dano || weapon.dano || (isBow ? '1d6' : '2d6'),
+      quantidade: 1 
+    }));
     const newMagazine = [...currentMagazine, ...ammoToAdd];
 
     const updatedWeaponProps = {
@@ -1604,7 +1673,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       perfuracao: Number(ammo.perfuracao) || 0,
       impacto: Number(ammo.impacto) || 0,
       resistencia: Number(ammo.resistencia) || 0,
-      ...(ammo.dano ? { municaoDano: ammo.dano } : {})
+      dano: ammo.dano || weapon.dano || (isBow ? "1d6" : "2d6"),
+      municaoDano: ammo.dano || weapon.municaoDano
     };
 
     // Update weapon
@@ -1614,8 +1684,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     charUpdates.compartimentos = char.compartimentos.map(comp => ({
       ...comp,
       itens: comp.itens.map(it => {
-        if (it.id === ammoId) {
-          return { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) };
+        if (it.id === ammo.id) {
+          return { ...it, quantidade: Math.max(0, getQty(it) - amountToLoad) };
         }
         if (it.id === weaponId) {
           return updatedWeaponProps;
@@ -1668,13 +1738,27 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
     if (!weapon) return;
 
-    const ammo = inventoryItems.find(i => i.id === ammoId);
-    if (!ammo || (ammo.quantidade || 0) <= 0) {
-      await addCombatLog(campaignId, { msg: "Você não possui munição!", type: 'error' });
+    const getQty = (it: any) => typeof it?.quantidade === 'number' ? it.quantidade : (parseInt(it?.quantidade) || (it ? 1 : 0));
+    let ammo = inventoryItems.find(i => i.id === ammoId);
+    if (!ammo || getQty(ammo) <= 0) {
+      ammo = inventoryItems.find(i => {
+        const lowerTipo = (i.tipo || "").toLowerCase();
+        const lowerNome = (i.nome || "").toLowerCase();
+        const isAmmoType = lowerTipo === 'munição' || lowerTipo === 'municao';
+        if (!isAmmoType) return false;
+        return getQty(i) > 0;
+      });
+    }
+
+    if (!ammo || getQty(ammo) <= 0) {
+      await addCombatLog(campaignId, { msg: "Você não possui munição disponível!", type: 'error' });
       return;
     }
 
-    const currentMagazine = (weapon as any).magazineAmmo || [];
+    let currentMagazine = Array.isArray((weapon as any).magazineAmmo) ? [...(weapon as any).magazineAmmo] : [];
+    if (typeof weapon.municaoCarregada === 'number' && weapon.municaoCarregada < currentMagazine.length) {
+      currentMagazine = currentMagazine.slice(0, weapon.municaoCarregada);
+    }
     const maxCapacity = getMaxCapacity(weapon);
     
     if (currentMagazine.length >= maxCapacity) {
@@ -1682,11 +1766,17 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       return;
     }
 
+    const isBow = isBowItem(weapon);
     const needed = maxCapacity - currentMagazine.length;
-    const amountToLoad = Math.min(ammo.quantidade || 0, needed);
+    const amountToLoad = Math.min(getQty(ammo), needed);
     
     const charUpdates: any = {};
-    const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ ...ammo as any, id: generateId(), quantidade: 1 }));
+    const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ 
+      ...ammo as any, 
+      id: generateId(), 
+      dano: ammo.dano || weapon.dano || (isBow ? '1d6' : '2d6'),
+      quantidade: 1 
+    }));
     const newMagazine = [...currentMagazine, ...ammoToAdd];
 
     const updatedWeaponProps = {
@@ -1699,7 +1789,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       perfuracao: Number(ammo.perfuracao) || 0,
       impacto: Number(ammo.impacto) || 0,
       resistencia: Number(ammo.resistencia) || 0,
-      ...(ammo.dano ? { municaoDano: ammo.dano } : {})
+      dano: ammo.dano || weapon.dano || (isBow ? "1d6" : "2d6"),
+      municaoDano: ammo.dano || weapon.municaoDano
     };
 
     // Update weapon
@@ -1709,8 +1800,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     charUpdates.compartimentos = char.compartimentos.map(comp => ({
       ...comp,
       itens: comp.itens.map(it => {
-        if (it.id === ammoId) {
-          return { ...it, quantidade: Math.max(0, (it.quantidade || 0) - amountToLoad) };
+        if (it.id === ammo.id) {
+          return { ...it, quantidade: Math.max(0, getQty(it) - amountToLoad) };
         }
         if (it.id === weaponId) {
           return updatedWeaponProps;
@@ -1720,7 +1811,6 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     }));
 
     await updateCharacterState(char.id, charUpdates);
-    await addCombatLog(campaignId, { msg: `${char.nome} recarregou ${amountToLoad} munições (${ammo.nome}) em ${weapon.nome}.`, type: 'info' });
   };
 
   const [clipBoardItem, setClipBoardItem] = useState<{item: any, sourceId: string, charId: string, type: 'cut' | 'copy'} | null>(null);
@@ -2561,7 +2651,22 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       
       let actingBullet: any = null;
       if ((isFirearm || isBow) && action.magazineAmmo && action.magazineAmmo.length > 0) {
-        actingBullet = action.magazineAmmo[0];
+        actingBullet = { ...action.magazineAmmo[0] };
+      }
+      if ((isFirearm || isBow) && attackerChar) {
+        const inv = attackerChar.compartimentos?.flatMap((c: any) => c.itens || []) || [];
+        const foundAmmo = inv.find((i: any) => 
+          (action.bulletId && i.id === action.bulletId) ||
+          (action.arrowId && i.id === action.arrowId) ||
+          (actingBullet && (i.id === actingBullet.id || i.nome === actingBullet.nome))
+        );
+        if (foundAmmo) {
+          if (!actingBullet) {
+            actingBullet = { ...foundAmmo };
+          } else if (!actingBullet.dano || actingBullet.dano === '0') {
+            actingBullet.dano = foundAmmo.dano;
+          }
+        }
       }
 
       if (isFirearm) {
@@ -3084,8 +3189,23 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
     if (hitSucceeded) {
       let effectiveDanoFormula = action.dano || "1d4";
-      if (isFirearm && actingBullet) {
-        effectiveDanoFormula = actingBullet.dano || "1d6";
+      if (isFirearm || isBow) {
+        const inv = attackerChar?.compartimentos?.flatMap((c: any) => c.itens || []) || [];
+        const ammoInInv = inv.find((i: any) => 
+          (action.bulletId && i.id === action.bulletId) || 
+          (action.arrowId && i.id === action.arrowId) || 
+          (actingBullet && (i.id === actingBullet.id || i.nome === actingBullet.nome))
+        );
+        const resolvedBulletDano = (actingBullet && actingBullet.dano && actingBullet.dano !== "0")
+          ? actingBullet.dano
+          : (ammoInInv?.dano && ammoInInv.dano !== "0")
+            ? ammoInInv.dano
+            : (action.municaoDano && action.municaoDano !== "0")
+              ? action.municaoDano
+              : (action.dano && action.dano !== "0")
+                ? action.dano
+                : (isBow ? "1d6" : "2d6");
+        effectiveDanoFormula = resolvedBulletDano;
       }
 
       if (isCriticalHit) {
@@ -6149,7 +6269,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 const attacker = tokens.find(t => t.id === weaponSelectTokenId);
                 const attackerChar = availableCharacters.find(c => c.id === attacker?.characterId) || 
                   (attacker?.characterId ? fetchedCharacters[attacker.characterId] : undefined);
-                const weapons = attackerChar?.armas || [];
+                const weapons = (attackerChar?.armas || []).filter(w => !isArmorItem(w));
                 const catalysts = attackerChar?.catalisadores || [];
                 const spells = attackerChar?.magias || [];
                 // If it is a monster/creature on VTT, show its natural actions (acoes)
@@ -6158,7 +6278,13 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                   : (attackerChar ? [] : (attacker?.acoes || []));
                 
                 const inventoryItems = attackerChar?.compartimentos?.flatMap(c => c.itens || []) || [];
-                const inventoryWeapons = inventoryItems.filter(i => (i.tipo === 'Arma' || i.corte || i.perfuracao || i.impacto) && i.tipo !== 'Munição' && i.tipo !== 'municao') as any[];
+                const inventoryWeapons = inventoryItems.filter(i => {
+                  if (isArmorItem(i)) return false;
+                  const t = ((i as any).tipo || "").toLowerCase();
+                  const cat = ((i as any).categoria || "").toLowerCase();
+                  if (t === 'munição' || t === 'municao' || t === 'geral') return false;
+                  return t === 'arma' || ((i.corte || i.perfuracao || i.impacto) && (i.dano || cat.includes('arma') || isFirearmItem(i) || isBowItem(i)));
+                }) as any[];
                 const inventoryCatalysts = inventoryItems.filter(i => i.tipo === 'Catalisador' || i.feitico || i.elemental || i.magiaNegra) as any[];
                 
                 const allWeapons: any[] = [];
@@ -6428,12 +6554,28 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
                               const displayedTypes = loadedAvailTypes.length > 0 ? loadedAvailTypes : (weaponAvailTypes.length > 0 ? weaponAvailTypes : [{ type: 'Perfuração', val: 0 }]);
 
+                              const selectedOrLoadedAmmo = (selectedAmmoId 
+                                ? (attackerChar?.compartimentos?.flatMap(comp => comp.itens || []) || []).find(i => i.id === selectedAmmoId)
+                                : null) || preloadedAmmo;
+
+                              const weaponWithAmmo = {
+                                ...ammoSelectWeapon,
+                                corte: Number(selectedOrLoadedAmmo?.corte ?? ammoSelectWeapon.corte) || 0,
+                                perfuracao: Number(selectedOrLoadedAmmo?.perfuracao ?? ammoSelectWeapon.perfuracao) || 0,
+                                impacto: Number(selectedOrLoadedAmmo?.impacto ?? ammoSelectWeapon.impacto) || 0,
+                                resistencia: Number(selectedOrLoadedAmmo?.resistencia ?? ammoSelectWeapon.resistencia) || 0,
+                                dano: selectedOrLoadedAmmo?.dano || ammoSelectWeapon.dano || (isBowItem(ammoSelectWeapon) ? "1d6" : "2d6"),
+                                municaoDano: selectedOrLoadedAmmo?.dano || ammoSelectWeapon.municaoDano,
+                                bulletId: isFirearmItem(ammoSelectWeapon) ? (selectedOrLoadedAmmo?.id || ammoSelectWeapon.bulletId) : undefined,
+                                arrowId: isBowItem(ammoSelectWeapon) ? (selectedOrLoadedAmmo?.id || ammoSelectWeapon.arrowId) : undefined
+                              };
+
                               return displayedTypes.length > 0 ? (
                                 <div className="flex gap-2">
                                   {displayedTypes.map(t => (
                                     <button
                                       key={t.type}
-                                      onClick={() => handleSelectAttack(ammoSelectWeapon, t.type as any)}
+                                      onClick={() => handleSelectAttack(weaponWithAmmo, t.type as any)}
                                       className="flex-1 py-3 bg-red-600/10 hover:bg-red-600/20 text-red-500 hover:text-white border border-red-500/30 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-0.5"
                                     >
                                       <span>Atirar ({t.type})</span>
@@ -6443,7 +6585,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                                 </div>
                               ) : (
                                 <button 
-                                  onClick={() => handleSelectAttack(ammoSelectWeapon)}
+                                  onClick={() => handleSelectAttack(weaponWithAmmo)}
                                   className="w-full py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-red-600/20 transition-all flex items-center justify-center gap-2"
                                 >
                                    <Swords size={16} /> Atirar
@@ -6573,7 +6715,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                                  <div className="text-left">
                                    <div className="text-xs font-bold text-white">{weapon.nome}</div>
                                    <div className="text-[10px] text-zinc-500">
-                                     Acerto Mín: {weapon.acerto} | Dano: {isFirearmItem(weapon) ? (weapon.magazineAmmo && weapon.magazineAmmo.length > 0 ? (weapon.magazineAmmo[0].dano || 'Sem Dano') : 'Falta Bala') : (weapon.dano || "0")}
+                                     Acerto Mín: {weapon.acerto} | Dano: {getWeaponDisplayDano(weapon, attackerChar)}
                                    </div>
                                    {availTypes.length > 0 && (
                                      <div className="text-[9px] text-zinc-400 font-medium mt-0.5">
@@ -6953,7 +7095,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                             <div key={arma.id} className="flex items-center justify-between p-3 bg-zinc-950 border border-zinc-800 rounded-xl hover:border-amber-500/30 transition-all group shadow-sm">
                               <div className="flex-1 min-w-0">
                                 <div className="text-xs font-bold text-white truncate">{arma.nome}</div>
-                                <div className="text-[8px] text-zinc-500 font-medium uppercase mt-0.5">{arma.categoria} | Dano: {isFirearmItem(arma) ? (arma.magazineAmmo && arma.magazineAmmo.length > 0 ? (arma.magazineAmmo[0].dano || 'Sem Dano') : 'Falta Bala') : (arma.dano || "0")}</div>
+                                <div className="text-[8px] text-zinc-500 font-medium uppercase mt-0.5">{arma.categoria} | Dano: {getWeaponDisplayDano(arma, char)}</div>
                               </div>
                               <button 
                                 onClick={() => {

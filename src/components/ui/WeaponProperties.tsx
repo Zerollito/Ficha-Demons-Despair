@@ -50,8 +50,18 @@ export function WeaponProperties({ item, onChange, character, updateCharacter, o
     });
   }, [allCompartmentItems, isBow, isFirearm]);
 
-  // Find active ammo (from arrowId/bulletId or from magazineAmmo)
-  const currentAmmoId = (isBow ? (item.arrowId || item.bulletId) : (item.bulletId || item.arrowId)) || (item.magazineAmmo && item.magazineAmmo.length > 0 ? item.magazineAmmo[0].id : "");
+  // Find active ammo (from arrowId/bulletId or from magazineAmmo, matched against inventory)
+  const currentAmmoId = React.useMemo(() => {
+    const directId = isBow ? (item.arrowId || item.bulletId) : (item.bulletId || item.arrowId);
+    if (directId && ammoItems.some((a: any) => a.id === directId)) return directId;
+    if (item.magazineAmmo && item.magazineAmmo.length > 0) {
+      const magItem = item.magazineAmmo[0];
+      const match = ammoItems.find((a: any) => a.id === magItem.id || a.nome === magItem.nome);
+      if (match) return match.id;
+    }
+    return ammoItems[0]?.id || "";
+  }, [isBow, item.arrowId, item.bulletId, item.magazineAmmo, ammoItems]);
+
   const [selectedAmmoId, setSelectedAmmoId] = React.useState<string>(currentAmmoId || "");
 
   React.useEffect(() => {
@@ -89,7 +99,8 @@ export function WeaponProperties({ item, onChange, character, updateCharacter, o
         impacto: Number(ammoObj.impacto) || 0,
         perfuracao: Number(ammoObj.perfuracao) || 0,
         resistencia: Number(ammoObj.resistencia) || 0,
-        ...(ammoObj.dano ? { municaoDano: ammoObj.dano } : {})
+        dano: ammoObj.dano || item.dano || (isBow ? "1d6" : "2d6"),
+        municaoDano: ammoObj.dano
       });
     } else {
       onChange({
@@ -104,6 +115,8 @@ export function WeaponProperties({ item, onChange, character, updateCharacter, o
     }
   };
 
+  const effectiveSelectedAmmoId = selectedAmmoId || (ammoItems.find((a: any) => (a.quantidade || 0) > 0)?.id) || (ammoItems[0]?.id || "");
+
   return (
     <div className="space-y-3">
       {/* Category Header */}
@@ -116,7 +129,11 @@ export function WeaponProperties({ item, onChange, character, updateCharacter, o
 
       {/* Row 1: Dano & Acerto */}
       <div className="grid grid-cols-2 gap-2">
-        <MiniInput label="Dano" value={item.dano || '0'} onChange={v => onChange({ dano: v })} />
+        <MiniInput 
+          label={(isFirearm || isBow) ? "Dano (Munição/Base)" : "Dano"} 
+          value={item.dano && item.dano !== '0' ? item.dano : (activeAmmo?.dano || item.municaoDano || item.dano || '0')} 
+          onChange={v => onChange({ dano: v })} 
+        />
         <MiniInput label="Acerto" value={item.acerto || 0} type="number" onChange={v => onChange({ acerto: parseInt(v) || 0 })} />
       </div>
 
@@ -220,16 +237,16 @@ export function WeaponProperties({ item, onChange, character, updateCharacter, o
             </button>
             <button 
               type="button"
-              onClick={() => onReload?.(selectedAmmoId, false)} 
-              disabled={!selectedAmmoId}
+              onClick={() => onReload?.(effectiveSelectedAmmoId, false)} 
+              disabled={ammoItems.length === 0}
               className="flex-1 bg-amber-500/10 text-amber-500 text-[10px] font-bold py-1.5 rounded hover:bg-amber-500/20 disabled:opacity-30 transition-colors"
             >
               Recarregar 1
             </button>
             <button 
               type="button"
-              onClick={() => onReload?.(selectedAmmoId, true)} 
-              disabled={!selectedAmmoId}
+              onClick={() => onReload?.(effectiveSelectedAmmoId, true)} 
+              disabled={ammoItems.length === 0}
               className="flex-1 bg-amber-600 text-white text-[10px] font-bold py-1.5 rounded hover:bg-amber-500 disabled:opacity-30 transition-colors"
             >
               Recarregar Tudo
