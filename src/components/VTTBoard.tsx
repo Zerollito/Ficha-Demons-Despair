@@ -3259,17 +3259,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         }
       });
 
-      // Defense of location
-      let locDefVal = 0;
-      if (targetChar) {
-        const locKey = locationName.includes('Perna') ? 'Pernas' : locationName;
-        locDefVal = (targetChar.defesa as any)[locKey] || 0;
-      } else if (target.stats) {
-        locDefVal = (target.stats.defesa as any)[key] || 0;
-      }
-
-      damage = Math.max(0, Math.floor((damage + extraDamageTakenFromEffects - locDefVal) * damageMultiplier));
-      damageFormula += ` + Efeitos ${extraDamageTakenFromEffects} - Defesa Local ${locDefVal}`;
+      damage = Math.max(0, Math.floor((damage + extraDamageTakenFromEffects) * damageMultiplier));
+      damageFormula += ` + Efeitos ${extraDamageTakenFromEffects}`;
       if (damageMultiplier !== 1) damageFormula += ` x${damageMultiplier}`;
 
       // 7. Success Actions
@@ -3287,7 +3278,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         const totalSave = resRoll + resProf;
 
         if (totalSave < 70 || isCriticalHit) {
-          effectInfo = isCriticalHit ? " [CRÍTICO!]" : ` (Falhou: ${resRoll}+${resProf}=${totalSave})`;
+          effectInfo = isCriticalHit ? " [CRÍTICO! Efeito Aplicado]" : ` (Efeito Falhou Resistência: 1d100[${resRoll}] + ${resProf} RES = ${totalSave} < 70)`;
           const effectTypeMap: any = { 'Impacto': 'Ossos Quebrados', 'Corte': 'Sangramento', 'Perfuração': 'Hemorragia' };
           const chosenEffectType = effectTypeMap[attackType] || 'Sangramento';
           const newEffect: NegativeEffect = {
@@ -3338,7 +3329,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           combatStatus = 'hit_with_effect';
           effectType = chosenEffectType;
         } else {
-          effectInfo = ` (Resistiu: ${resRoll}+${resProf}=${resRoll+resProf})`;
+          effectInfo = ` (Efeito Resistido: 1d100[${resRoll}] + ${resProf} RES = ${totalSave} >= 70)`;
           const currentHpBeforeDmg = targetChar ? (targetChar.vidaAtual ?? 0) : (target.hp ?? 0);
           const newHp = Math.max(0, currentHpBeforeDmg - damage);
           await updateTokenPosition(campaignId, target.id, { hp: newHp, ...defenseClear });
@@ -3526,13 +3517,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               
               const currentMag = (w as any).magazineAmmo || [];
               const newMag = currentMag.slice(1);
+              const currentLoaded = w.municaoCarregada !== undefined ? w.municaoCarregada : currentMag.length;
+              const newLoaded = Math.max(0, currentLoaded - 1);
 
               return { 
                 ...w, 
                 durabilidade: newDur, 
                 maxDurabilidade: newMaxDur,
-                municaoCarregada: newMag.length,
-                magazineAmmo: newMag
+                municaoCarregada: newLoaded,
+                magazineAmmo: newMag.length > 0 ? newMag : (newLoaded > 0 ? currentMag.slice(0, newLoaded) : [])
               };
             }
             return w;
@@ -3577,13 +3570,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                   
                   const currentMag = (i as any).magazineAmmo || [];
                   const newMag = currentMag.slice(1);
+                  const currentLoaded = (i as any).municaoCarregada !== undefined ? (i as any).municaoCarregada : currentMag.length;
+                  const newLoaded = Math.max(0, currentLoaded - 1);
 
                   return {
                     ...i,
                     durabilidade: newDur,
                     maxDurabilidade: newMaxDur,
-                    municaoCarregada: newMag.length,
-                    magazineAmmo: newMag
+                    municaoCarregada: newLoaded,
+                    magazineAmmo: newMag.length > 0 ? newMag : (newLoaded > 0 ? currentMag.slice(0, newLoaded) : [])
                   };
                 }
                 return i;

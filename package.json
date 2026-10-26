@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "1.14.33",
+  "version": "1.15.1",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -19,6 +19,7 @@
     "clsx": "^2.1.1",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
+    "esbuild": "^0.28.0",
     "express": "^4.21.2",
     "firebase": "^12.12.1",
     "jspdf": "^4.2.1",
@@ -41,7 +42,6 @@
     "@types/node": "^22.14.0",
     "@types/ws": "^8.18.2",
     "autoprefixer": "^10.4.21",
-    "esbuild": "^0.28.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
