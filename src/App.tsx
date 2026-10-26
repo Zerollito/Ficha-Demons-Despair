@@ -116,7 +116,8 @@ import {
   safeLocalStorageSetItem,
   safeLocalStorageGetItem,
   idbGet,
-  isSupabaseConnected as initialSupabaseConnected
+  isSupabaseConnected as initialSupabaseConnected,
+  DEFAULT_LOCAL_ANON_KEY
 } from "./lib/supabase";
 import type { FirebaseUserLike as User } from "./lib/supabase";
 import { subscribeToUserCharacters, saveCharacterToFirestore, deleteCharacterFromFirestore, getMaxCapacity } from "./services/characterService";
@@ -227,17 +228,27 @@ const STORAGE_KEY = "rpg_system_x_chars";
 export const isCharacterOwnedByCurrentUser = (char: Character, currentUser: any | null): boolean => {
   if (!char) return false;
   const charEmail = (char.userEmail || (char as any).user_email || '').trim().toLowerCase();
-  const isGuestEmail = !charEmail || charEmail.startsWith('guest_');
+  const charUserId = (char.userId || (char as any).user_id || '').trim();
 
-  if (currentUser && currentUser.email) {
+  if (currentUser) {
     const userEmail = (currentUser.email || '').trim().toLowerCase();
+    const userId = (currentUser.uid || currentUser.id || '').trim();
+
     const isSameEmail = Boolean(userEmail && charEmail && userEmail === charEmail);
-    return isSameEmail || isGuestEmail;
+    const isSameId = Boolean(userId && charUserId && userId === charUserId);
+
+    if (isSameEmail || isSameId) return true;
+
+    // Se a ficha possui outro e-mail ou outro userId associado, ela pertence estritamente a outro jogador
+    if (charEmail || charUserId) return false;
+
+    // Apenas se a ficha não possui nem e-mail nem userId é tratada como anônima/guest deste navegador
+    return true;
   }
 
   // Se o usuário NÃO está logado (!currentUser):
-  // Ele SÓ tem permissão para visualizar fichas anônimas/de convidado (guest).
-  return isGuestEmail;
+  // Ele SÓ tem permissão para visualizar fichas anônimas/de convidado (guest) deste navegador.
+  return (!charEmail && !charUserId) || charEmail.startsWith('guest_');
 };
 
 // Using generateId from lib/random
@@ -1240,6 +1251,49 @@ function App() {
     };
   }, [showToast]);
 
+  // Database / Supabase configuration modal state
+  const [isDbModalOpen, setIsDbModalOpen] = useState(false);
+  const [dbConfigUrl, setDbConfigUrl] = useState(() => getSupabaseConfig().rawUrl || "http://127.0.0.1:54321");
+  const [dbConfigKey, setDbConfigKey] = useState(() => getSupabaseConfig().anonKey);
+  const [dbTesting, setDbTesting] = useState(false);
+  const [dbTestResult, setDbTestResult] = useState<{ success: boolean; message: string; latency?: number; tablesReady?: boolean } | null>(null);
+
+  const handleTestDatabase = useCallback(async (overrideUrl?: string, overrideKey?: string) => {
+    setDbTesting(true);
+    setDbTestResult(null);
+    try {
+      const url = overrideUrl || dbConfigUrl;
+      const key = overrideKey !== undefined ? overrideKey : dbConfigKey;
+      const res = await testSupabaseConnection(url, key);
+      setDbTestResult(res);
+      if (res.success) {
+        setIsSupabaseConnected(true);
+      }
+    } catch (e: any) {
+      setDbTestResult({ success: false, message: e.message || "Falha ao testar conexão." });
+    } finally {
+      setDbTesting(false);
+    }
+  }, [dbConfigUrl, dbConfigKey]);
+
+  const handleSaveDatabaseConfig = useCallback(async () => {
+    setDbTesting(true);
+    try {
+      setSupabaseConfig(dbConfigUrl, dbConfigKey);
+      const res = await testSupabaseConnection(dbConfigUrl, dbConfigKey);
+      setDbTestResult(res);
+      if (res.success) {
+        showToast("Configurações do Supabase salvas e conectadas!", "success");
+      } else {
+        showToast(res.message || "Configuração salva, mas o Supabase não respondeu.", "info");
+      }
+    } catch (e: any) {
+      showToast("Erro ao salvar configuração: " + (e.message || String(e)), "error");
+    } finally {
+      setDbTesting(false);
+    }
+  }, [dbConfigUrl, dbConfigKey, showToast]);
+
   // Bloqueio de gestos do navegador para evitar pull-to-refresh e pinch-zoom
   useEffect(() => {
     if (activePage === "table") {
@@ -1735,25 +1789,42 @@ function App() {
     };
   }, [activeCampaignId]);
 
-  // Merge campaign characters with user's local characters so players always see their characters in VTT
+  // Personagens disponíveis no VTT:
+  // Se for Mestre da campanha ativa: visualiza todas as fichas da campanha + suas fichas locais.
+  // Se for Jogador: visualiza APENAS suas próprias fichas (não vê as fichas de outros jogadores na lista do VTT).
   const vttAvailableCharacters = useMemo(() => {
+    const userEmailLower = (user?.email || '').trim().toLowerCase();
+    const isMasterOfActive = !!(activeCampaignId && (
+      masterCampaigns.some(c => c.id === activeCampaignId) ||
+      campaigns.some(c => c.id === activeCampaignId && ((c.masterEmail && c.masterEmail.toLowerCase() === userEmailLower) || (c.masterId && c.masterId === user?.uid)))
+    ));
+
     const map = new Map<string, Character>();
     campaignCharacters.forEach(c => {
-      if (!deletedCharsRef.current.has(c.id)) {
-        map.set(c.id, c);
+      if (c && c.id && !deletedCharsRef.current.has(c.id)) {
+        if (isMasterOfActive || isCharacterOwnedByCurrentUser(c, user)) {
+          map.set(c.id, c);
+        }
       }
     });
     state.characters.forEach(c => {
-      if (!deletedCharsRef.current.has(c.id) && !map.has(c.id)) {
-        map.set(c.id, c);
+      if (c && c.id && !deletedCharsRef.current.has(c.id) && !map.has(c.id)) {
+        if (isMasterOfActive || isCharacterOwnedByCurrentUser(c, user)) {
+          map.set(c.id, c);
+        }
       }
     });
     return Array.from(map.values());
-  }, [campaignCharacters, state.characters]);
+  }, [campaignCharacters, state.characters, activeCampaignId, user, masterCampaigns, campaigns]);
 
-  // Automatically merge campaign characters into state.characters so Mestre and players have full sheet access
+  // Merge campaign characters: apenas para o MESTRE (para inspecionar e abrir as fichas dos jogadores)
+  // ou para o jogador atualizar dados da sua própria ficha. Jogadores NUNCA recebem fichas alheias.
   useEffect(() => {
     if (!user?.uid || !activeCampaignId || campaignCharacters.length === 0) return;
+
+    const userEmailLower = (user.email || '').trim().toLowerCase();
+    const isMasterOfActive = masterCampaigns.some(c => c.id === activeCampaignId) ||
+      campaigns.some(c => c.id === activeCampaignId && ((c.masterEmail && c.masterEmail.toLowerCase() === userEmailLower) || (c.masterId && c.masterId === user.uid)));
 
     setState(prev => {
       let changed = false;
@@ -1761,31 +1832,48 @@ function App() {
 
       campaignCharacters.forEach(cc => {
         if (cc && cc.id && !deletedCharsRef.current.has(cc.id)) {
-          const existing = charMap.get(cc.id);
-          if (!existing) {
-            charMap.set(cc.id, cc);
-            changed = true;
-          } else {
-            // Atualiza se houver dados novos do jogador
-            const existingStr = JSON.stringify({ ...existing, dirty: undefined });
-            const incomingStr = JSON.stringify({ ...cc, dirty: undefined });
-            if (existingStr !== incomingStr) {
-              charMap.set(cc.id, { ...existing, ...cc });
+          const isOwn = isCharacterOwnedByCurrentUser(cc, user);
+          // O Mestre pode carregar as fichas dos jogadores da mesa; o jogador SÓ carrega a sua própria ficha!
+          if (isMasterOfActive || isOwn) {
+            const existing = charMap.get(cc.id);
+            if (!existing) {
+              charMap.set(cc.id, cc);
               changed = true;
+            } else {
+              // Atualiza se houver dados novos do jogador
+              const existingStr = JSON.stringify({ ...existing, dirty: undefined });
+              const incomingStr = JSON.stringify({ ...cc, dirty: undefined });
+              if (existingStr !== incomingStr) {
+                charMap.set(cc.id, { ...existing, ...cc });
+                changed = true;
+              }
             }
           }
         }
       });
+
+      // Se for jogador comum (não é o Mestre desta campanha), purga fichas de outros jogadores
+      // que possam ter sido injetadas anteriormente em sessões passadas
+      if (!isMasterOfActive) {
+        for (const [id, c] of charMap.entries()) {
+          if (c.campaignId === activeCampaignId && !isCharacterOwnedByCurrentUser(c, user)) {
+            charMap.delete(id);
+            changed = true;
+          }
+        }
+      }
 
       if (!changed) return prev;
       const newChars = Array.from(charMap.values());
       return {
         ...prev,
         characters: newChars,
-        activeCharacterId: prev.activeCharacterId || (newChars.length > 0 ? newChars[0].id : "")
+        activeCharacterId: prev.activeCharacterId && charMap.has(prev.activeCharacterId)
+          ? prev.activeCharacterId
+          : (newChars.length > 0 ? newChars[0].id : "")
       };
     });
-  }, [activeCampaignId, campaignCharacters, user?.uid]);
+  }, [activeCampaignId, campaignCharacters, user?.uid, masterCampaigns, campaigns]);
 
   const [tocaEditingCreatureId, setTocaEditingCreatureId] = useState<string | null>(null);
   const [bestiaryEditingMonsterId, setBestiaryEditingMonsterId] = useState<string | null>(null);
@@ -5027,6 +5115,27 @@ function App() {
             )}
           </motion.button>
 
+          {/* Botão de Conexão com Banco de Dados / Supabase */}
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => {
+              setIsDbModalOpen(true);
+              handleTestDatabase();
+            }}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer shadow-sm",
+              isSupabaseConnected
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
+                : "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
+            )}
+            title={isSupabaseConnected ? "Supabase Conectado (Clique para gerenciar banco)" : "Supabase Desconectado (Clique para configurar conexão)"}
+          >
+            <Database size={14} className={isSupabaseConnected ? "text-emerald-400" : "text-red-400"} />
+            <span className="hidden sm:inline text-[11px]">
+              {isSupabaseConnected ? "Supabase" : "Supabase Off"}
+            </span>
+          </motion.button>
+
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -5122,6 +5231,20 @@ function App() {
                 accept=".json"
               />
             </label>
+
+            <div className="pt-1 border-t border-zinc-800 mt-1">
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => {
+                  setIsDbModalOpen(true);
+                  setIsMenuOpen(false);
+                  handleTestDatabase();
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-emerald-400 cursor-pointer"
+              >
+                <Database size={18} /> Banco de Dados / Supabase
+              </motion.button>
+            </div>
 
             <div className="pt-1 border-t border-zinc-800 mt-1">
               <motion.button
@@ -12785,6 +12908,199 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
               </div>
             </div>
           )}
+        </motion.div>
+      </div>
+    )}
+  </AnimatePresence>
+
+  {/* Modal de Conexão com Banco de Dados / Supabase */}
+  <AnimatePresence>
+    {isDbModalOpen && (
+      <div 
+        className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+        onClick={() => setIsDbModalOpen(false)}
+      >
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.95, opacity: 0 }}
+          onClick={(e) => e.stopPropagation()}
+          className="bg-zinc-950 border border-zinc-800 p-6 rounded-2xl max-w-xl w-full shadow-2xl space-y-5 font-sans relative max-h-[90vh] overflow-y-auto custom-scrollbar"
+        >
+          {/* Botão Fechar */}
+          <button
+            type="button"
+            onClick={() => setIsDbModalOpen(false)}
+            className="absolute top-4 right-4 p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
+          >
+            <X size={20} />
+          </button>
+
+          {/* Cabeçalho */}
+          <div className="flex items-center gap-3 border-b border-zinc-800/80 pb-4">
+            <div className={cn(
+              "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border",
+              isSupabaseConnected 
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                : "bg-red-500/10 border-red-500/30 text-red-400"
+            )}>
+              <Database size={22} />
+            </div>
+            <div>
+              <h3 className="text-base font-black text-white uppercase tracking-tight flex items-center gap-2">
+                Conexão com Banco de Dados
+                <span className={cn(
+                  "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider",
+                  isSupabaseConnected 
+                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                    : "bg-red-500/20 text-red-400 border border-red-500/40"
+                )}>
+                  {isSupabaseConnected ? "Conectado" : "Desconectado"}
+                </span>
+              </h3>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Configure a URL e a chave de acesso do seu Supabase local ou remoto
+              </p>
+            </div>
+          </div>
+
+          {/* Resultado do Teste de Diagnóstico */}
+          {dbTestResult && (
+            <div className={cn(
+              "p-3.5 rounded-xl border text-xs space-y-1.5 animate-in fade-in duration-150",
+              dbTestResult.success 
+                ? (dbTestResult.tablesReady === false 
+                    ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
+                    : "bg-emerald-500/10 border-emerald-500/30 text-emerald-300")
+                : "bg-red-500/10 border-red-500/30 text-red-300"
+            )}>
+              <div className="flex items-center gap-2 font-bold">
+                {dbTestResult.success ? (
+                  dbTestResult.tablesReady === false ? <AlertCircle size={16} className="text-amber-400 shrink-0" /> : <Check size={16} className="text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertCircle size={16} className="text-red-400 shrink-0" />
+                )}
+                <span>{dbTestResult.message}</span>
+              </div>
+              {dbTestResult.latency !== undefined && (
+                <div className="text-[11px] text-zinc-400 font-mono">
+                  Tempo de resposta: {dbTestResult.latency}ms
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Formulário de Configuração */}
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                URL do Supabase *
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={dbConfigUrl}
+                  onChange={(e) => setDbConfigUrl(e.target.value)}
+                  placeholder="http://127.0.0.1:54321 ou https://seu-tunnel.trycloudflare.com"
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs font-mono text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                />
+              </div>
+
+              {/* Botões de Atalho / Presets */}
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                <span className="text-[10px] text-zinc-500 font-bold uppercase self-center mr-1">Atalhos:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDbConfigUrl("http://127.0.0.1:54321");
+                    handleTestDatabase("http://127.0.0.1:54321");
+                  }}
+                  className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg text-[10px] font-mono text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  127.0.0.1:54321
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDbConfigUrl("http://localhost:54321");
+                    handleTestDatabase("http://localhost:54321");
+                  }}
+                  className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg text-[10px] font-mono text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  localhost:54321
+                </button>
+                {typeof window !== 'undefined' && window.location.origin && !window.location.origin.includes('127.0.0.1') && !window.location.origin.includes('localhost') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDbConfigUrl(window.location.origin);
+                      handleTestDatabase(window.location.origin);
+                    }}
+                    className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg text-[10px] font-mono text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                  >
+                    Proxy Integrado ({window.location.host})
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                  Chave Anônima (Anon Key / Public Key)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setDbConfigKey(DEFAULT_LOCAL_ANON_KEY)}
+                  className="text-[10px] text-amber-500 hover:underline cursor-pointer"
+                >
+                  Restaurar chave local padrão
+                </button>
+              </div>
+              <textarea
+                value={dbConfigKey}
+                onChange={(e) => setDbConfigKey(e.target.value)}
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+                rows={2}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-[11px] font-mono text-zinc-300 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+            </div>
+          </div>
+
+          {/* Botões de Ação */}
+          <div className="flex gap-2.5 pt-2 border-t border-zinc-800/80">
+            <button
+              type="button"
+              disabled={dbTesting}
+              onClick={() => handleTestDatabase()}
+              className="flex-1 py-2.5 bg-zinc-900 hover:bg-zinc-850 border border-zinc-750 text-zinc-200 font-bold rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2"
+            >
+              {dbTesting ? <RefreshCwIcon size={14} className="animate-spin text-amber-500" /> : <Terminal size={14} />}
+              <span>{dbTesting ? "Testando..." : "Testar Conexão"}</span>
+            </button>
+            <button
+              type="button"
+              disabled={dbTesting}
+              onClick={handleSaveDatabaseConfig}
+              className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-black rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-amber-500/10"
+            >
+              <Save size={14} />
+              <span>Salvar e Conectar</span>
+            </button>
+          </div>
+
+          {/* Guia Rápido de Configuração do Supabase Local */}
+          <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3.5 space-y-2 text-xs text-zinc-400">
+            <h4 className="font-bold text-zinc-200 flex items-center gap-1.5 uppercase text-[11px] tracking-wider">
+              <Info size={14} className="text-amber-500" /> Como configurar o Supabase Local no seu PC
+            </h4>
+            <ol className="list-decimal list-inside space-y-1 text-[11px] text-zinc-300">
+              <li>No terminal da sua máquina, inicie o Supabase com <code className="px-1.5 py-0.5 bg-zinc-950 rounded text-amber-400 font-mono">supabase start</code>.</li>
+              <li>Acesse o Supabase Studio em <code className="px-1.5 py-0.5 bg-zinc-950 rounded text-amber-400 font-mono">http://127.0.0.1:54323</code> no seu navegador.</li>
+              <li>Vá em <strong>SQL Editor</strong> e execute o script <code className="px-1.5 py-0.5 bg-zinc-950 rounded text-amber-400 font-mono">supabase_setup.sql</code> que está na raiz deste projeto.</li>
+              <li>Se estiver acessando o app pelo celular ou preview HTTPS, use um túnel como <code className="px-1.5 py-0.5 bg-zinc-950 rounded text-amber-400 font-mono">cloudflared tunnel --url http://127.0.0.1:54321</code> e insira a URL HTTPS gerada aqui.</li>
+            </ol>
+          </div>
         </motion.div>
       </div>
     )}

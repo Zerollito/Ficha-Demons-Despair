@@ -4477,6 +4477,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
                 const filteredChars = availableCharacters.filter(c => {
                   if (!c || !c.nome) return false;
+                  if (!isMaster) {
+                    const isOwn = (activeCharacterId && c.id === activeCharacterId) ||
+                      (currentUserEmail && c.userEmail && c.userEmail.toLowerCase() === currentUserEmail) ||
+                      (currentUserUid && c.userId && c.userId === currentUserUid);
+                    if (!isOwn) return false;
+                  }
                   if (searchLower && !c.nome.toLowerCase().includes(searchLower)) {
                     return false;
                   }
@@ -7420,7 +7426,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     <h3 className="text-xs font-black uppercase text-amber-500 tracking-wider flex items-center gap-1.5">
                       📋 Ficha do Personagem
                     </h3>
-                    {availableCharacters.length > 1 && (
+                    {isMaster && availableCharacters.length > 1 && (
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] text-zinc-500 font-bold uppercase">Personagem:</span>
                         <select
