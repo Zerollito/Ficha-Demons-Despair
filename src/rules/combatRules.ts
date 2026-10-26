@@ -50,10 +50,27 @@ export interface Catalyst {
 
 export const getStatBonus = (statValue: number) => Math.floor(statValue / CONFIG.bonuses.statDivisor);
 
+export const isFirearmWeapon = (weapon: any): boolean => {
+  if (!weapon) return false;
+  const categoria = ((weapon as any)?.categoria || '').toLowerCase();
+  const tipo = ((weapon as any)?.tipo || '').toLowerCase();
+  const nome = ((weapon as any)?.nome || '').toLowerCase();
+  if (categoria === 'arma de fogo' || tipo === 'arma de fogo') return true;
+  return ['pistola', 'revol', 'rifle', 'fuzil', 'escopeta', 'trabuco', 'flintlock', 'garrucha'].some(w => nome.includes(w));
+};
+
 export const calculateWeaponDamageBonus = (weapon: Weapon | Catalyst, statValue: number) => {
+  if (!weapon) return 0;
+
+  // Armas de fogo NÃO têm escala (apenas armas brancas e arcos possuem escala)
+  if (isFirearmWeapon(weapon)) {
+    return 0;
+  }
+
   const baseBonus = getStatBonus(statValue || 0);
   const escala = weapon?.escala || '0';
   const scaleMult = CONFIG.scales[escala as keyof typeof CONFIG.scales] ?? 0;
   const result = Math.floor(baseBonus * scaleMult);
   return isNaN(result) ? 0 : result;
 };
+

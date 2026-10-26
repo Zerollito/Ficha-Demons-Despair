@@ -41,8 +41,9 @@ Este documento contém todas as regras lógicas e mecânicas do sistema para gar
   - `A`: 1.00x
 - **Dano Final**: `Roll(Dados da Arma) + floor(Bônus de Atributo * Multiplicador de Escala) + Bônus Manual`.
 - **Atributo de Escala**:
-  - Armas Físicas: Usam `FOR` ou `DEX` conforme definido na arma (`atributoBase`).
-  - Catalisadores/Spells: Geralmente usam `INT` ou `RIT`.
+  - **Armas Brancas e Arcos**: Possuem escala de atributo (`FOR` ou `DEX` conforme definido na arma via `atributoBase`).
+  - **Armas de Fogo**: **NÃO possuem escala de atributo** (bônus de escala = 0). O dano causado provém exclusivamente do dano cadastrado na arma, sem adição de bônus de escala de FOR ou DEX.
+  - **Catalisadores/Spells**: Geralmente usam `INT` ou `RIT`.
 
 ### Vantagem e Desvantagem
 - **Vantagem**: Role duas vezes (2x 3d8) e use o **maior** resultado total.
@@ -222,9 +223,9 @@ Munições são consumíveis necessários para o uso de armas à distância (arc
 ### Regra Fundamental de Dano de Munições
 - **Balas e Flechas NÃO possuem dano por si próprias**: A fórmula de **Dano** (ex: `3d8`, `4d8`, `1d8`, `2d6`) pertence **exclusivamente à própria Arma** (ao revólver, rifle, pistola, arco, besta, etc.).
 - **O que as Munições Fornecem**: Balas e flechas determinam os níveis de ataque físico (**Corte**, **Perfuração**, **Impacto**) e **Resistência**, além do consumo por disparo, peso, volume e possíveis efeitos especiais.
-- **Armas de Fogo (`categoria: 'Arma de Fogo'`)**: O dano causado é o **dano cadastrado na arma** (ex: `3d8`). A bala carregada define os níveis de Corte, Perfuração, Impacto e Resistência do disparo.
-- **Arcos (`categoria: 'Arco'`)**: O dano causado é o **dano cadastrado no arco** (ex: `1d8`). A flecha carregada define os níveis de Corte, Perfuração, Impacto e Resistência do disparo.
-- **Armas Brancas (`categoria: 'Arma Branca'`)**: Mantêm seus próprios níveis de Corte, Perfuração, Impacto, Resistência e Dano configurados na própria arma, já que não utilizam projéteis.
+- **Armas de Fogo (`categoria: 'Arma de Fogo'`)**: O dano causado é o **dano cadastrado na arma** (ex: `3d8`), **SEM escala de atributos** (escala sempre 0, não recebe bônus de FOR ou DEX). A bala carregada define os níveis de Corte, Perfuração, Impacto e Resistência do disparo.
+- **Arcos (`categoria: 'Arco'`)**: O dano causado é o **dano cadastrado no arco** (ex: `1d8`) somado ao bônus de escala de atributo (normalmente DEX ou FOR). A flecha carregada define os níveis de Corte, Perfuração, Impacto e Resistência do disparo.
+- **Armas Brancas (`categoria: 'Arma Branca'`)**: Mantêm seus próprios níveis de Corte, Perfuração, Impacto, Resistência, Dano e Escala (FOR ou DEX) configurados na própria arma, já que não utilizam projéteis.
 - **Caso sem Munição Selecionada/Carregada**: Caso nenhuma flecha ou bala esteja selecionada/carregada (ou a arma esteja descarregada), os níveis de ataque físico e resistência são 0, e a arma não pode disparar ("Falta Bala" / "Falta Flecha").
 
 ### Propriedades Base de Munição

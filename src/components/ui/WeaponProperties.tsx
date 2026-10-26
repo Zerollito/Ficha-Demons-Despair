@@ -12,9 +12,18 @@ interface WeaponPropertiesProps {
 }
 
 export function WeaponProperties({ item, onChange, character, updateCharacter, onReload, onMaintenance }: WeaponPropertiesProps) {
-  const isFirearm = (item.categoria || "").toLowerCase() === "arma de fogo";
-  const isBow = (item.categoria || "").toLowerCase() === "arco";
+  const isFirearm = (item.categoria || "").toLowerCase() === "arma de fogo" ||
+    (item.tipo || "").toLowerCase() === "arma de fogo" ||
+    ['pistola', 'revol', 'rifle', 'fuzil', 'escopeta', 'trabuco', 'flintlock', 'garrucha'].some((w: string) => ((item.nome || "")).toLowerCase().includes(w));
+  const isBow = (item.categoria || "").toLowerCase() === "arco" || (!isFirearm && ((item.nome || "").toLowerCase().includes("arco") || (item.nome || "").toLowerCase().includes("besta")));
   const isMelee = !isFirearm && !isBow;
+
+  // Garantir que arma de fogo sempre tenha escala '0'
+  React.useEffect(() => {
+    if (isFirearm && item.escala && item.escala !== '0') {
+      onChange({ escala: '0' });
+    }
+  }, [isFirearm, item.escala]);
 
   const allCompartmentItems = React.useMemo(() => {
     if (!character) return [];
@@ -102,9 +111,7 @@ export function WeaponProperties({ item, onChange, character, updateCharacter, o
         corte: Number(ammoObj.corte) || 0,
         impacto: Number(ammoObj.impacto) || 0,
         perfuracao: Number(ammoObj.perfuracao) || 0,
-        resistencia: Number(ammoObj.resistencia) || 0,
-        dano: ammoObj.dano || item.dano || (isBow ? "1d6" : "2d6"),
-        municaoDano: ammoObj.dano
+        resistencia: Number(ammoObj.resistencia) || 0
       });
     } else {
       onChange({
@@ -113,8 +120,7 @@ export function WeaponProperties({ item, onChange, character, updateCharacter, o
         corte: 0,
         impacto: 0,
         perfuracao: 0,
-        resistencia: 0,
-        municaoDano: undefined
+        resistencia: 0
       });
     }
   };
@@ -152,28 +158,35 @@ export function WeaponProperties({ item, onChange, character, updateCharacter, o
       </div>
 
       {/* Row 3: Escala & Atributo */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="flex flex-col gap-1">
-          <label className="text-[9px] font-bold text-zinc-500 uppercase">Escala</label>
-          <select 
-            className="bg-zinc-900 border border-zinc-700 text-zinc-300 rounded p-1.5 text-xs"
-            value={item.escala || '0'}
-            onChange={(e) => onChange({ escala: e.target.value })}
-          >
-            {['0', 'D', 'C', 'B', 'A'].map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+      {!isFirearm ? (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="flex flex-col gap-1">
+            <label className="text-[9px] font-bold text-zinc-500 uppercase">Escala</label>
+            <select 
+              className="bg-zinc-900 border border-zinc-700 text-zinc-300 rounded p-1.5 text-xs"
+              value={item.escala || '0'}
+              onChange={(e) => onChange({ escala: e.target.value })}
+            >
+              {['0', 'D', 'C', 'B', 'A'].map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[9px] font-bold text-zinc-500 uppercase">Atrib.</label>
+            <select 
+              className="bg-zinc-900 border border-zinc-700 text-zinc-300 rounded p-1.5 text-xs"
+              value={item.atributoBase || (isBow ? 'Destreza' : 'Força')}
+              onChange={(e) => onChange({ atributoBase: e.target.value })}
+            >
+              {['Força', 'Destreza', 'Inteligência', 'Ritual'].map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[9px] font-bold text-zinc-500 uppercase">Atrib.</label>
-          <select 
-            className="bg-zinc-900 border border-zinc-700 text-zinc-300 rounded p-1.5 text-xs"
-            value={item.atributoBase || (isBow ? 'Destreza' : 'Força')}
-            onChange={(e) => onChange({ atributoBase: e.target.value })}
-          >
-            {['Força', 'Destreza', 'Inteligência', 'Ritual'].map(a => <option key={a} value={a}>{a}</option>)}
-          </select>
+      ) : (
+        <div className="p-2.5 bg-zinc-950/60 rounded-xl border border-zinc-800 text-[10px] text-zinc-400 flex items-center justify-between">
+          <span className="font-bold text-zinc-400">Escala de Atributo:</span>
+          <span className="text-zinc-500 italic">Sem escala (apenas dano próprio da arma)</span>
         </div>
-      </div>
+      )}
 
       {/* Row 4: Níveis de Corte / Impacto / Perfuração / Resistência */}
       {isMelee ? (

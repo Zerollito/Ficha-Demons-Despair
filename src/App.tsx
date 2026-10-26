@@ -2620,33 +2620,19 @@ function App() {
     };
     const statKey = statMap[arma.atributoBase || "Força"] || "FOR";
     const statValue = activeChar.stats[statKey] || 0;
-    const scalingBonus =
-      calculateWeaponDamageBonus(arma as any, statValue) || 0;
+    const isFirearm = arma.categoria === 'Arma de Fogo' || ((arma as any).tipo || '').toLowerCase() === 'arma de fogo' ||
+      ['pistola', 'revol', 'rifle', 'fuzil', 'escopeta', 'trabuco', 'flintlock', 'garrucha'].some(w => (arma.nome || '').toLowerCase().includes(w));
+    const isBow = arma.categoria === 'Arco';
+    const scalingBonus = isFirearm ? 0 : (calculateWeaponDamageBonus(arma as any, statValue) || 0);
     const totalDmgBonus = scalingBonus + (bonusManual || 0);
 
     // 4. Roll Damage using the robust utility
-    let bulletDano = "1d6";
-    const isFirearm = arma.categoria === 'Arma de Fogo';
-    const isBow = arma.categoria === 'Arco';
-    if (isFirearm || isBow) {
-      const ammoId = isBow ? (arma.arrowId || arma.bulletId) : (arma.bulletId || arma.arrowId);
-      const loadedAmmo = (activeChar.compartimentos || [])
-        .flatMap((c: any) => (c.itens || []))
-        .find((i: any) => (ammoId && i.id === ammoId) || (arma.magazineAmmo?.[0] && (i.id === arma.magazineAmmo[0].id || i.nome === arma.magazineAmmo[0].nome)));
-
-      if (arma.magazineAmmo && arma.magazineAmmo.length > 0 && arma.magazineAmmo[0].dano && arma.magazineAmmo[0].dano !== '0') {
-        bulletDano = arma.magazineAmmo[0].dano;
-      } else if (loadedAmmo && loadedAmmo.dano && loadedAmmo.dano !== '0') {
-        bulletDano = loadedAmmo.dano;
-      } else if (arma.municaoDano && arma.municaoDano !== '0') {
-        bulletDano = arma.municaoDano;
-      } else if (arma.dano && arma.dano !== '0') {
-        bulletDano = arma.dano;
-      } else {
-        bulletDano = isBow ? "1d6" : "2d6";
-      }
+    // Balas e flechas não possuem dano por si próprias, apenas a arma
+    let baseDano = arma.dano;
+    if (!baseDano || baseDano === '0' || baseDano === 'Sem Dano' || baseDano === 'Falta Bala' || baseDano === 'Falta Flecha') {
+      baseDano = isBow ? "1d6" : isFirearm ? "2d6" : "1d4";
     }
-    const rollData = parseAndRollDice((isFirearm || isBow) ? bulletDano : (arma.dano || "1d6"));
+    const rollData = parseAndRollDice(baseDano);
     
     // Add the scaling/manual bonus to the total
     const finalDmgTotal = rollData.total + totalDmgBonus;
@@ -9671,7 +9657,10 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                         };
                         const statKey = statMap[arma.atributoBase || "Força"];
                         const statValue = activeChar.stats[statKey] || 0;
-                        const scalingBonus = calculateWeaponDamageBonus(
+                        const isFirearm = arma.categoria === 'Arma de Fogo' || ((arma as any).tipo || '').toLowerCase() === 'arma de fogo' ||
+                          ['pistola', 'revol', 'rifle', 'fuzil', 'escopeta', 'trabuco', 'flintlock', 'garrucha'].some(w => (arma.nome || '').toLowerCase().includes(w));
+                        const isBow = arma.categoria === 'Arco';
+                        const scalingBonus = isFirearm ? 0 : calculateWeaponDamageBonus(
                           arma as any,
                           statValue,
                         );
@@ -9693,29 +9682,13 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
 
                         const totalHit = (acuraciaBonus || 0);
                         const weaponAcerto = (arma.acerto || 0);
-                        let displayDano = arma.dano || "1d6";
-                        const isBow = arma.categoria === 'Arco';
-                        const isFirearm = arma.categoria === 'Arma de Fogo';
-                        if (isFirearm || isBow) {
-                          const ammoId = isBow ? (arma.arrowId || arma.bulletId) : (arma.bulletId || arma.arrowId);
-                          const loadedAmmo = (activeChar.compartimentos || [])
-                            .flatMap((c: any) => (c.itens || []))
-                            .find((i: any) => (ammoId && i.id === ammoId) || (arma.magazineAmmo?.[0] && (i.id === arma.magazineAmmo[0].id || i.nome === arma.magazineAmmo[0].nome)));
-
-                          if (arma.magazineAmmo && arma.magazineAmmo.length > 0 && arma.magazineAmmo[0].dano && arma.magazineAmmo[0].dano !== '0') {
-                            displayDano = arma.magazineAmmo[0].dano;
-                          } else if (loadedAmmo && loadedAmmo.dano && loadedAmmo.dano !== '0') {
-                            displayDano = loadedAmmo.dano;
-                          } else if (arma.municaoDano && arma.municaoDano !== '0') {
-                            displayDano = arma.municaoDano;
-                          } else if (arma.dano && arma.dano !== '0') {
-                            displayDano = arma.dano;
-                          } else if (isFirearm && (!arma.municaoCarregada || arma.municaoCarregada <= 0)) {
-                            displayDano = "Falta Bala";
-                          } else if (isBow && !ammoId) {
-                            displayDano = "Falta Flecha";
-                          } else {
-                            displayDano = isBow ? "1d6" : "2d6";
+                        let displayDano = arma.dano || (isBow ? "1d6" : isFirearm ? "2d6" : "1d4");
+                        if (isFirearm && (!arma.municaoCarregada || arma.municaoCarregada <= 0)) {
+                          displayDano = (arma.dano && arma.dano !== '0' && arma.dano !== 'Sem Dano') ? arma.dano : "Falta Bala";
+                        } else if (isBow) {
+                          const ammoId = arma.arrowId || arma.bulletId;
+                          if (!ammoId) {
+                            displayDano = (arma.dano && arma.dano !== '0' && arma.dano !== 'Sem Dano') ? arma.dano : "Falta Flecha";
                           }
                         }
                         const danoStr = displayDano.toLowerCase().replace(/\s+/g, "");
@@ -9737,9 +9710,11 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                               </span>
                               <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
                                 <span className="text-[9px] text-zinc-500 font-bold uppercase">
-                                  {arma.categoria !== 'Arma de Fogo' ? (
+                                  {!isFirearm ? (
                                     <>Escala {arma.escala || "0"} • {arma.atributoBase} • </>
-                                  ) : null}
+                                  ) : (
+                                    <>Sem Escala • </>
+                                  )}
                                   Acerto Arma: {weaponAcerto}
                                 </span>
                               </div>
@@ -9762,11 +9737,15 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                                   Dano
                                 </span>
                                 <span className="text-xs font-black text-zinc-300">
-                                  {danoStr}{arma.categoria !== 'Arma de Fogo' && (scalingBonus > 0 ? `+${scalingBonus}` : scalingBonus < 0 ? scalingBonus : "")}
+                                  {danoStr}{!isFirearm && (scalingBonus > 0 ? `+${scalingBonus}` : scalingBonus < 0 ? scalingBonus : "")}
                                 </span>
-                                {arma.categoria !== 'Arma de Fogo' && (
+                                {!isFirearm ? (
                                   <span className="text-[7px] text-zinc-600 uppercase font-bold">
                                     Escala +{scalingBonus}
+                                  </span>
+                                ) : (
+                                  <span className="text-[7px] text-zinc-600 uppercase font-bold italic">
+                                    Dano Fixo
                                   </span>
                                 )}
                               </div>

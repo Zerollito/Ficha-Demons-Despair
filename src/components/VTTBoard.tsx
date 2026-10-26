@@ -1062,24 +1062,14 @@ const getWeaponDisplayDano = (weapon: any, char?: Character): string => {
   const isBow = isBowItem(weapon);
 
   if (isFirearm || isBow) {
-    if (weapon.magazineAmmo && weapon.magazineAmmo.length > 0 && weapon.magazineAmmo[0].dano && weapon.magazineAmmo[0].dano !== '0' && weapon.magazineAmmo[0].dano !== 'Falta Bala') {
-      return weapon.magazineAmmo[0].dano;
-    }
-    const inv = char?.compartimentos?.flatMap((c: any) => c.itens || []) || [];
-    const ammoId = isBow ? (weapon.arrowId || weapon.bulletId) : (weapon.bulletId || weapon.arrowId);
-    const loadedAmmo = inv.find((i: any) => (ammoId && i.id === ammoId) || (weapon.magazineAmmo?.[0] && (i.id === weapon.magazineAmmo[0].id || i.nome === weapon.magazineAmmo[0].nome)));
-    if (loadedAmmo && loadedAmmo.dano && loadedAmmo.dano !== '0' && loadedAmmo.dano !== 'Falta Bala') {
-      return loadedAmmo.dano;
-    }
-    if (weapon.municaoDano && weapon.municaoDano !== '0' && weapon.municaoDano !== 'Falta Bala') {
-      return weapon.municaoDano;
-    }
     if (weapon.dano && weapon.dano !== '0' && weapon.dano !== 'Sem Dano' && weapon.dano !== 'Falta Bala' && weapon.dano !== 'Falta Flecha') {
       return weapon.dano;
     }
     if (isFirearm && (!weapon.municaoCarregada || weapon.municaoCarregada <= 0)) {
       return (weapon.dano && weapon.dano !== '0' && weapon.dano !== 'Sem Dano') ? weapon.dano : "Falta Bala";
     }
+    const inv = char?.compartimentos?.flatMap((c: any) => c.itens || []) || [];
+    const ammoId = isBow ? (weapon.arrowId || weapon.bulletId) : (weapon.bulletId || weapon.arrowId);
     if (isBow && !ammoId) {
       return (weapon.dano && weapon.dano !== '0' && weapon.dano !== 'Sem Dano') ? weapon.dano : "Falta Flecha";
     }
@@ -3200,9 +3190,10 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       return { total, rolls };
     };
 
-    // Calculate scaling bonus: spells use INT, weapons use their atributoBase
+    // Calculate scaling bonus: spells use INT, weapons use their atributoBase.
+    // Armas de fogo NÃO têm escala (apenas armas brancas e arcos)
     let scalingBonus = 0;
-    if (attackerChar) {
+    if (attackerChar && !isFirearm) {
       let statKey: keyof Stats = "FOR";
       if (action.escola) {
         statKey = "INT"; // Spells scale with INT/Mentalidade logic in this system
@@ -3242,13 +3233,17 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
            }
         });
         damage = maxVal + scalingBonus;
-        damageFormula = `Crítico! (Máximo ${maxVal} + Escala ${scalingBonus})`;
+        damageFormula = isFirearm 
+          ? `Crítico! (Máximo ${maxVal})` 
+          : `Crítico! (Máximo ${maxVal}${scalingBonus !== 0 ? ` + Escala ${scalingBonus}` : ''})`;
         dmgDiceRolls = []; // No rolls for direct max damage
       } else {
         const rollRes = rollDano(effectiveDanoFormula);
         dmgDiceRolls = rollRes.rolls;
         damage = rollRes.total + scalingBonus;
-        damageFormula = `${effectiveDanoFormula} (${rollRes.total}) + Escala ${scalingBonus}`;
+        damageFormula = isFirearm
+          ? `${effectiveDanoFormula} (${rollRes.total})`
+          : `${effectiveDanoFormula} (${rollRes.total})${scalingBonus !== 0 ? ` + Escala ${scalingBonus}` : ''}`;
       }
 
       // 5. HP & Reductions Calculation
