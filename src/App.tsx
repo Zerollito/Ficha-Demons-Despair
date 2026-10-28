@@ -2085,6 +2085,10 @@ function App() {
     dmgFormula?: string;
     hitFormula?: string;
     hitLocation?: string;
+    locationRoll?: number;
+    resRoll?: number;
+    resProf?: number;
+    effectApplied?: boolean;
     defenseRolls?: number[];
     defenseResult?: number;
     combatNote?: string;
@@ -3758,6 +3762,15 @@ function App() {
       }
 
       const targetId = characterId || prev.activeCharacterId;
+      if (characterId) {
+        setCampaignCharacters(prevList => prevList.map(c => {
+          if (c.id === characterId) {
+            const upd = typeof updatesOrFn === 'function' ? updatesOrFn(c) : updatesOrFn;
+            return { ...c, ...upd };
+          }
+          return c;
+        }));
+      }
       let charIndex = characters.findIndex(c => c.id === targetId);
       if (charIndex === -1) {
         const campChar = campaignCharacters.find(c => c.id === targetId);
@@ -4886,7 +4899,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.1</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.2</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4996,14 +5009,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.1</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.2</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.1</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.2</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -12428,10 +12441,35 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
               <div className="bg-zinc-900/50 border border-zinc-800/80 rounded-xl p-3 space-y-1.5 text-xs">
                 {lastRoll.hitLocation && (
                   <div className="flex items-center justify-between">
-                    <span className="text-zinc-400 font-medium">Local do Golpe:</span>
-                    <span className="font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                      {lastRoll.hitLocation}
+                    <span className="text-zinc-400 font-medium">Local do Golpe (1d6):</span>
+                    <span className="font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 font-mono">
+                      {lastRoll.locationRoll !== undefined ? `[${lastRoll.locationRoll}] ` : ""}{lastRoll.hitLocation}
                     </span>
+                  </div>
+                )}
+                {lastRoll.resRoll !== undefined && (
+                  <div className="bg-zinc-950/80 border border-purple-500/30 rounded-lg p-2 my-1 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-purple-300 font-bold uppercase text-[10px] tracking-wider">
+                        ⚡ Efeito ({lastRoll.effectType || "Status"}):
+                      </span>
+                      <span className={cn(
+                        "text-[9px] font-black uppercase px-1.5 py-0.5 rounded border",
+                        (lastRoll.combatStatus === 'hit_with_effect' || (lastRoll.resRoll + (lastRoll.resProf || 0)) < 70)
+                          ? "bg-red-500/20 text-red-400 border-red-500/30"
+                          : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                      )}>
+                        {(lastRoll.combatStatus === 'hit_with_effect' || (lastRoll.resRoll + (lastRoll.resProf || 0)) < 70)
+                          ? "Efeito Aplicado"
+                          : "Resistiu ao Efeito"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between font-mono text-[11px] text-zinc-300">
+                      <span className="text-zinc-400 text-[10px]">Resistência (1d100):</span>
+                      <span>
+                        [{lastRoll.resRoll}] + {lastRoll.resProf || 0} RES = <strong className="text-amber-400">{lastRoll.resRoll + (lastRoll.resProf || 0)}</strong> <span className="text-zinc-500 text-[10px]">[Dificuldade 70]</span>
+                      </span>
+                    </div>
                   </div>
                 )}
                 {lastRoll.defenseResult !== undefined && (

@@ -292,7 +292,7 @@ const Token = React.memo(({ token, gridSize, onDragStart, onDragEnd, onDragMove,
   availableCharacters: Character[];
   fetchedCharacters?: Record<string, Character>;
 }) => {
-  const char = token.characterId ? (availableCharacters.find(c => c.id === token.characterId) || fetchedCharacters?.[token.characterId]) : null;
+  const char = token.characterId ? (fetchedCharacters?.[token.characterId] || availableCharacters.find(c => c.id === token.characterId)) : null;
   const rawImageUrl = token.imageUrl || char?.imagem || getMonsterImageByName(token.name) || '';
   const [image] = useTokenImage(rawImageUrl);
   const radius = (token.size * gridSize) / 2;
@@ -756,7 +756,9 @@ const Token = React.memo(({ token, gridSize, onDragStart, onDragEnd, onDragMove,
     );
   }
 
-  const currentHp = char ? (char.vidaAtual ?? 0) : (token.hp ?? 0);
+  const currentHp = token.type === 'creature' 
+    ? (token.hp !== undefined ? token.hp : (char?.vidaAtual ?? 0))
+    : (char?.vidaAtual !== undefined ? char.vidaAtual : (token.hp ?? 0));
   const maxHp = Math.max(1, char && char.etnia !== 'Monstro' ? getVidaMaxima(char.stats.CON) : (token.maxHp ?? 10));
   const isDead = currentHp <= 0;
 
@@ -985,15 +987,21 @@ const isFirearmItem = (item: any) => {
   if (!item) return false;
   const cat = (item.categoria || "").toLowerCase();
   const type = (item.tipo || "").toLowerCase();
-  const name = (item.nome || "").toLowerCase();
+  const name = (item.nome || item.name || "").toLowerCase();
   return cat === 'arma de fogo' || 
          type === 'arma de fogo' || 
+         cat.includes('fogo') ||
          name.includes('pistola') || 
          name.includes('revol') || 
          name.includes('rifle') || 
          name.includes('fuzil') || 
          name.includes('escopeta') || 
-         name.includes('trabuco');
+         name.includes('trabuco') ||
+         name.includes('flintlock') ||
+         name.includes('garrucha') ||
+         name.includes('mosquete') ||
+         name.includes('carabina') ||
+         name.includes('bacamarte');
 };
 
 const isBowItem = (item: any) => {
@@ -1160,15 +1168,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       onUpdateCharacter(updates, characterId);
     }
 
-    // Also update our locally cached fetchedCharacters in state if it exists
+    // Always update our locally cached fetchedCharacters in state
+    const existingChar = availableCharacters.find(c => c.id === characterId);
     setFetchedCharacters(prev => {
-      if (prev[characterId]) {
-        return {
-          ...prev,
-          [characterId]: { ...prev[characterId], ...updates }
-        };
-      }
-      return prev;
+      const base = prev[characterId] || existingChar || ({} as Character);
+      return {
+        ...prev,
+        [characterId]: { ...base, ...updates }
+      };
     });
     
     // 2. Also save to the local campaign characters list cache so other subscriptions are aware
@@ -1189,24 +1196,16 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       }
     }
 
-    // 3. Save to Firestore if quota is NOT exceeded
-    if (!isFirebaseQuotaExceeded()) {
-      try {
-        const charRef = doc(db, 'characters', characterId);
-        const cleanUpdate = deepCleanData(updates);
-        const updateMap: any = {
-          updated_at: new Date().toISOString()
-        };
-        Object.entries(cleanUpdate).forEach(([key, val]) => {
-          updateMap[`data.${key}`] = val;
+    // 3. Save character to database (Supabase / Firestore)
+    try {
+      const base = fetchedCharacters[characterId] || existingChar;
+      if (base) {
+        const fullChar = { ...base, ...updates, campaignId: base.campaignId || campaignId };
+        saveCharacterToFirestore(fullChar).catch(err => {
+          console.warn("[VTTBoard] Error saving character update:", err);
         });
-        await updateDoc(charRef, updateMap);
-      } catch (error) {
-        console.warn("[VTTBoard] Error updating character on Firestore:", error);
       }
-    } else {
-      console.log(`[VTTBoard] Firebase quota exceeded. Character ${characterId} updated purely locally (will sync later).`);
-    }
+    } catch (e) {}
   };
 
   const sanitizeLocalCharacter = (char: any): Character => {
@@ -1333,7 +1332,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const ammoSelectWeapon = useMemo(() => {
     if (!selectedAmmoWeaponId || !weaponSelectTokenId) return null;
     const attacker = tokens.find(t => t.id === weaponSelectTokenId);
-    const char = attacker?.characterId ? (availableCharacters.find(c => c.id === attacker.characterId) || fetchedCharacters[attacker.characterId]) : null;
+    const char = attacker?.characterId ? (fetchedCharacters[attacker.characterId] || availableCharacters.find(c => c.id === attacker.characterId)) : null;
     if (!char) return null;
     return char.armas.find((w: any) => w.id === selectedAmmoWeaponId) || 
            char.compartimentos?.flatMap((c: any) => c.itens || []).find((i: any) => i.id === selectedAmmoWeaponId);
@@ -1348,6 +1347,10 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     rolls?: {val: number, sides: number}[],
     location?: string,
     locationRoll?: number,
+    resRoll?: number,
+    resProf?: number,
+    effectType?: string,
+    effectApplied?: boolean,
     id?: string
   }[]>([]);
 
@@ -2616,8 +2619,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
       const attacker = tokens.find(t => t.id === attackerId);
       const target = tokens.find(t => t.id === targetId);
-      const attackerChar = availableCharacters.find(c => c.id === attacker?.characterId) || (attacker?.characterId ? fetchedCharacters[attacker.characterId] : undefined);
-      const targetChar = availableCharacters.find(c => c.id === target?.characterId) || (target?.characterId ? fetchedCharacters[target.characterId] : undefined);
+      const attackerChar = (attacker?.characterId ? fetchedCharacters[attacker.characterId] : undefined) || availableCharacters.find(c => c.id === attacker?.characterId);
+      const targetChar = (target?.characterId ? fetchedCharacters[target.characterId] : undefined) || availableCharacters.find(c => c.id === target?.characterId);
       
       if (!attacker || !target) return;
 
@@ -2685,6 +2688,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             actingBullet.dano = foundAmmo.dano;
           }
         }
+      }
+      if ((isFirearm || isBow) && !actingBullet) {
+        actingBullet = {
+          corte: Number(action.corte ?? 0),
+          perfuracao: Number(action.perfuracao ?? 0),
+          impacto: Number(action.impacto ?? 0),
+          resistencia: Number(action.resistencia ?? 0),
+          dano: action.dano || (isBow ? '1d6' : '2d6')
+        };
       }
 
       if (isFirearm) {
@@ -2806,7 +2818,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 'Perfuração': getVal(activeProjectile, 'Perfuração'),
                 'Impacto': getVal(activeProjectile, 'Impacto')
               };
-              if (forcedType && bv[forcedType] !== undefined) {
+              if (forcedType && bv[forcedType] !== undefined && bv[forcedType] > 0) {
                 attackType = forcedType;
                 attackLevel = bv[forcedType] || 0;
               } else {
@@ -2816,14 +2828,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                   attackLevel = bv[attackType] || 0;
                 } else {
                   attackType = forcedType || 'Perfuração';
-                  attackLevel = 0;
+                  attackLevel = Number(action.perfuracao ?? action.corte ?? action.impacto ?? 0);
                 }
               }
-              attackerResistencia = Number(activeProjectile.resistencia) || 0;
+              attackerResistencia = Number(activeProjectile.resistencia ?? action.resistencia) || 0;
             } else {
               attackType = forcedType || 'Perfuração';
-              attackLevel = 0;
-              attackerResistencia = 0;
+              attackLevel = Number(action.perfuracao ?? action.corte ?? action.impacto ?? 0);
+              attackerResistencia = Number(action.resistencia ?? 0);
             }
           }
         }
@@ -2882,9 +2894,11 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         diceRolls = attackRoll1.rolls; attackerRawDiceTotal = attackRoll1.total;
       }
 
-      const hasOneInAttack = diceRolls.includes(1);
+      const onesCount = diceRolls.filter(d => d === 1).length;
+      const hasTwoOnesInAttack = onesCount >= 2;
+      const hasOneInAttack = onesCount > 0;
       const hasEightInAttack = diceRolls.includes(8);
-      const isCriticalErrorTrigger = hasOneInAttack;
+      const isCriticalErrorTrigger = hasTwoOnesInAttack;
     
       // 4. Hit Location Roll
       const unusableLocationsList = (target.efeitosNegativos || []).filter(e => e.isUnusable).map(e => e.location);
@@ -3149,7 +3163,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       }
     }
 
-    if (isCriticalErrorTrigger) attackerWeaponDurabilityDown = true;
+    if (isCriticalErrorTrigger && (!hitBaseCheckOk || blockSuccessful)) attackerWeaponDurabilityDown = true;
     if (hitBaseCheckOk && !blockSuccessful) {
       if (armorItemToDegrade) {
         targetArmorDurabilityDown = (targetDefenseLevel <= (attackLevel + attackerResistencia));
@@ -3318,10 +3332,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           
           if (fatalHemorrhage) damage = 999;
 
-          const currentHpBeforeDmg = targetChar ? (targetChar.vidaAtual ?? 0) : (target.hp ?? 0);
+          const currentHpBeforeDmg = target.type === 'creature'
+            ? (target.hp !== undefined ? target.hp : (targetChar?.vidaAtual ?? 0))
+            : (targetChar?.vidaAtual !== undefined ? targetChar.vidaAtual : (target.hp ?? 0));
           const newHp = Math.max(0, currentHpBeforeDmg - damage);
           
-          await updateTokenPosition(campaignId, target.id, { hp: newHp, efeitosNegativos: finalEffects, ...defenseClear });
+          await updateTokenPosition(campaignId, target.id, { hp: newHp, efeitosNegativos: finalEffects, ...defenseClear }, tokens);
           if (targetChar) {
             await updateCharacterLocalAndRemote(targetChar.id, { vidaAtual: newHp, efeitosNegativos: finalEffects, ...defenseClear });
           }
@@ -3330,17 +3346,21 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           effectType = chosenEffectType;
         } else {
           effectInfo = ` (Efeito Resistido: 1d100[${resRoll}] + ${resProf} RES = ${totalSave} >= 70)`;
-          const currentHpBeforeDmg = targetChar ? (targetChar.vidaAtual ?? 0) : (target.hp ?? 0);
+          const currentHpBeforeDmg = target.type === 'creature'
+            ? (target.hp !== undefined ? target.hp : (targetChar?.vidaAtual ?? 0))
+            : (targetChar?.vidaAtual !== undefined ? targetChar.vidaAtual : (target.hp ?? 0));
           const newHp = Math.max(0, currentHpBeforeDmg - damage);
-          await updateTokenPosition(campaignId, target.id, { hp: newHp, ...defenseClear });
+          await updateTokenPosition(campaignId, target.id, { hp: newHp, ...defenseClear }, tokens);
           if (targetChar) await updateCharacterLocalAndRemote(targetChar.id, { vidaAtual: newHp, ...defenseClear });
 
           combatStatus = 'hit_resisted_effect';
         }
       } else {
-        const currentHpBeforeDmg = targetChar ? (targetChar.vidaAtual ?? 0) : (target.hp ?? 0);
+        const currentHpBeforeDmg = target.type === 'creature'
+          ? (target.hp !== undefined ? target.hp : (targetChar?.vidaAtual ?? 0))
+          : (targetChar?.vidaAtual !== undefined ? targetChar.vidaAtual : (target.hp ?? 0));
         const newHp = Math.max(0, currentHpBeforeDmg - damage);
-        await updateTokenPosition(campaignId, target.id, { hp: newHp, ...defenseClear });
+        await updateTokenPosition(campaignId, target.id, { hp: newHp, ...defenseClear }, tokens);
         if (targetChar) await updateCharacterLocalAndRemote(targetChar.id, { vidaAtual: newHp, ...defenseClear });
 
         if (combatStatus !== 'weapon_blocked_half_damage' && combatStatus !== 'shield_blocked_half_damage') {
@@ -3369,12 +3389,18 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         detailedTitle = "Acerto";
       }
 
+      const effectWasApplied = (triggerEffect && isPhysical(attackType)) ? ((resRoll + resProf) < 70 || isCriticalHit) : false;
+
       await addCombatLog(campaignId, { 
         msg: `${attacker.name} atingiu ${target.name} no(a) ${locationName}! ${damage} de dano [${damageFormula}].${defenseLog}${effectInfo}`, 
         type: 'success',
         rolls: dmgDiceRolls.map(v => ({val:v, sides:8})), // Example sides if needed or pass full info
         location: locationName,
-        locationRoll: locRoll
+        locationRoll: locRoll,
+        resRoll: (triggerEffect && isPhysical(attackType)) ? resRoll : undefined,
+        resProf: (triggerEffect && isPhysical(attackType)) ? resProf : undefined,
+        effectType: (triggerEffect && isPhysical(attackType)) ? (effectType || 'Status') : undefined,
+        effectApplied: effectWasApplied
       });
 
       if (onRollResult) {
@@ -3398,14 +3424,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           dmgBonus: scalingBonus,
           defenseRolls: targetDefenseDiceRolls,
           defenseResult: targetDefenseDiceTotal,
-          resRoll: triggerEffect && isPhysical(attackType) ? resRoll : undefined,
-          resProf: triggerEffect && isPhysical(attackType) ? resProf : undefined,
+          resRoll: (triggerEffect && isPhysical(attackType)) ? resRoll : undefined,
+          resProf: (triggerEffect && isPhysical(attackType)) ? resProf : undefined,
+          effectType: (triggerEffect && isPhysical(attackType)) ? (effectType || 'Status') : undefined,
+          effectApplied: effectWasApplied,
           attackType,
           attackLevel,
           targetDefenseLevel,
           isRangedOrMagic,
           combatStatus,
-          effectType,
           detailedTitle
         });
       }
@@ -3418,7 +3445,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       await addCombatLog(campaignId, { msg, type: 'error' });
 
       if (target.isDefending) {
-        await updateTokenPosition(campaignId, target.id, defenseClear);
+        await updateTokenPosition(campaignId, target.id, defenseClear, tokens);
         if (targetChar) {
           await updateCharacterLocalAndRemote(targetChar.id, defenseClear);
         }
@@ -3480,10 +3507,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
     // 8. Durability Decay Processing
     if (attackerChar) {
-      const item = [...attackerChar.armas, ...attackerChar.catalisadores, ...attackerChar.compartimentos.flatMap(c => c.itens)].find(i => i.id === actionOrWeapon.id);
+      const item = [...(attackerChar.armas || []), ...(attackerChar.catalisadores || []), ...(attackerChar.compartimentos || []).flatMap((c: any) => c.itens || [])].find((i: any) => 
+        i.id === actionOrWeapon.id || 
+        i.id === (action as any)?.id || 
+        (i.nome && (i.nome === actionOrWeapon.nome || i.nome === (action as any)?.nome))
+      );
       if (item) {
-        let updatedArmas = [...attackerChar.armas];
-        let updatedCatalisadores = [...attackerChar.catalisadores];
         let charUpdates: any = {};
         let itemProcessed = false;
 
@@ -3493,8 +3522,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           let degradeMsg: string | null = null;
 
           // Firearms always lose 1 point per shot; others (like bows) lose if attackerWeaponDurabilityDown is true
-          charUpdates.armas = attackerChar.armas.map(w => {
-            if (w.id === item.id) {
+          charUpdates.armas = (attackerChar.armas || []).map(w => {
+            if (w.id === item.id || (item.nome && w.nome === item.nome)) {
               itemProcessed = true;
               let newDur = w.durabilidade || 0;
               let newMaxDur = w.maxDurabilidade || 0;
@@ -3543,11 +3572,11 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             }));
           }
 
-          if (!itemProcessed) {
+          if (!itemProcessed && attackerChar.compartimentos) {
             charUpdates.compartimentos = attackerChar.compartimentos.map(c => ({
               ...c,
-              itens: c.itens.map(i => {
-                if (i.id === item.id) {
+              itens: c.itens.map((i: any) => {
+                if (i.id === item.id || (item.nome && i.nome === item.nome)) {
                   itemProcessed = true;
                   let newDur = (i as any).durabilidade || 0;
                   let newMaxDur = (i as any).maxDurabilidade || 0;
@@ -3599,32 +3628,93 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         } else {
           // Standard Durability for Melee/Catalyst
           if (attackerWeaponDurabilityDown) {
-            charUpdates.armas = attackerChar.armas.map(w => {
-               if (w.id === item.id) {
+            let warningMsg: string | null = null;
+            let errorMsg: string | null = null;
+            let degradeMsg: string | null = null;
+
+            charUpdates.armas = (attackerChar.armas || []).map(w => {
+               if (w.id === item.id || (item.nome && w.nome === item.nome)) {
                  itemProcessed = true;
-                 return { ...w, durabilidade: Math.max(0, w.durabilidade - 1) };
+                 let newDur = w.durabilidade || 0;
+                 let newMaxDur = w.maxDurabilidade || 0;
+                 if (newDur > 0) {
+                   newDur -= 1;
+                   if (newDur === 0) {
+                     warningMsg = `⚠️ A durabilidade útil de "${w.nome}" acabou! Desgaste total iniciado. Durabilidade total restante: ${newMaxDur}.`;
+                   }
+                 } else if (newMaxDur > 0) {
+                   newMaxDur -= 1;
+                   if (newMaxDur === 0) {
+                     errorMsg = `❌ A arma "${w.nome}" quebrou completamente!`;
+                   } else {
+                     degradeMsg = `⚠️ "${w.nome}" desgastando estrutura total! Durabilidade total restante: ${newMaxDur}.`;
+                   }
+                 }
+                 return { ...w, durabilidade: newDur, maxDurabilidade: newMaxDur };
                }
                return w;
             });
-            charUpdates.catalisadores = attackerChar.catalisadores.map(c => {
-               if ((c as any).id === item.id) {
+
+            charUpdates.catalisadores = (attackerChar.catalisadores || []).map(c => {
+               if ((c as any).id === item.id || (item.nome && (c as any).nome === item.nome)) {
                  itemProcessed = true;
-                 return { ...c, durabilidade: Math.max(0, ((c as any).durabilidade || 0) - 1) };
+                 let newDur = (c as any).durabilidade || 0;
+                 let newMaxDur = (c as any).maxDurabilidade || 0;
+                 if (newDur > 0) {
+                   newDur -= 1;
+                   if (newDur === 0) {
+                     warningMsg = `⚠️ A durabilidade útil de "${(c as any).nome}" acabou! Desgaste total iniciado. Durabilidade total restante: ${newMaxDur}.`;
+                   }
+                 } else if (newMaxDur > 0) {
+                   newMaxDur -= 1;
+                   if (newMaxDur === 0) {
+                     errorMsg = `❌ O catalisador "${(c as any).nome}" quebrou completamente!`;
+                   } else {
+                     degradeMsg = `⚠️ "${(c as any).nome}" desgastando estrutura total! Durabilidade total restante: ${newMaxDur}.`;
+                   }
+                 }
+                 return { ...c, durabilidade: newDur, maxDurabilidade: newMaxDur };
                }
                return c;
             });
             
-            if (!itemProcessed) {
+            if (!itemProcessed && attackerChar.compartimentos) {
               charUpdates.compartimentos = attackerChar.compartimentos.map(c => ({
                 ...c,
-                itens: c.itens.map(i => {
-                  if (i.id === item.id) {
+                itens: (c.itens || []).map((i: any) => {
+                  if (i.id === item.id || (item.nome && i.nome === item.nome)) {
                     itemProcessed = true;
-                    return { ...i, durabilidade: Math.max(0, ((i as any).durabilidade || 0) - 1) };
+                    let newDur = (i as any).durabilidade || 0;
+                    let newMaxDur = (i as any).maxDurabilidade || 0;
+                    if (newDur > 0) {
+                      newDur -= 1;
+                      if (newDur === 0) {
+                        warningMsg = `⚠️ A durabilidade útil de "${i.nome}" acabou! Desgaste total iniciado. Durabilidade total restante: ${newMaxDur}.`;
+                      }
+                    } else if (newMaxDur > 0) {
+                      newMaxDur -= 1;
+                      if (newMaxDur === 0) {
+                        errorMsg = `❌ A arma "${i.nome}" quebrou completamente!`;
+                      } else {
+                        degradeMsg = `⚠️ "${i.nome}" desgastando estrutura total! Durabilidade total restante: ${newMaxDur}.`;
+                      }
+                    }
+                    return { ...i, durabilidade: newDur, maxDurabilidade: newMaxDur };
                   }
                   return i;
                 })
               }));
+            }
+
+            if (errorMsg) {
+              await addCombatLog(campaignId, { msg: errorMsg, type: 'error' });
+              triggerScreenAlert(errorMsg, 'error');
+            } else if (warningMsg) {
+              await addCombatLog(campaignId, { msg: warningMsg, type: 'warning' });
+              triggerScreenAlert(warningMsg, 'warning');
+            } else if (degradeMsg) {
+              await addCombatLog(campaignId, { msg: degradeMsg, type: 'warning' });
+              triggerScreenAlert(degradeMsg, 'warning');
             }
           }
 
@@ -3636,14 +3726,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                            categoryLower.includes('projetil') || categoryLower.includes('arco') || categoryLower.includes('besta');
 
           if (isConsumable && isDistance) {
-            charUpdates.armas = (charUpdates.armas || attackerChar.armas).map(w => w.id === actionOrWeapon.id ? { ...w, quantidade: Math.max(0, (w.quantidade || 1) - 1) } : w);
+            charUpdates.armas = (charUpdates.armas || attackerChar.armas || []).map(w => w.id === actionOrWeapon.id ? { ...w, quantidade: Math.max(0, (w.quantidade || 1) - 1) } : w);
             
             // Check compartments if not in weapons
-            const inWeapons = attackerChar.armas.some(w => w.id === actionOrWeapon.id);
-            if (!inWeapons) {
+            const inWeapons = (attackerChar.armas || []).some(w => w.id === actionOrWeapon.id);
+            if (!inWeapons && attackerChar.compartimentos) {
               charUpdates.compartimentos = (charUpdates.compartimentos || attackerChar.compartimentos).map(c => ({
                 ...c,
-                itens: c.itens.map(i => i.id === actionOrWeapon.id ? { ...i, quantidade: Math.max(0, ((i as any).quantidade || 1) - 1) } : i)
+                itens: (c.itens || []).map((i: any) => i.id === actionOrWeapon.id ? { ...i, quantidade: Math.max(0, ((i as any).quantidade || 1) - 1) } : i)
               }));
             }
           }
@@ -5087,7 +5177,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                             <Heart size={8} className="text-red-500" /> 
                             <input 
                               type="number"
-                              value={(char ? (char.vidaAtual ?? 0) : (token.hp ?? 0)) || ""}
+                              value={(token.type === 'creature' ? (token.hp ?? char?.vidaAtual ?? 0) : (char?.vidaAtual ?? token.hp ?? 0)) || ""}
                               placeholder="0"
                               onChange={(e) => {
                                 const val = parseInt(e.target.value) || 0;
@@ -5121,8 +5211,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     <div className="flex items-center gap-2 bg-zinc-900/50 p-1 rounded-xl border border-zinc-800">
                       <button 
                         onClick={() => {
-                          const char = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
-                          const currentHp = char ? (char.vidaAtual ?? 0) : (token.hp ?? 0);
+                          const char = token.characterId ? (fetchedCharacters?.[token.characterId] || availableCharacters.find(c => c.id === token.characterId)) : null;
+                          const currentHp = token.type === 'creature' ? (token.hp ?? char?.vidaAtual ?? 0) : (char?.vidaAtual ?? token.hp ?? 0);
                           const newHp = Math.max(0, currentHp - 1);
                           handleTokenHpUpdate(token.id, newHp);
                         }}
@@ -5135,8 +5225,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                           className="h-full bg-red-500 transition-all shadow-[0_0_8px_rgba(239,68,68,0.3)]" 
                           style={{ 
                             width: (() => {
-                              const char = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
-                              const chp = char ? (char.vidaAtual ?? 0) : (token.hp ?? 0);
+                              const char = token.characterId ? (fetchedCharacters?.[token.characterId] || availableCharacters.find(c => c.id === token.characterId)) : null;
+                              const chp = token.type === 'creature' ? (token.hp ?? char?.vidaAtual ?? 0) : (char?.vidaAtual ?? token.hp ?? 0);
                               const mhp = Math.max(1, char && char.etnia !== 'Monstro' ? getVidaMaxima(char.stats.CON) : (token.maxHp ?? 10));
                               return `${(chp / mhp) * 100}%`;
                             })()
@@ -5145,8 +5235,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       </div>
                       <button 
                         onClick={() => {
-                          const char = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
-                          const chp = char ? (char.vidaAtual ?? 0) : (token.hp ?? 0);
+                          const char = token.characterId ? (fetchedCharacters?.[token.characterId] || availableCharacters.find(c => c.id === token.characterId)) : null;
+                          const chp = token.type === 'creature' ? (token.hp ?? char?.vidaAtual ?? 0) : (char?.vidaAtual ?? token.hp ?? 0);
                           const mhp = Math.max(1, char && char.etnia !== 'Monstro' ? getVidaMaxima(char.stats.CON) : (token.maxHp ?? 10));
                           const newHp = Math.min(mhp, chp + 1);
                           handleTokenHpUpdate(token.id, newHp);
@@ -5257,7 +5347,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                   .map((token, idx) => {
                     const char = token.characterId ? (availableCharacters.find(c => c.id === token.characterId) || fetchedCharacters?.[token.characterId]) : null;
                     const tkImage = token.imageUrl || char?.imagem;
-                    const curHp = Math.max(char?.vidaAtual ?? 0, token.hp ?? 0, (token.stats as any)?.vida ?? 0);
+                    const curHp = token.type === 'creature' ? (token.hp !== undefined ? token.hp : (char?.vidaAtual ?? 0)) : (char?.vidaAtual !== undefined ? char.vidaAtual : (token.hp ?? 0));
                     const isFallen = curHp <= 0 && (token.hp !== undefined || char?.vidaAtual !== undefined);
                     const hasInitiative = token.initiative !== undefined && token.initiative !== null;
 
@@ -5393,8 +5483,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     "bg-blue-500/10 border-blue-500/30 text-blue-400"
                   )}>
                     <div className="leading-tight">{log.msg}</div>
-                    {(log.rolls || log.locationRoll) && (
-                      <div className="flex items-center gap-2 mt-0.5">
+                    {(log.rolls || log.locationRoll || log.resRoll !== undefined) && (
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         {log.rolls && (
                           <div className="flex gap-1">
                             {log.rolls.map((r, ri) => (
@@ -5408,9 +5498,21 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                         {log.locationRoll && (
                           <div className="flex items-center gap-1 pl-2 border-l border-white/10">
                             <span className="text-[7px] font-black opacity-50 uppercase tracking-tighter">Loc:</span>
-                            <div className="relative w-5 h-5 flex items-center justify-center bg-amber-500/10 rounded border border-amber-500/20">
+                            <div className="relative w-5 h-5 flex items-center justify-center bg-amber-500/10 rounded border border-amber-500/20" title={`Local de Acerto: ${log.location || 'Hit'}`}>
                               <DiceImage sides={6} className="w-3.5 h-3.5 opacity-80" />
-                              <span className="absolute inset-0 flex items-center justify-center text-[7px] font-black text-white mix-blend-difference drop-shadow-md">{log.locationRoll}</span>
+                              <span className="absolute inset-0 flex items-center justify-center text-[7px] font-black text-amber-300 drop-shadow-md">{log.locationRoll}</span>
+                            </div>
+                          </div>
+                        )}
+                        {log.resRoll !== undefined && (
+                          <div className="flex items-center gap-1 pl-2 border-l border-white/10">
+                            <span className="text-[7px] font-black opacity-50 uppercase tracking-tighter">Efeito 1d100:</span>
+                            <div className={cn(
+                              "relative px-1.5 h-5 flex items-center justify-center rounded border text-[8px] font-black",
+                              log.effectApplied ? "bg-red-500/20 border-red-500/40 text-red-300" : "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+                            )} title={`Resistência: 1d100[${log.resRoll}] + ${log.resProf || 0} vs DC 70`}>
+                              <DiceImage sides={100} className="w-3 h-3 opacity-70 mr-1" />
+                              <span>{log.resRoll}{log.resProf ? `+${log.resProf}` : ''} {log.effectApplied ? '(Falhou)' : '(Passou)'}</span>
                             </div>
                           </div>
                         )}
@@ -6033,8 +6135,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               );
             }
 
-            const char = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
-            const currentHp = char ? (char.vidaAtual ?? 0) : (token.hp ?? 0);
+            const char = token.characterId ? (fetchedCharacters?.[token.characterId] || availableCharacters.find(c => c.id === token.characterId)) : null;
+            const currentHp = token.type === 'creature' ? (token.hp !== undefined ? token.hp : (char?.vidaAtual ?? 0)) : (char?.vidaAtual !== undefined ? char.vidaAtual : (token.hp ?? 0));
             const maxHp = char && char.etnia !== 'Monstro' ? getVidaMaxima(char.stats.CON) : (token.maxHp ?? 10);
             const isDead = currentHp <= 0;
             const isMasterOrOwner = isMaster || token.type === 'character' || (token.userId === auth.currentUser?.uid || (char && (char.userId === auth.currentUser?.uid || char.userEmail === auth.currentUser?.email)));
