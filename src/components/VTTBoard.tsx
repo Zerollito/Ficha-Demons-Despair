@@ -1386,7 +1386,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     if (token.type === 'creature') {
       return (token.stats?.esquiva || 0);
     } else if (token.type === 'character') {
-      const char = token.characterId ? (availableCharacters.find(c => c.id === token.characterId) || fetchedCharacters?.[token.characterId]) : null;
+      const char = token.characterId ? (fetchedCharacters?.[token.characterId] || availableCharacters.find(c => c.id === token.characterId)) : null;
       if (char && char.stats) {
         const climateProf = calculateProficiencyBonus(char.stats, "Clima", ["ADP"], char.fome ?? 100, char.sede ?? 100, char.cansaco, undefined, undefined, 0, char.efeitosNegativos, char.sanidadeAtual, getSanidadeMaxima(char.stats.MEN));
         return calculateProficiencyBonus(char.stats, "Esquiva", ["DEX", "ADP"], char.fome ?? 100, char.sede ?? 100, char.cansaco, char.clima, climateProf, char.bonusProficiencias?.["Esquiva"] || 0, char.efeitosNegativos, char.sanidadeAtual, getSanidadeMaxima(char.stats.MEN));
@@ -1710,16 +1710,27 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       charUpdates.armas = (char.armas || []).map(w => w.id === weaponId ? updatedWeaponProps : w);
     }
 
-    let ammoDeducted = false;
+    const isAmmoMatch = (it: any) => {
+      if (!it) return false;
+      if (ammo.id && it.id && String(it.id).trim() === String(ammo.id).trim()) return true;
+      if (ammo.nome && it.nome && it.nome.trim().toLowerCase() === ammo.nome.trim().toLowerCase()) return true;
+      return false;
+    };
+
+    let remainingToDeduct = amountToLoad;
     charUpdates.compartimentos = (char.compartimentos || []).map(comp => ({
       ...comp,
       itens: (comp.itens || []).map(it => {
-        if (!ammoDeducted && (it.id === ammo.id || (it.nome && ammo.nome && it.nome === ammo.nome && getQty(it) > 0))) {
-          ammoDeducted = true;
-          return { ...it, quantidade: Math.max(0, getQty(it) - amountToLoad) };
-        }
         if (!inArmas && it.id === weaponId) {
           return updatedWeaponProps;
+        }
+        if (remainingToDeduct > 0 && isAmmoMatch(it)) {
+          const itQty = getQty(it);
+          if (itQty > 0) {
+            const deduct = Math.min(itQty, remainingToDeduct);
+            remainingToDeduct -= deduct;
+            return { ...it, quantidade: Math.max(0, itQty - deduct) };
+          }
         }
         return it;
       })
@@ -1794,7 +1805,19 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     }
 
     const needed = maxCapacity - currentMagazine.length;
-    const amountToLoad = Math.min(getQty(ammo), needed);
+
+    const isAmmoMatch = (it: any) => {
+      if (!it) return false;
+      if (ammo.id && it.id && String(it.id).trim() === String(ammo.id).trim()) return true;
+      if (ammo.nome && it.nome && it.nome.trim().toLowerCase() === ammo.nome.trim().toLowerCase()) return true;
+      return false;
+    };
+
+    const totalMatchingQty = inventoryItems
+      .filter(isAmmoMatch)
+      .reduce((sum, item) => sum + getQty(item), 0);
+
+    const amountToLoad = Math.min(totalMatchingQty, needed);
     if (amountToLoad <= 0) return;
     
     const charUpdates: any = {};
@@ -1824,16 +1847,20 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       charUpdates.armas = (char.armas || []).map(w => w.id === weaponId ? updatedWeaponProps : w);
     }
     
-    let ammoDeducted = false;
+    let remainingToDeduct = amountToLoad;
     charUpdates.compartimentos = (char.compartimentos || []).map(comp => ({
       ...comp,
       itens: (comp.itens || []).map(it => {
-        if (!ammoDeducted && (it.id === ammo.id || (it.nome && ammo.nome && it.nome === ammo.nome && getQty(it) > 0))) {
-          ammoDeducted = true;
-          return { ...it, quantidade: Math.max(0, getQty(it) - amountToLoad) };
-        }
         if (!inArmas && it.id === weaponId) {
           return updatedWeaponProps;
+        }
+        if (remainingToDeduct > 0 && isAmmoMatch(it)) {
+          const itQty = getQty(it);
+          if (itQty > 0) {
+            const deduct = Math.min(itQty, remainingToDeduct);
+            remainingToDeduct -= deduct;
+            return { ...it, quantidade: Math.max(0, itQty - deduct) };
+          }
         }
         return it;
       })
@@ -6263,7 +6290,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                         if (token.isDefending) {
                           updateTokenPosition(campaignId, token.id, { isDefending: false, defenseType: null, defenseWeaponId: null, defenseRounds: 0 });
                         } else {
-                          const targetChar = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
+                          const targetChar = token.characterId ? (fetchedCharacters[token.characterId] || availableCharacters.find(c => c.id === token.characterId)) : null;
                           if (targetChar) {
                             setDefenseSelectTokenId(token.id);
                           } else {
@@ -6345,8 +6372,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             <div className="p-4 max-h-[70vh] overflow-y-auto space-y-2 custom-scrollbar">
               {(() => {
                 const attacker = tokens.find(t => t.id === weaponSelectTokenId);
-                const attackerChar = availableCharacters.find(c => c.id === attacker?.characterId) || 
-                  (attacker?.characterId ? fetchedCharacters[attacker.characterId] : undefined);
+                const attackerChar = (attacker?.characterId ? fetchedCharacters[attacker.characterId] : undefined) || 
+                  availableCharacters.find(c => c.id === attacker?.characterId);
                 const weapons = (attackerChar?.armas || []).filter(w => !isArmorItem(w, attackerChar) && ((w.tipo || "").toLowerCase() !== 'armadura') && !(w as any).reducaoDano);
                 const catalysts = attackerChar?.catalisadores || [];
                 const spells = attackerChar?.magias || [];
@@ -6445,7 +6472,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
                 if (pendingCombatAction) {
                   const target = tokens.find(t => t.id === targetId);
-                  const targetChar = target?.characterId ? (availableCharacters.find(c => c.id === target.characterId) || fetchedCharacters[target.characterId]) : null;
+                  const targetChar = target?.characterId ? (fetchedCharacters[target.characterId] || availableCharacters.find(c => c.id === target.characterId)) : null;
                   const unusableLocationsList = ((targetChar?.efeitosNegativos || target?.efeitosNegativos || []) as any[])
                     .filter(e => e.isUnusable)
                     .map(e => e.location);
@@ -6964,7 +6991,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 const token = tokens.find(t => t.id === defenseSelectTokenId);
                 if (!token) return <p className="text-xs text-zinc-500">Token não encontrado.</p>;
                 
-                const char = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
+                const char = token.characterId ? (fetchedCharacters[token.characterId] || availableCharacters.find(c => c.id === token.characterId)) : null;
                 
                 const options: any[] = [];
 
