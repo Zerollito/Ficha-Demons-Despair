@@ -758,67 +758,7 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
       const matchedCharacters: Character[] = [];
       const seenIds = new Set<string>();
 
-      // 1. Buscar primeiro da API dedicada do servidor backend (/api/campaigns/:id/characters)
-      // Esta rota contorna completamente qualquer RLS do Supabase e lê da persistência em disco do servidor
-      try {
-        const sRes = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/characters`);
-        if (sRes.ok) {
-          const sData = await sRes.json();
-          if (sData && Array.isArray(sData.characters)) {
-            for (const c of sData.characters) {
-              if (c && c.id && !blacklist.has(c.id) && !seenIds.has(c.id)) {
-                const charCampId = c.campaignId || c.campaign_id || '';
-                if (charCampId && charCampId !== campaignId) continue;
-                seenIds.add(c.id);
-                matchedCharacters.push({ ...c, campaignId: charCampId || campaignId });
-              }
-            }
-          }
-        }
-      } catch (sErr) {}
-
-      // 2. Obter os dados da campanha para verificar fichas embutidas (playerCharacters)
-      try {
-        const { data: campRow } = await supabase
-          .from(CAMPAIGNS_TABLE)
-          .select('*')
-          .eq('id', campaignId)
-          .single();
-
-        if (campRow) {
-          const campData = campRow.data || {};
-          const pcs = campData.playerCharacters || (campRow as any).playerCharacters || [];
-          if (Array.isArray(pcs)) {
-            for (const pc of pcs) {
-              if (pc && pc.id && !blacklist.has(pc.id) && !seenIds.has(pc.id)) {
-                seenIds.add(pc.id);
-                matchedCharacters.push({ ...pc, campaignId });
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.warn("[subscribeToCampaignCharacters] Camp row fetch warning:", err);
-      }
-
-      // 2.1 Também conferir no endpoint /api/campaigns/:id
-      try {
-        const cRes = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}`);
-        if (cRes.ok) {
-          const cData = await cRes.json();
-          const camp = cData?.campaign;
-          if (camp && Array.isArray(camp.playerCharacters)) {
-            for (const pc of camp.playerCharacters) {
-              if (pc && pc.id && !blacklist.has(pc.id) && !seenIds.has(pc.id)) {
-                seenIds.add(pc.id);
-                matchedCharacters.push({ ...pc, campaignId });
-              }
-            }
-          }
-        }
-      } catch (e) {}
-
-      // 3. Buscar fichas do banco de dados estritamente pelo campaign_id
+      // 1. Buscar fichas do banco de dados (CHARACTERS_TABLE) estritamente pelo campaign_id (fonte autoritativa mais recente)
       try {
         const { data: charRows } = await supabase
           .from(CHARACTERS_TABLE)
@@ -850,7 +790,25 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
         }
       } catch (charFetchErr) {}
 
-      // 4. Incluir fichas salvas localmente no navegador que pertencem estritamente a esta campanha
+      // 2. Buscar da API dedicada do servidor backend (/api/campaigns/:id/characters)
+      try {
+        const sRes = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/characters`);
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (sData && Array.isArray(sData.characters)) {
+            for (const c of sData.characters) {
+              if (c && c.id && !blacklist.has(c.id) && !seenIds.has(c.id)) {
+                const charCampId = c.campaignId || c.campaign_id || '';
+                if (charCampId && charCampId !== campaignId) continue;
+                seenIds.add(c.id);
+                matchedCharacters.push({ ...c, campaignId: charCampId || campaignId });
+              }
+            }
+          }
+        }
+      } catch (sErr) {}
+
+      // 3. Incluir fichas salvas localmente no navegador que pertencem estritamente a esta campanha
       const rawLocalCached = getLocalCampaignCharacters(campaignId);
       const validLocalCached = rawLocalCached.filter(lc => {
         if (!lc || !lc.id || blacklist.has(lc.id)) return false;
@@ -870,6 +828,55 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
           }
         }
       }
+
+      // Mesclar alterações locais recentes (como recarga de munição) nas fichas já encontradas
+      for (let i = 0; i < matchedCharacters.length; i++) {
+        const localMatch = validLocalCached.find(lc => lc.id === matchedCharacters[i].id);
+        if (localMatch) {
+          matchedCharacters[i] = { ...matchedCharacters[i], ...localMatch };
+        }
+      }
+
+      // 4. Fallback: Obter fichas embutidas da campanha (playerCharacters) APENAS para IDs que ainda não foram encontrados
+      try {
+        const { data: campRow } = await supabase
+          .from(CAMPAIGNS_TABLE)
+          .select('*')
+          .eq('id', campaignId)
+          .single();
+
+        if (campRow) {
+          const campData = campRow.data || {};
+          const pcs = campData.playerCharacters || (campRow as any).playerCharacters || [];
+          if (Array.isArray(pcs)) {
+            for (const pc of pcs) {
+              if (pc && pc.id && !blacklist.has(pc.id) && !seenIds.has(pc.id)) {
+                seenIds.add(pc.id);
+                matchedCharacters.push({ ...pc, campaignId });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[subscribeToCampaignCharacters] Camp row fetch warning:", err);
+      }
+
+      // 4.1 Também conferir no endpoint /api/campaigns/:id como fallback
+      try {
+        const cRes = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}`);
+        if (cRes.ok) {
+          const cData = await cRes.json();
+          const camp = cData?.campaign;
+          if (camp && Array.isArray(camp.playerCharacters)) {
+            for (const pc of camp.playerCharacters) {
+              if (pc && pc.id && !blacklist.has(pc.id) && !seenIds.has(pc.id)) {
+                seenIds.add(pc.id);
+                matchedCharacters.push({ ...pc, campaignId });
+              }
+            }
+          }
+        }
+      } catch (e) {}
 
       // 5. Salvar em cache local e notificar ouvintes
       saveLocalCampaignCharacters(campaignId, matchedCharacters);
