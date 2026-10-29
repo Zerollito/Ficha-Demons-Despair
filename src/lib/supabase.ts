@@ -93,17 +93,18 @@ export const getSupabaseConfig = () => {
 
   // Default to standard local Supabase CLI port
   let defaultUrl = "http://127.0.0.1:54321";
-  if (isBrowser && !isLocalHost && window.location.protocol === 'https:') {
+  if (isBrowser && !isLocalHost) {
     defaultUrl = window.location.origin;
   }
 
   let currentUrl = (savedUrl || defaultUrl).trim();
   
-  // If the user is on a remote HTTPS preview, and has saved a raw http://127.0.0.1 or http://localhost URL,
-  // route it through window.location.origin so the browser doesn't block Mixed Content!
-  // BUT if the user entered an https:// tunnel URL (ngrok, cloudflared, etc.), preserve it directly.
-  if (isBrowser && !isLocalHost && window.location.protocol === 'https:' && 
-      (currentUrl.startsWith('http://127.0.0.1') || currentUrl.startsWith('http://localhost') || currentUrl.startsWith('http://::1'))) {
+  // If the client is accessing from a mobile device or non-localhost client (LAN/phone/preview),
+  // raw http://127.0.0.1 or http://localhost URLs point to the phone itself, NOT the server running Supabase!
+  // Route them through window.location.origin (which proxies to the host machine via /supabase-proxy).
+  // BUT if the user entered an external tunnel URL (ngrok, cloudflared, custom domain), preserve it directly.
+  if (isBrowser && !isLocalHost && 
+      (currentUrl.startsWith('http://127.0.0.1') || currentUrl.startsWith('http://localhost') || currentUrl.startsWith('http://::1') || currentUrl.startsWith('http://0.0.0.0'))) {
     currentUrl = window.location.origin;
   }
 
@@ -156,19 +157,20 @@ export let realSupabaseClient = createClient(currentConfig.url, currentConfig.an
 
 export let hasActiveRealSession = false;
 
-export let isSupabaseConnected = true;
+export let isSupabaseConnected = false;
 
 let connectionTimeout: any = null;
 
-export const setSupabaseConnectionState = (connected: boolean) => {
+export const setSupabaseConnectionState = (connected: boolean, immediate: boolean = false) => {
+  if (connectionTimeout) {
+    clearTimeout(connectionTimeout);
+    connectionTimeout = null;
+  }
+
   if (connected) {
-    if (connectionTimeout) {
-      clearTimeout(connectionTimeout);
-      connectionTimeout = null;
-    }
     if (isSupabaseConnected !== true) {
       isSupabaseConnected = true;
-      console.log(`📡 [Supabase Connection] State changed to: CONNECTED`);
+      console.log(`📡 [Supabase Connection] State changed to: CONNECTED (Online)`);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('supabase_connection_status_changed', { 
           detail: { connected: true } 
@@ -176,20 +178,23 @@ export const setSupabaseConnectionState = (connected: boolean) => {
       }
     }
   } else {
-    // Only set to false after a 5 second delay to avoid flickering on transient timeouts
-    if (!connectionTimeout) {
-      connectionTimeout = setTimeout(() => {
-        if (isSupabaseConnected !== false) {
-          isSupabaseConnected = false;
-          console.log(`📡 [Supabase Connection] State changed to: CACHE_ONLY`);
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('supabase_connection_status_changed', { 
-              detail: { connected: false } 
-            }));
-          }
+    const applyDisconnected = () => {
+      if (isSupabaseConnected !== false) {
+        isSupabaseConnected = false;
+        console.log(`📡 [Supabase Connection] State changed to: DISCONNECTED (Offline)`);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('supabase_connection_status_changed', { 
+            detail: { connected: false } 
+          }));
         }
-        connectionTimeout = null;
-      }, 5000);
+      }
+      connectionTimeout = null;
+    };
+
+    if (immediate) {
+      applyDisconnected();
+    } else {
+      connectionTimeout = setTimeout(applyDisconnected, 1500);
     }
   }
 };
@@ -302,13 +307,13 @@ export const testSupabaseConnection = async (targetUrl?: string, targetKey?: str
             tablesReady
           };
         } else {
-          setSupabaseConnectionState(false);
+          setSupabaseConnectionState(false, true);
           return { success: false, message: sData.error || "Supabase inacessível na URL especificada." };
         }
       }
     } catch (sErr: any) {}
     
-    setSupabaseConnectionState(false);
+    setSupabaseConnectionState(false, true);
     return { 
       success: false, 
       message: err.name === 'AbortError' 
@@ -316,7 +321,7 @@ export const testSupabaseConnection = async (targetUrl?: string, targetKey?: str
         : (err.message || "Erro de rede ao conectar ao Supabase") 
     };
   }
-  setSupabaseConnectionState(false);
+  setSupabaseConnectionState(false, true);
   return { success: false, message: "Resposta inesperada do Supabase." };
 };
 

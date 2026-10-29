@@ -230,6 +230,9 @@ export const isCharacterOwnedByCurrentUser = (char: Character, currentUser: any 
   const charEmail = (char.userEmail || (char as any).user_email || '').trim().toLowerCase();
   const charUserId = (char.userId || (char as any).user_id || '').trim();
 
+  // Criaturas e monstros nunca pertencem à biblioteca de personagens de um jogador
+  if (char.etnia === 'Monstro' || (char as any).isCreature || (char as any).type === 'creature') return false;
+
   if (currentUser) {
     const userEmail = (currentUser.email || '').trim().toLowerCase();
     const userId = (currentUser.uid || currentUser.id || '').trim();
@@ -242,12 +245,19 @@ export const isCharacterOwnedByCurrentUser = (char: Character, currentUser: any 
     // Se a ficha possui outro e-mail ou outro userId associado, ela pertence estritamente a outro jogador
     if (charEmail || charUserId) return false;
 
-    // Apenas se a ficha não possui nem e-mail nem userId é tratada como anônima/guest deste navegador
+    // Se a ficha possui vínculo com uma campanha (campaignId), veio de uma mesa e NÃO pertence a este usuário!
+    if (char.campaignId) return false;
+
+    // Se veio de um token ou cache de mesa, não pertence ao usuário
+    if ((char as any).isCampaignChar || (char as any).fromCampaign) return false;
+
+    // Apenas se a ficha não possui nem e-mail nem userId nem campanha é tratada como anônima/guest local deste navegador
     return true;
   }
 
   // Se o usuário NÃO está logado (!currentUser):
-  // Ele SÓ tem permissão para visualizar fichas anônimas/de convidado (guest) deste navegador.
+  // Fichas com campanha nunca são anônimas locais do visitante
+  if (char.campaignId) return false;
   return (!charEmail && !charUserId) || charEmail.startsWith('guest_');
 };
 
@@ -1220,9 +1230,9 @@ function App() {
   }, [user, showToast]);
 
   const [isOnline, setIsOnline] = useState(typeof window !== 'undefined' ? window.navigator.onLine : true);
-  const [isSupabaseConnected, setIsSupabaseConnected] = useState(initialSupabaseConnected);
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState(false);
 
-  // Monitorar conexão
+  // Monitorar conectividade geral e eventos de status do Supabase
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -1231,7 +1241,7 @@ function App() {
     
     const handleStatusChange = (e: any) => {
       if (e.detail) {
-        setIsSupabaseConnected(e.detail.connected);
+        setIsSupabaseConnected(Boolean(e.detail.connected));
       }
     };
     window.addEventListener('supabase_connection_status_changed', handleStatusChange);
@@ -1243,7 +1253,29 @@ function App() {
     };
     window.addEventListener('supabase_connection_mixed_content_error', handleMixedContentError);
 
+    // Verificação proativa real: testa a conexão ao montar e ao focar a janela, sem falsos positivos
+    let isMounted = true;
+    const probeSupabase = async () => {
+      try {
+        const res = await testSupabaseConnection();
+        if (isMounted) {
+          setIsSupabaseConnected(res.success);
+        }
+      } catch {
+        if (isMounted) {
+          setIsSupabaseConnected(false);
+        }
+      }
+    };
+
+    probeSupabase();
+    const interval = setInterval(probeSupabase, 25000);
+    window.addEventListener('focus', probeSupabase);
+
     return () => {
+      isMounted = false;
+      clearInterval(interval);
+      window.removeEventListener('focus', probeSupabase);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('supabase_connection_status_changed', handleStatusChange);
@@ -1595,10 +1627,10 @@ function App() {
           const isRemote = sanitizedFireChars.some(fc => fc.id === lc.id);
           const isOwn = lc.userId === user.uid || (lc.userEmail && lc.userEmail === user.email);
 
-          // Se não é nossa ficha (por exemplo, pertence a outro jogador ou é uma criatura na campanha),
-          // não devemos aplicar a lógica de remoção/sincronização de ficha própria privada.
+          // Se não é nossa ficha (por exemplo, pertence a outro jogador ou é de campanha),
+          // NUNCA incluir na lista de fichas próprias do usuário!
           if (!isOwn) {
-            return !isRemote && !deletedCharsRef.current.has(lc.id);
+            return false;
           }
 
           // Se a ficha não existe no servidor mas existe localmente e não foi deletada pelo usuário:
@@ -1856,7 +1888,7 @@ function App() {
       // que possam ter sido injetadas anteriormente em sessões passadas
       if (!isMasterOfActive) {
         for (const [id, c] of charMap.entries()) {
-          if (c.campaignId === activeCampaignId && !isCharacterOwnedByCurrentUser(c, user)) {
+          if (!isCharacterOwnedByCurrentUser(c, user)) {
             charMap.delete(id);
             changed = true;
           }
@@ -4899,7 +4931,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.2</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.5</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -5009,14 +5041,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.2</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.5</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.2</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.5</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -5088,14 +5120,14 @@ function App() {
 
 
 
-          {/* Auth Status & Login Indicator */}
+          {/* Auth Status & Connection Indicator */}
           <motion.button
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => {
               if (user) {
-                if (window.confirm(`Conectado como ${user.email || user.displayName || 'Usuário'}.\nDeseja sair da conta?`)) {
+                if (window.confirm(`Conectado como ${user.email || user.displayName || 'Usuário'}.\n${isSupabaseConnected ? '• Supabase Local: Conectado' : '• Supabase Local: Desconectado (Nuvem VTT Ativa)'}\n\nDeseja sair da conta?`)) {
                   logout();
                   showToast("Você saiu da conta.", "info");
                 }
@@ -5105,48 +5137,35 @@ function App() {
               }
             }}
             className={cn(
-              "flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer",
-              user 
-                ? (isSupabaseConnected 
-                    ? (state.dirtyCharacterIds?.length > 0 
-                        ? "bg-green-500/20 border-green-500/50" 
-                        : "bg-green-500/10 border-green-500/30")
-                    : "bg-blue-500/10 border-blue-500/30")
-                : "bg-amber-500/20 border-amber-500/40 text-amber-500 hover:bg-amber-500/30"
+              "flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer shadow-sm",
+              !user
+                ? "bg-amber-500/20 border-amber-500/40 text-amber-500 hover:bg-amber-500/30"
+                : isSupabaseConnected
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
+                : "bg-sky-500/10 border-sky-500/30 text-sky-400 hover:bg-sky-500/20"
             )}
-            title={user ? (isSupabaseConnected ? (state.dirtyCharacterIds?.length > 0 ? "Sincronizando..." : `Conectado: ${user.email}`) : "Offline (Local Only)") : "Entrar ou Criar Conta"}
+            title={
+              !user
+                ? "Desconectado (Clique para entrar ou criar conta)"
+                : state.dirtyCharacterIds?.length > 0
+                ? "Sincronizando alterações..."
+                : isSupabaseConnected
+                ? `Conexão Total: Conta (${user.email || user.displayName || 'Usuário'}) + Supabase Local Conectado`
+                : `Conta Conectada: ${user.email || user.displayName || 'Usuário'} | Supabase Desconectado (Nuvem VTT Ativa)`
+            }
           >
-            {user && isSupabaseConnected && state.dirtyCharacterIds?.length > 0 ? (
-              <RefreshCwIcon size={16} className="text-green-500 animate-spin" />
+            {user && state.dirtyCharacterIds?.length > 0 ? (
+              <RefreshCwIcon size={16} className="text-amber-400 animate-spin" />
             ) : (
               <div className={cn(
-                "w-2.5 h-2.5 rounded-full",
-                user 
-                  ? (isSupabaseConnected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]")
-                  : "bg-amber-500 animate-pulse"
+                "w-2.5 h-2.5 rounded-full transition-all",
+                !user 
+                  ? "bg-amber-500 animate-pulse"
+                  : isSupabaseConnected
+                  ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"
+                  : "bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.6)]"
               )} />
             )}
-          </motion.button>
-
-          {/* Botão de Conexão com Banco de Dados / Supabase */}
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={() => {
-              setIsDbModalOpen(true);
-              handleTestDatabase();
-            }}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer shadow-sm",
-              isSupabaseConnected
-                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
-                : "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
-            )}
-            title={isSupabaseConnected ? "Supabase Conectado (Clique para gerenciar banco)" : "Supabase Desconectado (Clique para configurar conexão)"}
-          >
-            <Database size={14} className={isSupabaseConnected ? "text-emerald-400" : "text-red-400"} />
-            <span className="hidden sm:inline text-[11px]">
-              {isSupabaseConnected ? "Supabase" : "Supabase Off"}
-            </span>
           </motion.button>
 
           <motion.button
@@ -10642,6 +10661,10 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                     whileTap={{ scale: 0.95 }}
                     onClick={() => {
                       const nc = createEmptyCharacter();
+                      if (user) {
+                        nc.userId = user.uid;
+                        nc.userEmail = user.email || "";
+                      }
                       setState((prev) => ({
                         ...prev,
                         characters: [nc, ...prev.characters],
