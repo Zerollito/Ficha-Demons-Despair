@@ -1386,7 +1386,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     if (token.type === 'creature') {
       return (token.stats?.esquiva || 0);
     } else if (token.type === 'character') {
-      const char = token.characterId ? (fetchedCharacters?.[token.characterId] || availableCharacters.find(c => c.id === token.characterId)) : null;
+      const char = token.characterId ? (availableCharacters.find(c => c.id === token.characterId) || fetchedCharacters?.[token.characterId]) : null;
       if (char && char.stats) {
         const climateProf = calculateProficiencyBonus(char.stats, "Clima", ["ADP"], char.fome ?? 100, char.sede ?? 100, char.cansaco, undefined, undefined, 0, char.efeitosNegativos, char.sanidadeAtual, getSanidadeMaxima(char.stats.MEN));
         return calculateProficiencyBonus(char.stats, "Esquiva", ["DEX", "ADP"], char.fome ?? 100, char.sede ?? 100, char.cansaco, char.clima, climateProf, char.bonusProficiencias?.["Esquiva"] || 0, char.efeitosNegativos, char.sanidadeAtual, getSanidadeMaxima(char.stats.MEN));
@@ -1645,8 +1645,151 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     return qty > 0;
   };
 
+  const returnMagazineBulletsToCompartments = (comps: any[], bulletsToReturn: any[], defaultBulletName: string) => {
+    let updatedComps = (comps || []).map(c => ({ ...c, itens: [...(c.itens || [])] }));
+    if (updatedComps.length === 0) {
+      updatedComps = [{ id: generateId(), nome: "Mochila", capacidade: 20, itens: [] }];
+    }
+
+    const returnGroups = new Map<string, { bullet: any; count: number }>();
+    for (const b of bulletsToReturn) {
+      if (!b) continue;
+      const bName = (b.nome || defaultBulletName || "Bala").trim();
+      const existing = returnGroups.get(bName);
+      if (existing) {
+        existing.count += (b.quantidade || 1);
+      } else {
+        returnGroups.set(bName, { bullet: b, count: b.quantidade || 1 });
+      }
+    }
+
+    returnGroups.forEach(({ bullet, count }, bName) => {
+      let returned = false;
+      for (const comp of updatedComps) {
+        const match = comp.itens.find((it: any) => it.nome && it.nome.trim().toLowerCase() === bName.toLowerCase());
+        if (match) {
+          const q = typeof match.quantidade === 'number' ? match.quantidade : (parseInt(match.quantidade) || 0);
+          match.quantidade = q + count;
+          returned = true;
+          break;
+        }
+      }
+      if (!returned) {
+        const targetComp = updatedComps.find((c: any) => !c.externo) || updatedComps[0];
+        targetComp.itens.push({
+          ...bullet,
+          id: generateId(),
+          nome: bName,
+          tipo: "Munição",
+          categoria: "Munição",
+          quantidade: count
+        });
+      }
+    });
+
+    return updatedComps;
+  };
+
+  const deductAmmoFromCompartments = (comps: any[], targetAmmo: any, amountToDeduct: number) => {
+    let remaining = amountToDeduct;
+    const getQty = (it: any) => typeof it?.quantidade === 'number' ? it.quantidade : (parseInt(it?.quantidade) || (it ? 1 : 0));
+
+    // Phase 1: Deduct from the exact selected item ID
+    let updatedComps = (comps || []).map(comp => ({
+      ...comp,
+      itens: (comp.itens || []).map((it: any) => {
+        if (remaining > 0 && it.id === targetAmmo.id) {
+          const q = getQty(it);
+          const take = Math.min(q, remaining);
+          remaining -= take;
+          return { ...it, quantidade: Math.max(0, q - take) };
+        }
+        return it;
+      })
+    }));
+
+    // Phase 2: If still remaining, deduct from other matching stacks of same name
+    if (remaining > 0 && targetAmmo.nome) {
+      const targetNameLower = targetAmmo.nome.trim().toLowerCase();
+      updatedComps = updatedComps.map(comp => ({
+        ...comp,
+        itens: (comp.itens || []).map((it: any) => {
+          if (remaining > 0 && it.id !== targetAmmo.id && it.nome && it.nome.trim().toLowerCase() === targetNameLower && getQty(it) > 0) {
+            const q = getQty(it);
+            const take = Math.min(q, remaining);
+            remaining -= take;
+            return { ...it, quantidade: Math.max(0, q - take) };
+          }
+          return it;
+        })
+      }));
+    }
+
+    return { updatedComps, actuallyDeducted: amountToDeduct - remaining };
+  };
+
+  const handleUnload = async (charId: string, weaponId: string) => {
+    let char = (charId ? fetchedCharacters[charId] : undefined) || availableCharacters.find(c => c.id === charId);
+    if (!char) return;
+
+    const inventoryItems = char.compartimentos?.flatMap(c => c.itens || []) || [];
+    let weapon = (char.armas || []).find(w => w.id === weaponId);
+    const inArmas = !!weapon;
+    if (!weapon) {
+      weapon = inventoryItems.find(i => i.id === weaponId) as any;
+    }
+    if (!weapon) return;
+
+    const isBow = isBowItem(weapon);
+    const currentMagazine: any[] = Array.isArray((weapon as any).magazineAmmo) ? [...(weapon as any).magazineAmmo] : [];
+    const loadedCount = typeof weapon.municaoCarregada === 'number' ? weapon.municaoCarregada : currentMagazine.length;
+
+    if (loadedCount <= 0 && currentMagazine.length === 0) {
+      triggerScreenAlert(isBow ? "Não há flechas carregadas!" : "O pente já está vazio!", "warning");
+      return;
+    }
+
+    const bulletsToReturn = currentMagazine.length > 0 ? currentMagazine : Array.from({ length: loadedCount }, () => ({
+      id: generateId(),
+      nome: isBow ? "Flechas" : ((weapon as any).bulletNome || "Balas"),
+      tipo: "Munição",
+      categoria: "Munição",
+      corte: weapon.corte || 0,
+      perfuracao: weapon.perfuracao || 0,
+      impacto: weapon.impacto || 0,
+      resistencia: weapon.resistencia || 0,
+      dano: weapon.dano || (isBow ? "1d6" : "2d6"),
+      quantidade: 1
+    }));
+
+    const charUpdates: any = {};
+    const updatedWeaponProps = {
+      ...weapon,
+      municaoCarregada: 0,
+      magazineAmmo: [],
+      bulletId: undefined,
+      arrowId: undefined
+    };
+
+    if (inArmas) {
+      charUpdates.armas = (char.armas || []).map(w => w.id === weaponId ? updatedWeaponProps : w);
+    }
+
+    let comps = returnMagazineBulletsToCompartments(char.compartimentos || [], bulletsToReturn, isBow ? "Flechas" : "Balas");
+    if (!inArmas) {
+      comps = comps.map(comp => ({
+        ...comp,
+        itens: comp.itens.map((it: any) => it.id === weaponId ? updatedWeaponProps : it)
+      }));
+    }
+    charUpdates.compartimentos = comps;
+
+    await updateCharacterLocalAndRemote(char.id, charUpdates);
+    await addCombatLog(campaignId, { msg: `${char.nome} descarregou ${loadedCount} munições de "${weapon.nome}". As balas retornaram para os compartimentos.`, type: 'info' });
+  };
+
   const handleReload = async (charId: string, weaponId: string, ammoId?: string) => {
-    let char = fetchedCharacters[charId] || availableCharacters.find(c => c.id === charId);
+    let char = (charId ? fetchedCharacters[charId] : undefined) || availableCharacters.find(c => c.id === charId);
     if (!char) return;
 
     const inventoryItems = char.compartimentos?.flatMap(c => c.itens || []) || [];
@@ -1676,15 +1819,38 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       currentMagazine = currentMagazine.slice(0, weapon.municaoCarregada);
     }
     const maxCapacity = getMaxCapacity(weapon);
-    
-    if (currentMagazine.length >= maxCapacity) {
-      await addCombatLog(campaignId, { msg: isBow ? "A capacidade máxima já foi atingida!" : "O pente já está cheio!", type: 'error' });
-      return;
+
+    let workingComps = char.compartimentos || [];
+    let bulletsUnloadedCount = 0;
+
+    // Se o pente já estiver cheio, descarrega as balas anteriores de volta para os compartimentos primeiro!
+    if (currentMagazine.length >= maxCapacity || (typeof weapon.municaoCarregada === 'number' && weapon.municaoCarregada >= maxCapacity)) {
+      const returnCount = currentMagazine.length > 0 ? currentMagazine.length : (weapon.municaoCarregada || 1);
+      const bulletsToReturn = currentMagazine.length > 0 ? currentMagazine : Array.from({ length: returnCount }, () => ({
+        id: generateId(),
+        nome: isBow ? "Flechas" : ((weapon as any).bulletNome || "Balas"),
+        tipo: "Munição",
+        categoria: "Munição",
+        corte: weapon.corte || 0,
+        perfuracao: weapon.perfuracao || 0,
+        impacto: weapon.impacto || 0,
+        resistencia: weapon.resistencia || 0,
+        dano: weapon.dano || (isBow ? "1d6" : "2d6"),
+        quantidade: 1
+      }));
+      bulletsUnloadedCount = bulletsToReturn.length;
+      workingComps = returnMagazineBulletsToCompartments(workingComps, bulletsToReturn, isBow ? "Flechas" : "Balas");
+      currentMagazine = [];
     }
 
     const amountToLoad = 1;
-    const charUpdates: any = {};
-    const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ 
+    const { updatedComps, actuallyDeducted } = deductAmmoFromCompartments(workingComps, ammo, amountToLoad);
+    if (actuallyDeducted <= 0) {
+      triggerScreenAlert("Não foi possível carregar a munição!", "error");
+      return;
+    }
+
+    const ammoToAdd = Array.from({ length: actuallyDeducted }, () => ({ 
       ...ammo as any, 
       id: generateId(), 
       dano: ammo.dano || weapon.dano || (isBow ? '1d6' : '2d6'),
@@ -1706,42 +1872,27 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       municaoDano: undefined
     };
 
+    const charUpdates: any = {};
     if (inArmas) {
       charUpdates.armas = (char.armas || []).map(w => w.id === weaponId ? updatedWeaponProps : w);
     }
 
-    const isAmmoMatch = (it: any) => {
-      if (!it) return false;
-      if (ammo.id && it.id && String(it.id).trim() === String(ammo.id).trim()) return true;
-      if (ammo.nome && it.nome && it.nome.trim().toLowerCase() === ammo.nome.trim().toLowerCase()) return true;
-      return false;
-    };
-
-    let remainingToDeduct = amountToLoad;
-    charUpdates.compartimentos = (char.compartimentos || []).map(comp => ({
-      ...comp,
-      itens: (comp.itens || []).map(it => {
-        if (!inArmas && it.id === weaponId) {
-          return updatedWeaponProps;
-        }
-        if (remainingToDeduct > 0 && isAmmoMatch(it)) {
-          const itQty = getQty(it);
-          if (itQty > 0) {
-            const deduct = Math.min(itQty, remainingToDeduct);
-            remainingToDeduct -= deduct;
-            return { ...it, quantidade: Math.max(0, itQty - deduct) };
-          }
-        }
-        return it;
-      })
-    }));
+    let finalComps = updatedComps;
+    if (!inArmas) {
+      finalComps = finalComps.map(comp => ({
+        ...comp,
+        itens: comp.itens.map((it: any) => it.id === weaponId ? updatedWeaponProps : it)
+      }));
+    }
+    charUpdates.compartimentos = finalComps;
 
     await updateCharacterLocalAndRemote(char.id, charUpdates);
-    await addCombatLog(campaignId, { msg: `${char.nome} recarregou 1 munição (${ammo.nome}) em ${weapon.nome}.`, type: 'info' });
+    const unloadNote = bulletsUnloadedCount > 0 ? ` (${bulletsUnloadedCount} balas anteriores voltaram para a mochila)` : "";
+    await addCombatLog(campaignId, { msg: `${char.nome} recarregou 1 munição (${ammo.nome}) em ${weapon.nome}.${unloadNote}`, type: 'info' });
   };
 
   const handleMaintenance = async (charId: string, weaponId: string) => {
-    let char = fetchedCharacters[charId] || availableCharacters.find(c => c.id === charId);
+    let char = (charId ? fetchedCharacters[charId] : undefined) || availableCharacters.find(c => c.id === charId);
     if (!char) return;
 
     let weapon = (char.armas || []).find(w => w.id === weaponId);
@@ -1768,7 +1919,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   };
 
   const handleReloadAll = async (charId: string, weaponId: string, ammoId?: string) => {
-    let char = fetchedCharacters[charId] || availableCharacters.find(c => c.id === charId);
+    let char = (charId ? fetchedCharacters[charId] : undefined) || availableCharacters.find(c => c.id === charId);
     if (!char) return;
 
     const inventoryItems = char.compartimentos?.flatMap(c => c.itens || []) || [];
@@ -1798,30 +1949,46 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       currentMagazine = currentMagazine.slice(0, weapon.municaoCarregada);
     }
     const maxCapacity = getMaxCapacity(weapon);
-    
-    if (currentMagazine.length >= maxCapacity) {
-      await addCombatLog(campaignId, { msg: isBow ? "A capacidade máxima já foi atingida!" : "O pente já está cheio!", type: 'error' });
+
+    let workingComps = char.compartimentos || [];
+    let bulletsUnloadedCount = 0;
+
+    // Se o pente já estiver cheio, descarrega as balas anteriores de volta para os compartimentos primeiro!
+    if (currentMagazine.length >= maxCapacity || (typeof weapon.municaoCarregada === 'number' && weapon.municaoCarregada >= maxCapacity)) {
+      const returnCount = currentMagazine.length > 0 ? currentMagazine.length : (weapon.municaoCarregada || 1);
+      const bulletsToReturn = currentMagazine.length > 0 ? currentMagazine : Array.from({ length: returnCount }, () => ({
+        id: generateId(),
+        nome: isBow ? "Flechas" : ((weapon as any).bulletNome || "Balas"),
+        tipo: "Munição",
+        categoria: "Munição",
+        corte: weapon.corte || 0,
+        perfuracao: weapon.perfuracao || 0,
+        impacto: weapon.impacto || 0,
+        resistencia: weapon.resistencia || 0,
+        dano: weapon.dano || (isBow ? "1d6" : "2d6"),
+        quantidade: 1
+      }));
+      bulletsUnloadedCount = bulletsToReturn.length;
+      workingComps = returnMagazineBulletsToCompartments(workingComps, bulletsToReturn, isBow ? "Flechas" : "Balas");
+      currentMagazine = [];
+    }
+
+    // Quantidade total disponível dessa munição nos compartimentos (mesmo id ou mesmo nome)
+    const totalAvail = (workingComps.flatMap((c: any) => c.itens || []) as any[])
+      .filter((i: any) => i.id === ammo.id || (ammo.nome && i.nome && i.nome.trim().toLowerCase() === ammo.nome.trim().toLowerCase()))
+      .reduce((sum: number, it: any) => sum + getQty(it), 0);
+
+    const needed = maxCapacity - currentMagazine.length;
+    const amountToLoad = Math.min(totalAvail, needed);
+    if (amountToLoad <= 0) return;
+
+    const { updatedComps, actuallyDeducted } = deductAmmoFromCompartments(workingComps, ammo, amountToLoad);
+    if (actuallyDeducted <= 0) {
+      triggerScreenAlert("Não foi possível carregar as munições!", "error");
       return;
     }
 
-    const needed = maxCapacity - currentMagazine.length;
-
-    const isAmmoMatch = (it: any) => {
-      if (!it) return false;
-      if (ammo.id && it.id && String(it.id).trim() === String(ammo.id).trim()) return true;
-      if (ammo.nome && it.nome && it.nome.trim().toLowerCase() === ammo.nome.trim().toLowerCase()) return true;
-      return false;
-    };
-
-    const totalMatchingQty = inventoryItems
-      .filter(isAmmoMatch)
-      .reduce((sum, item) => sum + getQty(item), 0);
-
-    const amountToLoad = Math.min(totalMatchingQty, needed);
-    if (amountToLoad <= 0) return;
-    
-    const charUpdates: any = {};
-    const ammoToAdd = Array.from({ length: amountToLoad }, () => ({ 
+    const ammoToAdd = Array.from({ length: actuallyDeducted }, () => ({ 
       ...ammo as any, 
       id: generateId(), 
       dano: ammo.dano || weapon.dano || (isBow ? '1d6' : '2d6'),
@@ -1843,31 +2010,23 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       municaoDano: undefined
     };
 
+    const charUpdates: any = {};
     if (inArmas) {
       charUpdates.armas = (char.armas || []).map(w => w.id === weaponId ? updatedWeaponProps : w);
     }
-    
-    let remainingToDeduct = amountToLoad;
-    charUpdates.compartimentos = (char.compartimentos || []).map(comp => ({
-      ...comp,
-      itens: (comp.itens || []).map(it => {
-        if (!inArmas && it.id === weaponId) {
-          return updatedWeaponProps;
-        }
-        if (remainingToDeduct > 0 && isAmmoMatch(it)) {
-          const itQty = getQty(it);
-          if (itQty > 0) {
-            const deduct = Math.min(itQty, remainingToDeduct);
-            remainingToDeduct -= deduct;
-            return { ...it, quantidade: Math.max(0, itQty - deduct) };
-          }
-        }
-        return it;
-      })
-    }));
+
+    let finalComps = updatedComps;
+    if (!inArmas) {
+      finalComps = finalComps.map(comp => ({
+        ...comp,
+        itens: comp.itens.map((it: any) => it.id === weaponId ? updatedWeaponProps : it)
+      }));
+    }
+    charUpdates.compartimentos = finalComps;
 
     await updateCharacterLocalAndRemote(char.id, charUpdates);
-    await addCombatLog(campaignId, { msg: `${char.nome} recarregou ${amountToLoad} munições (${ammo.nome}) em ${weapon.nome}.`, type: 'info' });
+    const unloadNote = bulletsUnloadedCount > 0 ? ` (${bulletsUnloadedCount} balas anteriores voltaram para a mochila)` : "";
+    await addCombatLog(campaignId, { msg: `${char.nome} recarregou ${actuallyDeducted} munições (${ammo.nome}) em ${weapon.nome}.${unloadNote}`, type: 'info' });
   };
 
   const [clipBoardItem, setClipBoardItem] = useState<{item: any, sourceId: string, charId: string, type: 'cut' | 'copy'} | null>(null);
@@ -6290,7 +6449,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                         if (token.isDefending) {
                           updateTokenPosition(campaignId, token.id, { isDefending: false, defenseType: null, defenseWeaponId: null, defenseRounds: 0 });
                         } else {
-                          const targetChar = token.characterId ? (fetchedCharacters[token.characterId] || availableCharacters.find(c => c.id === token.characterId)) : null;
+                          const targetChar = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
                           if (targetChar) {
                             setDefenseSelectTokenId(token.id);
                           } else {
@@ -6472,7 +6631,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
                 if (pendingCombatAction) {
                   const target = tokens.find(t => t.id === targetId);
-                  const targetChar = target?.characterId ? (fetchedCharacters[target.characterId] || availableCharacters.find(c => c.id === target.characterId)) : null;
+                  const targetChar = target?.characterId ? (availableCharacters.find(c => c.id === target.characterId) || fetchedCharacters[target.characterId]) : null;
                   const unusableLocationsList = ((targetChar?.efeitosNegativos || target?.efeitosNegativos || []) as any[])
                     .filter(e => e.isUnusable)
                     .map(e => e.location);
@@ -6584,6 +6743,19 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                                 {isBowItem(ammoSelectWeapon) ? "Recarregar Flecha/Virote" : "Recarregar Bala"}
                               </div>
                               <div className="flex gap-1 shrink-0">
+                                <button 
+                                  onClick={async () => {
+                                    const attacker = tokens.find(t => t.id === weaponSelectTokenId);
+                                    if (attacker?.characterId) {
+                                      await handleUnload(attacker.characterId, ammoSelectWeapon.id);
+                                    }
+                                  }}
+                                  disabled={(ammoSelectWeapon.municaoCarregada || 0) === 0 && (!ammoSelectWeapon.magazineAmmo || ammoSelectWeapon.magazineAmmo.length === 0)}
+                                  className="py-1 px-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 border border-zinc-700 text-zinc-300 rounded-lg text-[8px] font-black uppercase transition-all cursor-pointer"
+                                  title="Descarregar munições do pente de volta para os compartimentos"
+                                >
+                                  Descarregar
+                                </button>
                                 <button 
                                   onClick={async () => {
                                     const attacker = tokens.find(t => t.id === weaponSelectTokenId);
@@ -6991,7 +7163,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 const token = tokens.find(t => t.id === defenseSelectTokenId);
                 if (!token) return <p className="text-xs text-zinc-500">Token não encontrado.</p>;
                 
-                const char = token.characterId ? (fetchedCharacters[token.characterId] || availableCharacters.find(c => c.id === token.characterId)) : null;
+                const char = token.characterId ? availableCharacters.find(c => c.id === token.characterId) : null;
                 
                 const options: any[] = [];
 
