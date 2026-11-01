@@ -1245,39 +1245,39 @@
       "isRemoteSynced": true
     },
     {
-      "id": "57ou4dbs97",
-      "nome": "Erik Lehnsherr",
-      "etnia": "Judeu",
+      "id": "wqhp4n7x2u",
+      "nome": "Megara Vernom",
+      "etnia": "",
       "dinheiro": {
-        "C": 1,
-        "B": 10,
-        "P": 2,
+        "C": 4,
+        "B": 15,
+        "P": 0,
         "O": 0
       },
-      "vidaAtual": 20,
+      "vidaAtual": 18,
       "manaAtual": 0,
-      "sanidadeAtual": 20,
+      "sanidadeAtual": 10,
       "fome": 100,
       "sede": 100,
       "cansaco": 8,
       "defesa": {
-        "Cabeça": 0,
-        "Tronco": 0,
-        "Braço Esquerdo": 0,
-        "Braço Direito": 0,
-        "Pernas": 0
+        "Cabeça": 3,
+        "Tronco": 3,
+        "Braço Esquerdo": 3,
+        "Braço Direito": 3,
+        "Pernas": 3
       },
       "clima": 0,
       "stats": {
-        "CON": 10,
-        "RES": 5,
+        "CON": 9,
+        "RES": 6,
         "ADP": 0,
-        "MEN": 10,
+        "MEN": 5,
         "APR": 0,
         "FOR": 10,
-        "DEX": 10,
+        "DEX": 12,
         "INT": 0,
-        "RIT": 0
+        "RIT": 4
       },
       "statsXP": {
         "CON": 0,
@@ -1290,152 +1290,229 @@
         "INT": 0,
         "RIT": 0
       },
-      "bonusProficiencias": {
-        "Atletismo": 1,
-        "Mentalidade": 7
-      },
+      "bonusProficiencias": {},
       "joias": [],
       "imagem": "",
       "armas": [
         {
-          "id": "2ppzvsthvw",
-          "dano": "0",
-          "nome": "Revolver cal .38",
-          "peso": 20,
+          "id": "40e25d44-39d4-4dd5-a42f-8be9147bb728",
+          "dano": "1d12",
+          "nome": "Espada larga de magnálio",
+          "peso": 7.2,
           "tipo": "Arma",
-          "corte": 0,
-          "acerto": 13,
+          "corte": 4,
+          "acerto": 16,
+          "efeito": "Muito leve",
           "escala": "0",
-          "volume": 3,
-          "impacto": 0,
-          "bulletId": "o9nenhr4b3",
-          "categoria": "Arma de Fogo",
-          "perfuracao": 0,
-          "resistencia": 0,
-          "atributoBase": "Destreza",
-          "durabilidade": 100,
-          "magazineAmmo": [
-            {
-              "id": "0g5m4c2bq3",
-              "dano": "4d8",
-              "nome": "cal .38 ogival",
-              "impacto": 1,
-              "perfuracao": 1,
-              "resistencia": 0
-            },
-            {
-              "id": "bsyqzz63qr",
-              "dano": "4d8",
-              "nome": "cal .38 ogival",
-              "impacto": 1,
-              "perfuracao": 1,
-              "resistencia": 0
-            },
-            {
-              "id": "7k6e1zgql5",
-              "dano": "4d8",
-              "nome": "cal .38 ogival",
-              "impacto": 1,
-              "perfuracao": 1,
-              "resistencia": 0
-            },
-            {
-              "id": "6aepct1qae",
-              "dano": "4d8",
-              "nome": "cal .38 ogival",
-              "impacto": 1,
-              "perfuracao": 1,
-              "resistencia": 0
-            },
-            {
-              "id": "2p94r81gos",
-              "dano": "4d8",
-              "nome": "cal .38 ogival",
-              "impacto": 1,
-              "perfuracao": 1,
-              "resistencia": 0
-            },
-            {
-              "id": "27hqlq4rnf",
-              "dano": "4d8",
-              "nome": "cal .38 ogival",
-              "impacto": 1,
-              "perfuracao": 1,
-              "resistencia": 0
-            }
-          ],
-          "municaoTotal": 6,
-          "maxDurabilidade": 100,
-          "municaoCarregada": 6,
-          "durabilidadeMaxUtil": 100
+          "volume": 14,
+          "impacto": 1,
+          "descricao": "Muito leve",
+          "perfuracao": 1,
+          "resistencia": 2,
+          "atributoBase": "Força",
+          "durabilidade": 4,
+          "maxDurabilidade": 0
         }
       ],
       "catalisadores": [],
       "habilidades": [],
       "magias": [],
-      "armaduras": [],
-      "acessorios": [],
+      "armaduras": [
+        {
+          "id": "4a1c4bb3-0d1f-42a8-af84-320223d5ff1b",
+          "nome": "Capacete",
+          "peso": 30,
+          "tipo": "Armadura",
+          "corte": 3,
+          "efeito": "",
+          "volume": 3,
+          "impacto": 3,
+          "perfuracao": 3,
+          "reducaoDano": 3,
+          "durabilidade": 3
+        },
+        {
+          "id": "5f7b3ddc-0160-4e3c-bf82-f74dee198977",
+          "nome": "Peitoral parcial",
+          "peso": 50,
+          "tipo": "Armadura",
+          "corte": 3,
+          "efeito": "",
+          "volume": 10,
+          "impacto": 3,
+          "perfuracao": 3,
+          "reducaoDano": 3,
+          "durabilidade": 3
+        },
+        {
+          "id": "1cfc9ff5-8b14-450b-be9b-c5037d3ba096",
+          "nome": "Braçadeiras",
+          "peso": 15,
+          "tipo": "Armadura",
+          "corte": 3,
+          "efeito": "",
+          "volume": 6,
+          "impacto": 3,
+          "perfuracao": 3,
+          "reducaoDano": 3,
+          "durabilidade": 3
+        },
+        {
+          "id": "f9256ee4-1e7f-4a42-bd04-481a1eb51e8a",
+          "nome": "Grevas",
+          "peso": 20,
+          "tipo": "Armadura",
+          "corte": 3,
+          "efeito": "",
+          "volume": 8,
+          "impacto": 3,
+          "perfuracao": 3,
+          "reducaoDano": 3,
+          "durabilidade": 3
+        },
+        {
+          "id": "2c2ae8aa-0f3c-46b4-8dbb-911e1c592160",
+          "nome": "Broquel de magnálio",
+          "peso": 4.5,
+          "tipo": "Armadura",
+          "corte": 4,
+          "efeito": "Efeito: o contra ataque pode  ser feito com um 2 numa falha dos 3d8 de ataque inimigo.",
+          "volume": 4,
+          "impacto": 2,
+          "descricao": "Efeito: o contra ataque pode  ser feito com um 2 numa falha dos 3d8 de ataque inimigo.",
+          "perfuracao": 1,
+          "reducaoDano": 0,
+          "durabilidade": 3
+        }
+      ],
+      "acessorios": [
+        {
+          "id": "f8cd5dc0-1adb-4aeb-bf4b-7a457b3d7062",
+          "nome": "Anel da sorte",
+          "peso": 0.1,
+          "tipo": "Armadura",
+          "corte": 0,
+          "efeito": "+1 em achar coisas",
+          "volume": 0.1,
+          "impacto": 0,
+          "descricao": "+1 em achar coisas",
+          "perfuracao": 0,
+          "reducaoDano": 0,
+          "durabilidade": 1
+        }
+      ],
       "compartimentos": [
         {
-          "id": "z799etqnly",
+          "id": "4d453c1e-8f8d-43fc-a05e-0ac3edc1c142",
           "nome": "Mochila de Viagem",
           "itens": [
             {
-              "id": "6dfz2c4q3h",
-              "nome": "dados",
+              "id": "ffa41ea2-7014-4f1c-920c-fad83827ff93",
+              "nome": "Pô de ossos de demônio de fogo",
               "peso": 0.1,
               "tipo": "Geral",
               "volume": 0.1,
-              "descricao": "Dados viciados.",
-              "quantidade": 2,
+              "descricao": "",
+              "quantidade": 3,
               "durabilidade": 0,
               "maxDurabilidade": 0
             },
             {
-              "id": "q2b6kd50jv",
-              "nome": "Relógio de pulso",
+              "id": "747fb266-94e4-4562-9e40-e30458583bc7",
+              "nome": "Infusão de adrenalina P",
               "peso": 0.5,
               "tipo": "Geral",
-              "volume": 0.5,
+              "volume": 1,
               "descricao": "",
-              "quantidade": 1,
+              "quantidade": 3,
               "durabilidade": 0,
               "maxDurabilidade": 0
+            },
+            {
+              "id": "81b0c296-92ac-4dcb-9679-e2452890d536",
+              "dano": "2d8",
+              "nome": "Pistola de pulso de Mithril",
+              "peso": 2.5,
+              "tipo": "Arma",
+              "corte": 0,
+              "acerto": 14,
+              "escala": "0",
+              "volume": 3,
+              "impacto": 0,
+              "categoria": "Arma de Fogo",
+              "descricao": "Não corrosivo, leve",
+              "perfuracao": 0,
+              "quantidade": 1,
+              "resistencia": 0,
+              "atributoBase": "Destreza",
+              "durabilidade": 4,
+              "municaoTotal": 6,
+              "maxDurabilidade": 5,
+              "municaoCarregada": 6
+            },
+            {
+              "id": "dac2d1b3-48ec-45fa-87a7-e04d18d6a4d1",
+              "dano": "1d4",
+              "nome": "Shuriken de Cobalto",
+              "peso": 0.3,
+              "tipo": "Arma",
+              "corte": 2,
+              "acerto": 12,
+              "escala": "C",
+              "volume": 0.4,
+              "impacto": 0,
+              "descricao": "",
+              "perfuracao": 2,
+              "quantidade": 1,
+              "resistencia": 2,
+              "atributoBase": "Destreza",
+              "durabilidade": 3,
+              "maxDurabilidade": 3
+            },
+            {
+              "id": "6e93ed19-6104-478c-8dbb-1e1296f760d7",
+              "nome": "Peitoral de placas de Repulsinio",
+              "peso": 70,
+              "tipo": "Armadura",
+              "corte": 2,
+              "efeito": "Ao impacto, cria uma força anti gravidade, podendo arremessar inimigos no ar",
+              "volume": 15,
+              "impacto": 4,
+              "descricao": "Ao impacto, cria uma força anti gravidade, podendo arremessar inimigos no ar",
+              "perfuracao": 1,
+              "quantidade": 1,
+              "reducaoDano": -5,
+              "durabilidade": 5,
+              "maxDurabilidade": 5
             }
           ],
           "externo": false,
           "volumeMax": 50
         },
         {
-          "id": "2nx59o6t12",
+          "id": "6a5c6edb-e07d-4a3a-97e4-48a0466b5010",
           "nome": "Bolsa de Cinto",
           "itens": [
             {
-              "id": "o9nenhr4b3",
-              "dano": "4d8",
-              "nome": "cal .38 ogival",
-              "peso": 0.3,
-              "tipo": "Munição",
-              "efeito": "",
-              "volume": 0.1,
-              "impacto": 1,
-              "descricao": "",
-              "perfuracao": 1,
-              "quantidade": 0,
-              "resistencia": 0,
+              "id": "d07e9dc0-94b7-4bf3-8e5e-b7eaf7956e71",
+              "nome": "Kit disparo de chumbo esférico ",
+              "peso": 0.5,
+              "tipo": "Geral",
+              "volume": 0.3,
+              "descricao": "Impacto: 4",
+              "quantidade": 12,
               "durabilidade": 0,
               "maxDurabilidade": 0
             }
           ],
-          "externo": false,
-          "volumeMax": 3
+          "volumeMax": 5
         }
       ],
       "conhecimentos": [
         {
           "xp": 0,
           "name": "Flora",
-          "nivel": 0,
+          "nivel": 1,
           "limite": 5
         },
         {
@@ -1471,13 +1548,13 @@
         {
           "xp": 0,
           "name": "Navegação",
-          "nivel": 0,
+          "nivel": -1,
           "limite": 5
         },
         {
           "xp": 0,
           "name": "Mecânica",
-          "nivel": 2,
+          "nivel": 0,
           "limite": 5
         },
         {
@@ -1489,7 +1566,7 @@
         {
           "xp": 0,
           "name": "Religião",
-          "nivel": 0,
+          "nivel": 1,
           "limite": 5
         },
         {
@@ -1501,13 +1578,13 @@
         {
           "xp": 0,
           "name": "Fauna",
-          "nivel": -1,
+          "nivel": 0,
           "limite": 5
         },
         {
           "xp": 0,
           "name": "Alquimia",
-          "nivel": 0,
+          "nivel": 1,
           "limite": 5
         },
         {
@@ -1525,7 +1602,7 @@
         {
           "xp": 0,
           "name": "Sobrevivência",
-          "nivel": 1,
+          "nivel": 0,
           "limite": 5
         },
         {
@@ -1537,13 +1614,13 @@
         {
           "xp": 0,
           "name": "Culinária",
-          "nivel": 0,
+          "nivel": -1,
           "limite": 5
         },
         {
           "xp": 0,
           "name": "Clima",
-          "nivel": 0,
+          "nivel": -1,
           "limite": 5
         }
       ],
@@ -1551,12 +1628,12 @@
       "efeitosNegativos": [],
       "anotacoes": [
         {
-          "id": "4qbqyvlwfd",
+          "id": "92v4b7li0a",
           "titulo": "Traumas",
           "conteudo": ""
         },
         {
-          "id": "97k6rsz63b",
+          "id": "bt3zzka6uo",
           "titulo": "Vícios",
           "conteudo": ""
         }
@@ -1569,105 +1646,52 @@
       "user_email": "zeroastrooliveira@gmail.com",
       "campaign_id": null,
       "data": {
-        "id": "57ou4dbs97",
+        "id": "wqhp4n7x2u",
         "fome": 100,
-        "nome": "Erik Lehnsherr",
+        "nome": "Megara Vernom",
         "sede": 100,
         "armas": [
           {
-            "id": "2ppzvsthvw",
-            "dano": "0",
-            "nome": "Revolver cal .38",
-            "peso": 20,
+            "id": "40e25d44-39d4-4dd5-a42f-8be9147bb728",
+            "dano": "1d12",
+            "nome": "Espada larga de magnálio",
+            "peso": 7.2,
             "tipo": "Arma",
-            "corte": 0,
-            "acerto": 13,
+            "corte": 4,
+            "acerto": 16,
+            "efeito": "Muito leve",
             "escala": "0",
-            "volume": 3,
-            "impacto": 0,
-            "bulletId": "o9nenhr4b3",
-            "categoria": "Arma de Fogo",
-            "perfuracao": 0,
-            "resistencia": 0,
-            "atributoBase": "Destreza",
-            "durabilidade": 100,
-            "magazineAmmo": [
-              {
-                "id": "0g5m4c2bq3",
-                "dano": "4d8",
-                "nome": "cal .38 ogival",
-                "impacto": 1,
-                "perfuracao": 1,
-                "resistencia": 0
-              },
-              {
-                "id": "bsyqzz63qr",
-                "dano": "4d8",
-                "nome": "cal .38 ogival",
-                "impacto": 1,
-                "perfuracao": 1,
-                "resistencia": 0
-              },
-              {
-                "id": "7k6e1zgql5",
-                "dano": "4d8",
-                "nome": "cal .38 ogival",
-                "impacto": 1,
-                "perfuracao": 1,
-                "resistencia": 0
-              },
-              {
-                "id": "6aepct1qae",
-                "dano": "4d8",
-                "nome": "cal .38 ogival",
-                "impacto": 1,
-                "perfuracao": 1,
-                "resistencia": 0
-              },
-              {
-                "id": "2p94r81gos",
-                "dano": "4d8",
-                "nome": "cal .38 ogival",
-                "impacto": 1,
-                "perfuracao": 1,
-                "resistencia": 0
-              },
-              {
-                "id": "27hqlq4rnf",
-                "dano": "4d8",
-                "nome": "cal .38 ogival",
-                "impacto": 1,
-                "perfuracao": 1,
-                "resistencia": 0
-              }
-            ],
-            "municaoTotal": 6,
-            "maxDurabilidade": 100,
-            "municaoCarregada": 6,
-            "durabilidadeMaxUtil": 100
+            "volume": 14,
+            "impacto": 1,
+            "descricao": "Muito leve",
+            "perfuracao": 1,
+            "resistencia": 2,
+            "atributoBase": "Força",
+            "durabilidade": 4,
+            "maxDurabilidade": 0
           }
         ],
         "clima": 0,
-        "etnia": "Judeu",
+        "etnia": "",
         "itens": [],
         "joias": [],
         "stats": {
           "ADP": 0,
           "APR": 0,
-          "CON": 10,
-          "DEX": 10,
+          "CON": 9,
+          "DEX": 12,
           "FOR": 10,
           "INT": 0,
-          "MEN": 10,
-          "RES": 5,
-          "RIT": 0
+          "MEN": 5,
+          "RES": 6,
+          "RIT": 4
         },
         "defesa": {
-          "Pernas": 0,
-          "Tronco": 0,
-          "Cabeça": 0,
-          "Braço Direito": 0,
-          "Braço Esquerdo": 0
+          "Pernas": 3,
+          "Tronco": 3,
+          "Cabeça": 3,
+          "Braço Direito": 3,
+          "Braço Esquerdo": 3
         },
         "imagem": "",
         "magias": [],
@@ -1687,30 +1711,111 @@
           "RIT": 0
         },
         "dinheiro": {
-          "B": 10,
-          "C": 0,
+          "B": 15,
+          "C": 4,
           "O": 0,
-          "P": 2
+          "P": 0
         },
-        "anotacoes": [
+        "anotacoes": [],
+        "armaduras": [
           {
-            "id": "7laxnsgact",
-            "titulo": "Anotações Gerais",
-            "conteudo": ""
+            "id": "4a1c4bb3-0d1f-42a8-af84-320223d5ff1b",
+            "nome": "Capacete",
+            "peso": 30,
+            "tipo": "Armadura",
+            "corte": 3,
+            "efeito": "",
+            "volume": 3,
+            "impacto": 3,
+            "perfuracao": 3,
+            "reducaoDano": 3,
+            "durabilidade": 3
+          },
+          {
+            "id": "5f7b3ddc-0160-4e3c-bf82-f74dee198977",
+            "nome": "Peitoral parcial",
+            "peso": 50,
+            "tipo": "Armadura",
+            "corte": 3,
+            "efeito": "",
+            "volume": 10,
+            "impacto": 3,
+            "perfuracao": 3,
+            "reducaoDano": 3,
+            "durabilidade": 3
+          },
+          {
+            "id": "1cfc9ff5-8b14-450b-be9b-c5037d3ba096",
+            "nome": "Braçadeiras",
+            "peso": 15,
+            "tipo": "Armadura",
+            "corte": 3,
+            "efeito": "",
+            "volume": 6,
+            "impacto": 3,
+            "perfuracao": 3,
+            "reducaoDano": 3,
+            "durabilidade": 3
+          },
+          {
+            "id": "f9256ee4-1e7f-4a42-bd04-481a1eb51e8a",
+            "nome": "Grevas",
+            "peso": 20,
+            "tipo": "Armadura",
+            "corte": 3,
+            "efeito": "",
+            "volume": 8,
+            "impacto": 3,
+            "perfuracao": 3,
+            "reducaoDano": 3,
+            "durabilidade": 3
+          },
+          {
+            "id": "2c2ae8aa-0f3c-46b4-8dbb-911e1c592160",
+            "nome": "Broquel de magnálio",
+            "peso": 4.5,
+            "tipo": "Armadura",
+            "corte": 4,
+            "efeito": "Efeito: o contra ataque pode  ser feito com um 2 numa falha dos 3d8 de ataque inimigo.",
+            "volume": 4,
+            "impacto": 2,
+            "descricao": "Efeito: o contra ataque pode  ser feito com um 2 numa falha dos 3d8 de ataque inimigo.",
+            "perfuracao": 1,
+            "reducaoDano": 0,
+            "durabilidade": 3
           }
         ],
-        "armaduras": [],
         "manaAtual": 0,
+        "updatedAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1780613923,
+          "nanoseconds": 556000000
+        },
         "userEmail": "zeroastrooliveira@gmail.com",
-        "vidaAtual": 20,
-        "acessorios": [],
+        "vidaAtual": 18,
+        "acessorios": [
+          {
+            "id": "f8cd5dc0-1adb-4aeb-bf4b-7a457b3d7062",
+            "nome": "Anel da sorte",
+            "peso": 0.1,
+            "tipo": "Armadura",
+            "corte": 0,
+            "efeito": "+1 em achar coisas",
+            "volume": 0.1,
+            "impacto": 0,
+            "descricao": "+1 em achar coisas",
+            "perfuracao": 0,
+            "reducaoDano": 0,
+            "durabilidade": 1
+          }
+        ],
         "habilidades": [],
         "catalisadores": [],
         "conhecimentos": [
           {
             "xp": 0,
             "name": "Flora",
-            "nivel": 0,
+            "nivel": 1,
             "limite": 5
           },
           {
@@ -1746,13 +1851,13 @@
           {
             "xp": 0,
             "name": "Navegação",
-            "nivel": 0,
+            "nivel": -1,
             "limite": 5
           },
           {
             "xp": 0,
             "name": "Mecânica",
-            "nivel": 2,
+            "nivel": 0,
             "limite": 5
           },
           {
@@ -1764,7 +1869,7 @@
           {
             "xp": 0,
             "name": "Religião",
-            "nivel": 0,
+            "nivel": 1,
             "limite": 5
           },
           {
@@ -1776,13 +1881,13 @@
           {
             "xp": 0,
             "name": "Fauna",
-            "nivel": -1,
+            "nivel": 0,
             "limite": 5
           },
           {
             "xp": 0,
             "name": "Alquimia",
-            "nivel": 0,
+            "nivel": 1,
             "limite": 5
           },
           {
@@ -1800,7 +1905,7 @@
           {
             "xp": 0,
             "name": "Sobrevivência",
-            "nivel": 1,
+            "nivel": 0,
             "limite": 5
           },
           {
@@ -1812,90 +1917,139 @@
           {
             "xp": 0,
             "name": "Culinária",
-            "nivel": 0,
+            "nivel": -1,
             "limite": 5
           },
           {
             "xp": 0,
             "name": "Clima",
-            "nivel": 0,
+            "nivel": -1,
             "limite": 5
           }
         ],
-        "sanidadeAtual": 20,
+        "sanidadeAtual": 10,
         "compartimentos": [
           {
-            "id": "z799etqnly",
+            "id": "4d453c1e-8f8d-43fc-a05e-0ac3edc1c142",
             "nome": "Mochila de Viagem",
             "itens": [
               {
-                "id": "6dfz2c4q3h",
-                "nome": "dados",
+                "id": "ffa41ea2-7014-4f1c-920c-fad83827ff93",
+                "nome": "Pô de ossos de demônio de fogo",
                 "peso": 0.1,
                 "tipo": "Geral",
                 "volume": 0.1,
-                "descricao": "Dados viciados.",
-                "quantidade": 2,
+                "descricao": "",
+                "quantidade": 3,
                 "durabilidade": 0,
                 "maxDurabilidade": 0
               },
               {
-                "id": "q2b6kd50jv",
-                "nome": "Relógio de pulso",
+                "id": "747fb266-94e4-4562-9e40-e30458583bc7",
+                "nome": "Infusão de adrenalina P",
                 "peso": 0.5,
                 "tipo": "Geral",
-                "volume": 0.5,
+                "volume": 1,
                 "descricao": "",
-                "quantidade": 1,
+                "quantidade": 3,
                 "durabilidade": 0,
                 "maxDurabilidade": 0
+              },
+              {
+                "id": "81b0c296-92ac-4dcb-9679-e2452890d536",
+                "dano": "2d8",
+                "nome": "Pistola de pulso de Mithril",
+                "peso": 2.5,
+                "tipo": "Arma",
+                "corte": 0,
+                "acerto": 14,
+                "escala": "0",
+                "volume": 3,
+                "impacto": 0,
+                "categoria": "Arma de Fogo",
+                "descricao": "Não corrosivo, leve",
+                "perfuracao": 0,
+                "quantidade": 1,
+                "resistencia": 0,
+                "atributoBase": "Destreza",
+                "durabilidade": 4,
+                "municaoTotal": 6,
+                "maxDurabilidade": 5,
+                "municaoCarregada": 6
+              },
+              {
+                "id": "dac2d1b3-48ec-45fa-87a7-e04d18d6a4d1",
+                "dano": "1d4",
+                "nome": "Shuriken de Cobalto",
+                "peso": 0.3,
+                "tipo": "Arma",
+                "corte": 2,
+                "acerto": 12,
+                "escala": "C",
+                "volume": 0.4,
+                "impacto": 0,
+                "descricao": "",
+                "perfuracao": 2,
+                "quantidade": 1,
+                "resistencia": 2,
+                "atributoBase": "Destreza",
+                "durabilidade": 3,
+                "maxDurabilidade": 3
+              },
+              {
+                "id": "6e93ed19-6104-478c-8dbb-1e1296f760d7",
+                "nome": "Peitoral de placas de Repulsinio",
+                "peso": 70,
+                "tipo": "Armadura",
+                "corte": 2,
+                "efeito": "Ao impacto, cria uma força anti gravidade, podendo arremessar inimigos no ar",
+                "volume": 15,
+                "impacto": 4,
+                "descricao": "Ao impacto, cria uma força anti gravidade, podendo arremessar inimigos no ar",
+                "perfuracao": 1,
+                "quantidade": 1,
+                "reducaoDano": -5,
+                "durabilidade": 5,
+                "maxDurabilidade": 5
               }
             ],
             "externo": false,
             "volumeMax": 50
           },
           {
-            "id": "2nx59o6t12",
+            "id": "6a5c6edb-e07d-4a3a-97e4-48a0466b5010",
             "nome": "Bolsa de Cinto",
             "itens": [
               {
-                "id": "o9nenhr4b3",
-                "dano": "4d8",
-                "nome": "cal .38 ogival",
-                "peso": 0.3,
-                "tipo": "Munição",
-                "efeito": "",
-                "volume": 0.1,
-                "impacto": 1,
-                "descricao": "",
-                "perfuracao": 1,
-                "quantidade": 0,
-                "resistencia": 0,
+                "id": "d07e9dc0-94b7-4bf3-8e5e-b7eaf7956e71",
+                "nome": "Kit disparo de chumbo esférico ",
+                "peso": 0.5,
+                "tipo": "Geral",
+                "volume": 0.3,
+                "descricao": "Impacto: 4",
+                "quantidade": 12,
                 "durabilidade": 0,
                 "maxDurabilidade": 0
               }
             ],
-            "externo": false,
-            "volumeMax": 3
+            "volumeMax": 5
           }
         ],
         "isRemoteSynced": true,
         "efeitosNegativos": [],
         "dadosCustomizados": [],
-        "bonusProficiencias": {
-          "Atletismo": 1,
-          "Mentalidade": 7
-        }
+        "bonusProficiencias": {}
       },
-      "updated_at": "2026-10-12T19:31:37.005+00:00",
+      "updated_at": "2026-10-12T19:40:23.187+00:00",
       "is_remote_synced": true,
+      "updatedAt": {
+        "type": "firestore/timestamp/1.0",
+        "seconds": 1780613923,
+        "nanoseconds": 556000000
+      },
       "userEmail": "zeroastrooliveira@gmail.com",
       "campaignId": "camp_uu3i63t2d",
-      "defenseType": null,
-      "isDefending": false,
-      "defenseRounds": 0,
-      "isRemoteSynced": true,
-      "defenseWeaponId": null
+      "isRemoteSynced": true
     },
     {
       "id": "v8mioko6be",
@@ -2742,12 +2896,12 @@
       "efeitosNegativos": [],
       "anotacoes": [
         {
-          "id": "mz51p0sb6u",
+          "id": "0o9bxs1p9x",
           "titulo": "Traumas",
           "conteudo": ""
         },
         {
-          "id": "rvlvnv49gc",
+          "id": "0kbx5kiyr2",
           "titulo": "Vícios",
           "conteudo": ""
         }
@@ -3069,773 +3223,6 @@
       "defenseRounds": 0,
       "isRemoteSynced": true,
       "defenseWeaponId": null
-    },
-    {
-      "id": "ef478598-8530-494e-b638-bed189269579",
-      "nome": "Jandir Briarthorn (Base)",
-      "etnia": "Humano",
-      "dinheiro": {
-        "C": 19,
-        "B": 4,
-        "P": 0,
-        "O": 0
-      },
-      "vidaAtual": 32,
-      "manaAtual": 6,
-      "sanidadeAtual": 4,
-      "fome": 100,
-      "sede": 100,
-      "cansaco": 8,
-      "defesa": {
-        "Cabeça": -3,
-        "Tronco": -3,
-        "Braço Esquerdo": -3,
-        "Braço Direito": -3,
-        "Pernas": -3
-      },
-      "clima": 0,
-      "stats": {
-        "CON": 16,
-        "RES": 2,
-        "ADP": 5,
-        "MEN": 2,
-        "APR": 3,
-        "FOR": 15,
-        "DEX": 15,
-        "INT": 0,
-        "RIT": 1
-      },
-      "statsXP": {
-        "CON": 0,
-        "RES": 0,
-        "ADP": 0,
-        "MEN": 0,
-        "APR": 0,
-        "FOR": 0,
-        "DEX": 0,
-        "INT": 0,
-        "RIT": 0
-      },
-      "bonusProficiencias": {},
-      "joias": [],
-      "imagem": "",
-      "armas": [
-        {
-          "id": "5758eaf9-32ab-4582-9d23-536745337d5c",
-          "dano": "5d8",
-          "nome": "Espingarda dupla de Manylium+",
-          "peso": 60,
-          "tipo": "Espingarda dupla",
-          "corte": 5,
-          "acerto": 12,
-          "efeito": "Pesado",
-          "escala": "0",
-          "volume": 13,
-          "impacto": 5,
-          "bulletId": "ce13a71d-7892-46ee-8faa-b7c350960343",
-          "categoria": "Arma de Fogo",
-          "perfuracao": 5,
-          "quantidade": 1,
-          "resistencia": 2,
-          "atributoBase": "Destreza",
-          "durabilidade": 6,
-          "magazineAmmo": [
-            {
-              "id": "35537985-57cd-4cf7-b13f-f0ef3319e729",
-              "dano": "5d8",
-              "nome": "Balas de Tungstênio",
-              "peso": 0.1,
-              "tipo": "Munição",
-              "corte": 5,
-              "volume": 0.3,
-              "impacto": 5,
-              "perfuracao": 5,
-              "resistencia": 2
-            },
-            {
-              "id": "e7dd969f-7f33-4be3-80da-f0fe46afdf99",
-              "dano": "5d8",
-              "nome": "Balas de Tungstênio",
-              "peso": 0.1,
-              "tipo": "Munição",
-              "corte": 5,
-              "volume": 0.3,
-              "impacto": 5,
-              "perfuracao": 5,
-              "resistencia": 2
-            },
-            {
-              "id": "917645fc-96be-47c2-988b-17b6e879a8fd",
-              "dano": "5d8",
-              "nome": "Balas de Tungstênio",
-              "peso": 0.1,
-              "tipo": "Munição",
-              "corte": 5,
-              "volume": 0.3,
-              "impacto": 5,
-              "perfuracao": 5,
-              "resistencia": 2
-            },
-            {
-              "id": "1f0ec39a-3b85-4429-9dbe-4e4353b7934e",
-              "dano": "5d8",
-              "nome": "Balas de Tungstênio",
-              "peso": 0.1,
-              "tipo": "Munição",
-              "corte": 5,
-              "volume": 0.3,
-              "impacto": 5,
-              "perfuracao": 5,
-              "resistencia": 2
-            },
-            {
-              "id": "487f06b5-7b19-4161-ab19-9e2ec89a3126",
-              "dano": "5d8",
-              "nome": "Balas de Tungstênio",
-              "peso": 0.1,
-              "tipo": "Munição",
-              "corte": 5,
-              "volume": 0.3,
-              "impacto": 5,
-              "perfuracao": 5,
-              "resistencia": 2
-            }
-          ],
-          "municaoTotal": 12,
-          "maxDurabilidade": 7,
-          "municaoCarregada": 5,
-          "durabilidadeMaxUtil": 7
-        },
-        {
-          "id": "d47ca99e-0edb-437e-856d-5f8403bfe17c",
-          "dano": "2d8",
-          "nome": "Pilum de Muramasa",
-          "peso": 16,
-          "tipo": "Pilum",
-          "corte": 0,
-          "acerto": 14,
-          "efeito": "Feridas abertas são mais difíceis de fechar, Anti cura",
-          "escala": "C",
-          "volume": 13,
-          "impacto": 0,
-          "perfuracao": 6,
-          "quantidade": 5,
-          "resistencia": 2,
-          "atributoBase": "Força",
-          "durabilidade": 1,
-          "maxDurabilidade": 1
-        }
-      ],
-      "catalisadores": [],
-      "habilidades": [],
-      "magias": [],
-      "armaduras": [
-        {
-          "id": "194dd511-1b44-41a5-a117-7ec21dd98dc6",
-          "nome": "Capacete de Aço+",
-          "peso": 30,
-          "corte": 4,
-          "efeito": "",
-          "volume": 4,
-          "impacto": 3,
-          "perfuracao": 4,
-          "reducaoDano": -3,
-          "durabilidade": 4
-        },
-        {
-          "id": "e5875a2f-6ef3-4fde-9ed1-35c44d8b77e8",
-          "nome": "Peitoral parcial de Chumbo",
-          "peso": 100,
-          "corte": 1,
-          "efeito": "Pesado",
-          "volume": 10,
-          "impacto": 4,
-          "perfuracao": 1,
-          "reducaoDano": -3,
-          "durabilidade": 1
-        },
-        {
-          "id": "c215c8f2-5aa2-40bd-a92b-512bd389ac86",
-          "nome": "Braçadeiras de Escama de dragão",
-          "peso": 15,
-          "corte": 4,
-          "efeito": "Incendeia o ferimento, causando dano e cauterizando. +4 de dano de fogo",
-          "volume": 6,
-          "impacto": 3,
-          "perfuracao": 3,
-          "reducaoDano": -3,
-          "durabilidade": 4
-        },
-        {
-          "id": "f5b63ec3-1aa2-4623-864f-6547a3010438",
-          "nome": "Grevas de Cobalto",
-          "peso": 20,
-          "corte": 4,
-          "efeito": "",
-          "volume": 8,
-          "impacto": 4,
-          "perfuracao": 4,
-          "reducaoDano": -3,
-          "durabilidade": 3
-        }
-      ],
-      "acessorios": [],
-      "compartimentos": [
-        {
-          "id": "59f69d67-8565-4304-b0df-f2736a9cf643",
-          "nome": "Mochila de Viagem",
-          "itens": [
-            {
-              "id": "ce13a71d-7892-46ee-8faa-b7c350960343",
-              "nome": "Balas de Tungstênio",
-              "peso": 0.1,
-              "tipo": "Munição",
-              "corte": 5,
-              "efeito": "Resistente a calor, Pesado",
-              "volume": 0.3,
-              "impacto": 5,
-              "descricao": "Munição calibre padrão de Tungstênio para Espingarda dupla de Manylium+.",
-              "perfuracao": 5,
-              "quantidade": 26,
-              "resistencia": 2,
-              "durabilidade": 10,
-              "maxDurabilidade": 10
-            }
-          ],
-          "externo": false,
-          "volumeMax": 50
-        },
-        {
-          "id": "c7b96ada-085c-4135-bcc3-694f4eca9e1a",
-          "nome": "Bolsa de Cinto",
-          "itens": [],
-          "externo": false,
-          "volumeMax": 3
-        }
-      ],
-      "conhecimentos": [
-        {
-          "xp": 0,
-          "name": "Flora",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Minerais",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Magia",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Forja rústica",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Forja manual",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Geografia",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Navegação",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Mecânica",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "história",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Religião",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Medicina",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Fauna",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Alquimia",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Armas de fogo",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Arqueologia",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Sobrevivência",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Demônios",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Culinária",
-          "nivel": 0,
-          "limite": 5
-        },
-        {
-          "xp": 0,
-          "name": "Clima",
-          "nivel": 0,
-          "limite": 5
-        }
-      ],
-      "escalas": [],
-      "efeitosNegativos": [],
-      "anotacoes": [
-        {
-          "id": "5dr1v73sgf",
-          "titulo": "Traumas",
-          "conteudo": ""
-        },
-        {
-          "id": "ylhc858dve",
-          "titulo": "Vícios",
-          "conteudo": ""
-        }
-      ],
-      "dadosCustomizados": [],
-      "imagens": [],
-      "itens": [],
-      "userId": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
-      "user_id": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
-      "user_email": "zeroastrooliveira@gmail.com",
-      "campaign_id": "camp_uu3i63t2d",
-      "data": {
-        "id": "ef478598-8530-494e-b638-bed189269579",
-        "fome": 100,
-        "nome": "Jandir Briarthorn (Base)",
-        "sede": 100,
-        "armas": [
-          {
-            "id": "5758eaf9-32ab-4582-9d23-536745337d5c",
-            "dano": "5d8",
-            "nome": "Espingarda dupla de Manylium+",
-            "peso": 60,
-            "tipo": "Espingarda dupla",
-            "corte": 5,
-            "acerto": 12,
-            "efeito": "Pesado",
-            "escala": "0",
-            "volume": 13,
-            "impacto": 5,
-            "bulletId": "ce13a71d-7892-46ee-8faa-b7c350960343",
-            "categoria": "Arma de Fogo",
-            "perfuracao": 5,
-            "quantidade": 1,
-            "resistencia": 2,
-            "atributoBase": "Destreza",
-            "durabilidade": 6,
-            "magazineAmmo": [
-              {
-                "id": "35537985-57cd-4cf7-b13f-f0ef3319e729",
-                "dano": "5d8",
-                "nome": "Balas de Tungstênio",
-                "peso": 0.1,
-                "tipo": "Munição",
-                "corte": 5,
-                "volume": 0.3,
-                "impacto": 5,
-                "perfuracao": 5,
-                "resistencia": 2
-              },
-              {
-                "id": "e7dd969f-7f33-4be3-80da-f0fe46afdf99",
-                "dano": "5d8",
-                "nome": "Balas de Tungstênio",
-                "peso": 0.1,
-                "tipo": "Munição",
-                "corte": 5,
-                "volume": 0.3,
-                "impacto": 5,
-                "perfuracao": 5,
-                "resistencia": 2
-              },
-              {
-                "id": "917645fc-96be-47c2-988b-17b6e879a8fd",
-                "dano": "5d8",
-                "nome": "Balas de Tungstênio",
-                "peso": 0.1,
-                "tipo": "Munição",
-                "corte": 5,
-                "volume": 0.3,
-                "impacto": 5,
-                "perfuracao": 5,
-                "resistencia": 2
-              },
-              {
-                "id": "1f0ec39a-3b85-4429-9dbe-4e4353b7934e",
-                "dano": "5d8",
-                "nome": "Balas de Tungstênio",
-                "peso": 0.1,
-                "tipo": "Munição",
-                "corte": 5,
-                "volume": 0.3,
-                "impacto": 5,
-                "perfuracao": 5,
-                "resistencia": 2
-              },
-              {
-                "id": "487f06b5-7b19-4161-ab19-9e2ec89a3126",
-                "dano": "5d8",
-                "nome": "Balas de Tungstênio",
-                "peso": 0.1,
-                "tipo": "Munição",
-                "corte": 5,
-                "volume": 0.3,
-                "impacto": 5,
-                "perfuracao": 5,
-                "resistencia": 2
-              }
-            ],
-            "municaoTotal": 12,
-            "maxDurabilidade": 7,
-            "municaoCarregada": 5,
-            "durabilidadeMaxUtil": 7
-          },
-          {
-            "id": "d47ca99e-0edb-437e-856d-5f8403bfe17c",
-            "dano": "2d8",
-            "nome": "Pilum de Muramasa",
-            "peso": 16,
-            "tipo": "Pilum",
-            "corte": 0,
-            "acerto": 14,
-            "efeito": "Feridas abertas são mais difíceis de fechar, Anti cura",
-            "escala": "C",
-            "volume": 13,
-            "impacto": 0,
-            "perfuracao": 6,
-            "quantidade": 5,
-            "resistencia": 2,
-            "atributoBase": "Força",
-            "durabilidade": 1,
-            "maxDurabilidade": 1
-          }
-        ],
-        "clima": 0,
-        "etnia": "Humano",
-        "itens": [],
-        "joias": [],
-        "stats": {
-          "ADP": 5,
-          "APR": 3,
-          "CON": 16,
-          "DEX": 15,
-          "FOR": 15,
-          "INT": 0,
-          "MEN": 2,
-          "RES": 2,
-          "RIT": 1
-        },
-        "defesa": {
-          "Pernas": -3,
-          "Tronco": -3,
-          "Cabeça": -3,
-          "Braço Direito": -3,
-          "Braço Esquerdo": -3
-        },
-        "imagem": "",
-        "magias": [],
-        "userId": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
-        "cansaco": 8,
-        "escalas": [],
-        "imagens": [],
-        "statsXP": {
-          "ADP": 0,
-          "APR": 0,
-          "CON": 0,
-          "DEX": 0,
-          "FOR": 0,
-          "INT": 0,
-          "MEN": 0,
-          "RES": 0,
-          "RIT": 0
-        },
-        "dinheiro": {
-          "B": 4,
-          "C": 19,
-          "O": 0,
-          "P": 0
-        },
-        "anotacoes": [
-          {
-            "id": "3ltcizspqk",
-            "titulo": "Traumas",
-            "conteudo": ""
-          },
-          {
-            "id": "7mk35d807j",
-            "titulo": "Vícios",
-            "conteudo": ""
-          }
-        ],
-        "armaduras": [
-          {
-            "id": "194dd511-1b44-41a5-a117-7ec21dd98dc6",
-            "nome": "Capacete de Aço+",
-            "peso": 30,
-            "corte": 4,
-            "efeito": "",
-            "volume": 4,
-            "impacto": 3,
-            "perfuracao": 4,
-            "reducaoDano": -3,
-            "durabilidade": 4
-          },
-          {
-            "id": "e5875a2f-6ef3-4fde-9ed1-35c44d8b77e8",
-            "nome": "Peitoral parcial de Chumbo",
-            "peso": 100,
-            "corte": 1,
-            "efeito": "Pesado",
-            "volume": 10,
-            "impacto": 4,
-            "perfuracao": 1,
-            "reducaoDano": -3,
-            "durabilidade": 1
-          },
-          {
-            "id": "c215c8f2-5aa2-40bd-a92b-512bd389ac86",
-            "nome": "Braçadeiras de Escama de dragão",
-            "peso": 15,
-            "corte": 4,
-            "efeito": "Incendeia o ferimento, causando dano e cauterizando. +4 de dano de fogo",
-            "volume": 6,
-            "impacto": 3,
-            "perfuracao": 3,
-            "reducaoDano": -3,
-            "durabilidade": 4
-          },
-          {
-            "id": "f5b63ec3-1aa2-4623-864f-6547a3010438",
-            "nome": "Grevas de Cobalto",
-            "peso": 20,
-            "corte": 4,
-            "efeito": "",
-            "volume": 8,
-            "impacto": 4,
-            "perfuracao": 4,
-            "reducaoDano": -3,
-            "durabilidade": 3
-          }
-        ],
-        "manaAtual": 6,
-        "userEmail": "zeroastrooliveira@gmail.com",
-        "vidaAtual": 32,
-        "acessorios": [],
-        "campaignId": "camp_uu3i63t2d",
-        "habilidades": [],
-        "catalisadores": [],
-        "conhecimentos": [
-          {
-            "xp": 0,
-            "name": "Flora",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Minerais",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Magia",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Forja rústica",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Forja manual",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Geografia",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Navegação",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Mecânica",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "história",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Religião",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Medicina",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Fauna",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Alquimia",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Armas de fogo",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Arqueologia",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Sobrevivência",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Demônios",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Culinária",
-            "nivel": 0,
-            "limite": 5
-          },
-          {
-            "xp": 0,
-            "name": "Clima",
-            "nivel": 0,
-            "limite": 5
-          }
-        ],
-        "sanidadeAtual": 4,
-        "compartimentos": [
-          {
-            "id": "59f69d67-8565-4304-b0df-f2736a9cf643",
-            "nome": "Mochila de Viagem",
-            "itens": [
-              {
-                "id": "ce13a71d-7892-46ee-8faa-b7c350960343",
-                "nome": "Balas de Tungstênio",
-                "peso": 0.1,
-                "tipo": "Munição",
-                "corte": 5,
-                "efeito": "Resistente a calor, Pesado",
-                "volume": 0.3,
-                "impacto": 5,
-                "descricao": "Munição calibre padrão de Tungstênio para Espingarda dupla de Manylium+.",
-                "perfuracao": 5,
-                "quantidade": 26,
-                "resistencia": 2,
-                "durabilidade": 10,
-                "maxDurabilidade": 10
-              }
-            ],
-            "externo": false,
-            "volumeMax": 50
-          },
-          {
-            "id": "c7b96ada-085c-4135-bcc3-694f4eca9e1a",
-            "nome": "Bolsa de Cinto",
-            "itens": [],
-            "externo": false,
-            "volumeMax": 3
-          }
-        ],
-        "isRemoteSynced": true,
-        "efeitosNegativos": [],
-        "dadosCustomizados": [],
-        "bonusProficiencias": {}
-      },
-      "updated_at": "2026-11-01T12:48:37.451+00:00",
-      "is_remote_synced": true,
-      "userEmail": "zeroastrooliveira@gmail.com",
-      "campaignId": "camp_uu3i63t2d",
-      "isRemoteSynced": true
     },
     {
       "id": "q4g8vr1y5x",
@@ -4188,12 +3575,12 @@
       ],
       "anotacoes": [
         {
-          "id": "yncuringxn",
+          "id": "qsfeziho3a",
           "titulo": "Traumas",
           "conteudo": ""
         },
         {
-          "id": "2fyqk6a28m",
+          "id": "1hnpfbnaww",
           "titulo": "Vícios",
           "conteudo": ""
         }
@@ -4881,39 +4268,39 @@
       "defenseWeaponId": null
     },
     {
-      "id": "wqhp4n7x2u",
-      "nome": "Megara Vernom",
-      "etnia": "",
+      "id": "ef478598-8530-494e-b638-bed189269579",
+      "nome": "Jandir Briarthorn (Base)",
+      "etnia": "Humano",
       "dinheiro": {
-        "C": 4,
-        "B": 15,
+        "C": 19,
+        "B": 4,
         "P": 0,
         "O": 0
       },
-      "vidaAtual": 18,
-      "manaAtual": 0,
-      "sanidadeAtual": 10,
+      "vidaAtual": 32,
+      "manaAtual": 6,
+      "sanidadeAtual": 4,
       "fome": 100,
       "sede": 100,
       "cansaco": 8,
       "defesa": {
-        "Cabeça": 3,
-        "Tronco": 3,
-        "Braço Esquerdo": 3,
-        "Braço Direito": 3,
-        "Pernas": 3
+        "Cabeça": -3,
+        "Tronco": -3,
+        "Braço Esquerdo": -3,
+        "Braço Direito": -3,
+        "Pernas": -3
       },
       "clima": 0,
       "stats": {
-        "CON": 9,
-        "RES": 6,
-        "ADP": 0,
-        "MEN": 5,
-        "APR": 0,
-        "FOR": 10,
-        "DEX": 12,
+        "CON": 16,
+        "RES": 2,
+        "ADP": 5,
+        "MEN": 2,
+        "APR": 3,
+        "FOR": 15,
+        "DEX": 15,
         "INT": 0,
-        "RIT": 4
+        "RIT": 1
       },
       "statsXP": {
         "CON": 0,
@@ -4931,23 +4318,109 @@
       "imagem": "",
       "armas": [
         {
-          "id": "40e25d44-39d4-4dd5-a42f-8be9147bb728",
-          "dano": "1d12",
-          "nome": "Espada larga de magnálio",
-          "peso": 7.2,
-          "tipo": "Arma",
-          "corte": 4,
-          "acerto": 16,
-          "efeito": "Muito leve",
+          "id": "5758eaf9-32ab-4582-9d23-536745337d5c",
+          "dano": "5d8",
+          "nome": "Espingarda dupla de Manylium+",
+          "peso": 60,
+          "tipo": "Espingarda dupla",
+          "corte": 5,
+          "acerto": 12,
+          "efeito": "Pesado",
           "escala": "0",
-          "volume": 14,
-          "impacto": 1,
-          "descricao": "Muito leve",
-          "perfuracao": 1,
+          "volume": 13,
+          "impacto": 5,
+          "bulletId": "ce13a71d-7892-46ee-8faa-b7c350960343",
+          "categoria": "Arma de Fogo",
+          "perfuracao": 5,
+          "quantidade": 1,
+          "resistencia": 2,
+          "atributoBase": "Destreza",
+          "durabilidade": 6,
+          "magazineAmmo": [
+            {
+              "id": "35537985-57cd-4cf7-b13f-f0ef3319e729",
+              "dano": "5d8",
+              "nome": "Balas de Tungstênio",
+              "peso": 0.1,
+              "tipo": "Munição",
+              "corte": 5,
+              "volume": 0.3,
+              "impacto": 5,
+              "perfuracao": 5,
+              "resistencia": 2
+            },
+            {
+              "id": "e7dd969f-7f33-4be3-80da-f0fe46afdf99",
+              "dano": "5d8",
+              "nome": "Balas de Tungstênio",
+              "peso": 0.1,
+              "tipo": "Munição",
+              "corte": 5,
+              "volume": 0.3,
+              "impacto": 5,
+              "perfuracao": 5,
+              "resistencia": 2
+            },
+            {
+              "id": "917645fc-96be-47c2-988b-17b6e879a8fd",
+              "dano": "5d8",
+              "nome": "Balas de Tungstênio",
+              "peso": 0.1,
+              "tipo": "Munição",
+              "corte": 5,
+              "volume": 0.3,
+              "impacto": 5,
+              "perfuracao": 5,
+              "resistencia": 2
+            },
+            {
+              "id": "1f0ec39a-3b85-4429-9dbe-4e4353b7934e",
+              "dano": "5d8",
+              "nome": "Balas de Tungstênio",
+              "peso": 0.1,
+              "tipo": "Munição",
+              "corte": 5,
+              "volume": 0.3,
+              "impacto": 5,
+              "perfuracao": 5,
+              "resistencia": 2
+            },
+            {
+              "id": "487f06b5-7b19-4161-ab19-9e2ec89a3126",
+              "dano": "5d8",
+              "nome": "Balas de Tungstênio",
+              "peso": 0.1,
+              "tipo": "Munição",
+              "corte": 5,
+              "volume": 0.3,
+              "impacto": 5,
+              "perfuracao": 5,
+              "resistencia": 2
+            }
+          ],
+          "municaoTotal": 12,
+          "maxDurabilidade": 7,
+          "municaoCarregada": 5,
+          "durabilidadeMaxUtil": 7
+        },
+        {
+          "id": "d47ca99e-0edb-437e-856d-5f8403bfe17c",
+          "dano": "2d8",
+          "nome": "Pilum de Muramasa",
+          "peso": 16,
+          "tipo": "Pilum",
+          "corte": 0,
+          "acerto": 14,
+          "efeito": "Feridas abertas são mais difíceis de fechar, Anti cura",
+          "escala": "C",
+          "volume": 13,
+          "impacto": 0,
+          "perfuracao": 6,
+          "quantidade": 5,
           "resistencia": 2,
           "atributoBase": "Força",
-          "durabilidade": 4,
-          "maxDurabilidade": 0
+          "durabilidade": 1,
+          "maxDurabilidade": 1
         }
       ],
       "catalisadores": [],
@@ -4955,200 +4428,804 @@
       "magias": [],
       "armaduras": [
         {
-          "id": "4a1c4bb3-0d1f-42a8-af84-320223d5ff1b",
-          "nome": "Capacete",
+          "id": "194dd511-1b44-41a5-a117-7ec21dd98dc6",
+          "nome": "Capacete de Aço+",
           "peso": 30,
-          "tipo": "Armadura",
-          "corte": 3,
+          "corte": 4,
           "efeito": "",
-          "volume": 3,
+          "volume": 4,
           "impacto": 3,
-          "perfuracao": 3,
-          "reducaoDano": 3,
-          "durabilidade": 3
+          "perfuracao": 4,
+          "reducaoDano": -3,
+          "durabilidade": 4
         },
         {
-          "id": "5f7b3ddc-0160-4e3c-bf82-f74dee198977",
-          "nome": "Peitoral parcial",
-          "peso": 50,
-          "tipo": "Armadura",
-          "corte": 3,
-          "efeito": "",
+          "id": "e5875a2f-6ef3-4fde-9ed1-35c44d8b77e8",
+          "nome": "Peitoral parcial de Chumbo",
+          "peso": 100,
+          "corte": 1,
+          "efeito": "Pesado",
           "volume": 10,
-          "impacto": 3,
-          "perfuracao": 3,
-          "reducaoDano": 3,
-          "durabilidade": 3
+          "impacto": 4,
+          "perfuracao": 1,
+          "reducaoDano": -3,
+          "durabilidade": 1
         },
         {
-          "id": "1cfc9ff5-8b14-450b-be9b-c5037d3ba096",
-          "nome": "Braçadeiras",
+          "id": "c215c8f2-5aa2-40bd-a92b-512bd389ac86",
+          "nome": "Braçadeiras de Escama de dragão",
           "peso": 15,
-          "tipo": "Armadura",
-          "corte": 3,
-          "efeito": "",
+          "corte": 4,
+          "efeito": "Incendeia o ferimento, causando dano e cauterizando. +4 de dano de fogo",
           "volume": 6,
           "impacto": 3,
           "perfuracao": 3,
-          "reducaoDano": 3,
-          "durabilidade": 3
+          "reducaoDano": -3,
+          "durabilidade": 4
         },
         {
-          "id": "f9256ee4-1e7f-4a42-bd04-481a1eb51e8a",
-          "nome": "Grevas",
+          "id": "f5b63ec3-1aa2-4623-864f-6547a3010438",
+          "nome": "Grevas de Cobalto",
           "peso": 20,
-          "tipo": "Armadura",
-          "corte": 3,
+          "corte": 4,
           "efeito": "",
           "volume": 8,
-          "impacto": 3,
-          "perfuracao": 3,
-          "reducaoDano": 3,
-          "durabilidade": 3
-        },
-        {
-          "id": "2c2ae8aa-0f3c-46b4-8dbb-911e1c592160",
-          "nome": "Broquel de magnálio",
-          "peso": 4.5,
-          "tipo": "Armadura",
-          "corte": 4,
-          "efeito": "Efeito: o contra ataque pode  ser feito com um 2 numa falha dos 3d8 de ataque inimigo.",
-          "volume": 4,
-          "impacto": 2,
-          "descricao": "Efeito: o contra ataque pode  ser feito com um 2 numa falha dos 3d8 de ataque inimigo.",
-          "perfuracao": 1,
-          "reducaoDano": 0,
+          "impacto": 4,
+          "perfuracao": 4,
+          "reducaoDano": -3,
           "durabilidade": 3
         }
       ],
-      "acessorios": [
-        {
-          "id": "f8cd5dc0-1adb-4aeb-bf4b-7a457b3d7062",
-          "nome": "Anel da sorte",
-          "peso": 0.1,
-          "tipo": "Armadura",
-          "corte": 0,
-          "efeito": "+1 em achar coisas",
-          "volume": 0.1,
-          "impacto": 0,
-          "descricao": "+1 em achar coisas",
-          "perfuracao": 0,
-          "reducaoDano": 0,
-          "durabilidade": 1
-        }
-      ],
+      "acessorios": [],
       "compartimentos": [
         {
-          "id": "4d453c1e-8f8d-43fc-a05e-0ac3edc1c142",
+          "id": "59f69d67-8565-4304-b0df-f2736a9cf643",
           "nome": "Mochila de Viagem",
           "itens": [
             {
-              "id": "ffa41ea2-7014-4f1c-920c-fad83827ff93",
-              "nome": "Pô de ossos de demônio de fogo",
+              "id": "ce13a71d-7892-46ee-8faa-b7c350960343",
+              "nome": "Balas de Tungstênio",
               "peso": 0.1,
-              "tipo": "Geral",
-              "volume": 0.1,
-              "descricao": "",
-              "quantidade": 3,
-              "durabilidade": 0,
-              "maxDurabilidade": 0
-            },
-            {
-              "id": "747fb266-94e4-4562-9e40-e30458583bc7",
-              "nome": "Infusão de adrenalina P",
-              "peso": 0.5,
-              "tipo": "Geral",
-              "volume": 1,
-              "descricao": "",
-              "quantidade": 3,
-              "durabilidade": 0,
-              "maxDurabilidade": 0
-            },
-            {
-              "id": "81b0c296-92ac-4dcb-9679-e2452890d536",
-              "dano": "2d8",
-              "nome": "Pistola de pulso de Mithril",
-              "peso": 2.5,
-              "tipo": "Arma",
-              "corte": 0,
-              "acerto": 14,
-              "escala": "0",
-              "volume": 3,
-              "impacto": 0,
-              "categoria": "Arma de Fogo",
-              "descricao": "Não corrosivo, leve",
-              "perfuracao": 0,
-              "quantidade": 1,
-              "resistencia": 0,
-              "atributoBase": "Destreza",
-              "durabilidade": 4,
-              "municaoTotal": 6,
-              "maxDurabilidade": 5,
-              "municaoCarregada": 6
-            },
-            {
-              "id": "dac2d1b3-48ec-45fa-87a7-e04d18d6a4d1",
-              "dano": "1d4",
-              "nome": "Shuriken de Cobalto",
-              "peso": 0.3,
-              "tipo": "Arma",
-              "corte": 2,
-              "acerto": 12,
-              "escala": "C",
-              "volume": 0.4,
-              "impacto": 0,
-              "descricao": "",
-              "perfuracao": 2,
-              "quantidade": 1,
+              "tipo": "Munição",
+              "corte": 5,
+              "efeito": "Resistente a calor, Pesado",
+              "volume": 0.3,
+              "impacto": 5,
+              "descricao": "Munição calibre padrão de Tungstênio para Espingarda dupla de Manylium+.",
+              "perfuracao": 5,
+              "quantidade": 26,
               "resistencia": 2,
-              "atributoBase": "Destreza",
-              "durabilidade": 3,
-              "maxDurabilidade": 3
-            },
-            {
-              "id": "6e93ed19-6104-478c-8dbb-1e1296f760d7",
-              "nome": "Peitoral de placas de Repulsinio",
-              "peso": 70,
-              "tipo": "Armadura",
-              "corte": 2,
-              "efeito": "Ao impacto, cria uma força anti gravidade, podendo arremessar inimigos no ar",
-              "volume": 15,
-              "impacto": 4,
-              "descricao": "Ao impacto, cria uma força anti gravidade, podendo arremessar inimigos no ar",
-              "perfuracao": 1,
-              "quantidade": 1,
-              "reducaoDano": -5,
-              "durabilidade": 5,
-              "maxDurabilidade": 5
+              "durabilidade": 10,
+              "maxDurabilidade": 10
             }
           ],
           "externo": false,
           "volumeMax": 50
         },
         {
-          "id": "6a5c6edb-e07d-4a3a-97e4-48a0466b5010",
+          "id": "c7b96ada-085c-4135-bcc3-694f4eca9e1a",
           "nome": "Bolsa de Cinto",
-          "itens": [
-            {
-              "id": "d07e9dc0-94b7-4bf3-8e5e-b7eaf7956e71",
-              "nome": "Kit disparo de chumbo esférico ",
-              "peso": 0.5,
-              "tipo": "Geral",
-              "volume": 0.3,
-              "descricao": "Impacto: 4",
-              "quantidade": 12,
-              "durabilidade": 0,
-              "maxDurabilidade": 0
-            }
-          ],
-          "volumeMax": 5
+          "itens": [],
+          "externo": false,
+          "volumeMax": 3
         }
       ],
       "conhecimentos": [
         {
           "xp": 0,
           "name": "Flora",
-          "nivel": 1,
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Minerais",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Magia",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Forja rústica",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Forja manual",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Geografia",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Navegação",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Mecânica",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "história",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Religião",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Medicina",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Fauna",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Alquimia",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Armas de fogo",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Arqueologia",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Sobrevivência",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Demônios",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Culinária",
+          "nivel": 0,
+          "limite": 5
+        },
+        {
+          "xp": 0,
+          "name": "Clima",
+          "nivel": 0,
+          "limite": 5
+        }
+      ],
+      "escalas": [],
+      "efeitosNegativos": [],
+      "anotacoes": [
+        {
+          "id": "w69rd58cnl",
+          "titulo": "Traumas",
+          "conteudo": ""
+        },
+        {
+          "id": "90nfqa3zxt",
+          "titulo": "Vícios",
+          "conteudo": ""
+        }
+      ],
+      "dadosCustomizados": [],
+      "imagens": [],
+      "itens": [],
+      "userId": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
+      "user_id": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
+      "user_email": "zeroastrooliveira@gmail.com",
+      "campaign_id": "camp_uu3i63t2d",
+      "data": {
+        "id": "ef478598-8530-494e-b638-bed189269579",
+        "fome": 100,
+        "nome": "Jandir Briarthorn (Base)",
+        "sede": 100,
+        "armas": [
+          {
+            "id": "5758eaf9-32ab-4582-9d23-536745337d5c",
+            "dano": "5d8",
+            "nome": "Espingarda dupla de Manylium+",
+            "peso": 60,
+            "tipo": "Espingarda dupla",
+            "corte": 5,
+            "acerto": 12,
+            "efeito": "Pesado",
+            "escala": "0",
+            "volume": 13,
+            "impacto": 5,
+            "bulletId": "ce13a71d-7892-46ee-8faa-b7c350960343",
+            "categoria": "Arma de Fogo",
+            "perfuracao": 5,
+            "quantidade": 1,
+            "resistencia": 2,
+            "atributoBase": "Destreza",
+            "durabilidade": 6,
+            "magazineAmmo": [
+              {
+                "id": "35537985-57cd-4cf7-b13f-f0ef3319e729",
+                "dano": "5d8",
+                "nome": "Balas de Tungstênio",
+                "peso": 0.1,
+                "tipo": "Munição",
+                "corte": 5,
+                "volume": 0.3,
+                "impacto": 5,
+                "perfuracao": 5,
+                "resistencia": 2
+              },
+              {
+                "id": "e7dd969f-7f33-4be3-80da-f0fe46afdf99",
+                "dano": "5d8",
+                "nome": "Balas de Tungstênio",
+                "peso": 0.1,
+                "tipo": "Munição",
+                "corte": 5,
+                "volume": 0.3,
+                "impacto": 5,
+                "perfuracao": 5,
+                "resistencia": 2
+              },
+              {
+                "id": "917645fc-96be-47c2-988b-17b6e879a8fd",
+                "dano": "5d8",
+                "nome": "Balas de Tungstênio",
+                "peso": 0.1,
+                "tipo": "Munição",
+                "corte": 5,
+                "volume": 0.3,
+                "impacto": 5,
+                "perfuracao": 5,
+                "resistencia": 2
+              },
+              {
+                "id": "1f0ec39a-3b85-4429-9dbe-4e4353b7934e",
+                "dano": "5d8",
+                "nome": "Balas de Tungstênio",
+                "peso": 0.1,
+                "tipo": "Munição",
+                "corte": 5,
+                "volume": 0.3,
+                "impacto": 5,
+                "perfuracao": 5,
+                "resistencia": 2
+              },
+              {
+                "id": "487f06b5-7b19-4161-ab19-9e2ec89a3126",
+                "dano": "5d8",
+                "nome": "Balas de Tungstênio",
+                "peso": 0.1,
+                "tipo": "Munição",
+                "corte": 5,
+                "volume": 0.3,
+                "impacto": 5,
+                "perfuracao": 5,
+                "resistencia": 2
+              }
+            ],
+            "municaoTotal": 12,
+            "maxDurabilidade": 7,
+            "municaoCarregada": 5,
+            "durabilidadeMaxUtil": 7
+          },
+          {
+            "id": "d47ca99e-0edb-437e-856d-5f8403bfe17c",
+            "dano": "2d8",
+            "nome": "Pilum de Muramasa",
+            "peso": 16,
+            "tipo": "Pilum",
+            "corte": 0,
+            "acerto": 14,
+            "efeito": "Feridas abertas são mais difíceis de fechar, Anti cura",
+            "escala": "C",
+            "volume": 13,
+            "impacto": 0,
+            "perfuracao": 6,
+            "quantidade": 5,
+            "resistencia": 2,
+            "atributoBase": "Força",
+            "durabilidade": 1,
+            "maxDurabilidade": 1
+          }
+        ],
+        "clima": 0,
+        "etnia": "Humano",
+        "itens": [],
+        "joias": [],
+        "stats": {
+          "ADP": 5,
+          "APR": 3,
+          "CON": 16,
+          "DEX": 15,
+          "FOR": 15,
+          "INT": 0,
+          "MEN": 2,
+          "RES": 2,
+          "RIT": 1
+        },
+        "defesa": {
+          "Pernas": -3,
+          "Tronco": -3,
+          "Cabeça": -3,
+          "Braço Direito": -3,
+          "Braço Esquerdo": -3
+        },
+        "imagem": "",
+        "magias": [],
+        "userId": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
+        "cansaco": 8,
+        "escalas": [],
+        "imagens": [],
+        "statsXP": {
+          "ADP": 0,
+          "APR": 0,
+          "CON": 0,
+          "DEX": 0,
+          "FOR": 0,
+          "INT": 0,
+          "MEN": 0,
+          "RES": 0,
+          "RIT": 0
+        },
+        "dinheiro": {
+          "B": 4,
+          "C": 19,
+          "O": 0,
+          "P": 0
+        },
+        "anotacoes": [
+          {
+            "id": "3ltcizspqk",
+            "titulo": "Traumas",
+            "conteudo": ""
+          },
+          {
+            "id": "7mk35d807j",
+            "titulo": "Vícios",
+            "conteudo": ""
+          }
+        ],
+        "armaduras": [
+          {
+            "id": "194dd511-1b44-41a5-a117-7ec21dd98dc6",
+            "nome": "Capacete de Aço+",
+            "peso": 30,
+            "corte": 4,
+            "efeito": "",
+            "volume": 4,
+            "impacto": 3,
+            "perfuracao": 4,
+            "reducaoDano": -3,
+            "durabilidade": 4
+          },
+          {
+            "id": "e5875a2f-6ef3-4fde-9ed1-35c44d8b77e8",
+            "nome": "Peitoral parcial de Chumbo",
+            "peso": 100,
+            "corte": 1,
+            "efeito": "Pesado",
+            "volume": 10,
+            "impacto": 4,
+            "perfuracao": 1,
+            "reducaoDano": -3,
+            "durabilidade": 1
+          },
+          {
+            "id": "c215c8f2-5aa2-40bd-a92b-512bd389ac86",
+            "nome": "Braçadeiras de Escama de dragão",
+            "peso": 15,
+            "corte": 4,
+            "efeito": "Incendeia o ferimento, causando dano e cauterizando. +4 de dano de fogo",
+            "volume": 6,
+            "impacto": 3,
+            "perfuracao": 3,
+            "reducaoDano": -3,
+            "durabilidade": 4
+          },
+          {
+            "id": "f5b63ec3-1aa2-4623-864f-6547a3010438",
+            "nome": "Grevas de Cobalto",
+            "peso": 20,
+            "corte": 4,
+            "efeito": "",
+            "volume": 8,
+            "impacto": 4,
+            "perfuracao": 4,
+            "reducaoDano": -3,
+            "durabilidade": 3
+          }
+        ],
+        "manaAtual": 6,
+        "userEmail": "zeroastrooliveira@gmail.com",
+        "vidaAtual": 32,
+        "acessorios": [],
+        "campaignId": "camp_uu3i63t2d",
+        "habilidades": [],
+        "catalisadores": [],
+        "conhecimentos": [
+          {
+            "xp": 0,
+            "name": "Flora",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Minerais",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Magia",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Forja rústica",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Forja manual",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Geografia",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Navegação",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Mecânica",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "história",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Religião",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Medicina",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Fauna",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Alquimia",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Armas de fogo",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Arqueologia",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Sobrevivência",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Demônios",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Culinária",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Clima",
+            "nivel": 0,
+            "limite": 5
+          }
+        ],
+        "sanidadeAtual": 4,
+        "compartimentos": [
+          {
+            "id": "59f69d67-8565-4304-b0df-f2736a9cf643",
+            "nome": "Mochila de Viagem",
+            "itens": [
+              {
+                "id": "ce13a71d-7892-46ee-8faa-b7c350960343",
+                "nome": "Balas de Tungstênio",
+                "peso": 0.1,
+                "tipo": "Munição",
+                "corte": 5,
+                "efeito": "Resistente a calor, Pesado",
+                "volume": 0.3,
+                "impacto": 5,
+                "descricao": "Munição calibre padrão de Tungstênio para Espingarda dupla de Manylium+.",
+                "perfuracao": 5,
+                "quantidade": 26,
+                "resistencia": 2,
+                "durabilidade": 10,
+                "maxDurabilidade": 10
+              }
+            ],
+            "externo": false,
+            "volumeMax": 50
+          },
+          {
+            "id": "c7b96ada-085c-4135-bcc3-694f4eca9e1a",
+            "nome": "Bolsa de Cinto",
+            "itens": [],
+            "externo": false,
+            "volumeMax": 3
+          }
+        ],
+        "isRemoteSynced": true,
+        "efeitosNegativos": [],
+        "dadosCustomizados": [],
+        "bonusProficiencias": {}
+      },
+      "updated_at": "2026-11-01T12:48:37.451+00:00",
+      "is_remote_synced": true,
+      "userEmail": "zeroastrooliveira@gmail.com",
+      "campaignId": "camp_uu3i63t2d",
+      "isRemoteSynced": true
+    },
+    {
+      "id": "57ou4dbs97",
+      "nome": "Erik Lehnsherr",
+      "etnia": "Judeu",
+      "dinheiro": {
+        "C": 1,
+        "B": 10,
+        "P": 2,
+        "O": 0
+      },
+      "vidaAtual": 20,
+      "manaAtual": 0,
+      "sanidadeAtual": 20,
+      "fome": 100,
+      "sede": 100,
+      "cansaco": 8,
+      "defesa": {
+        "Cabeça": 0,
+        "Tronco": 0,
+        "Braço Esquerdo": 0,
+        "Braço Direito": 0,
+        "Pernas": 0
+      },
+      "clima": 0,
+      "stats": {
+        "CON": 10,
+        "RES": 5,
+        "ADP": 0,
+        "MEN": 10,
+        "APR": 0,
+        "FOR": 10,
+        "DEX": 10,
+        "INT": 0,
+        "RIT": 0
+      },
+      "statsXP": {
+        "CON": 0,
+        "RES": 0,
+        "ADP": 0,
+        "MEN": 0,
+        "APR": 0,
+        "FOR": 0,
+        "DEX": 0,
+        "INT": 0,
+        "RIT": 0
+      },
+      "bonusProficiencias": {
+        "Atletismo": 1,
+        "Mentalidade": 7
+      },
+      "joias": [],
+      "imagem": "",
+      "armas": [
+        {
+          "id": "2ppzvsthvw",
+          "dano": "0",
+          "nome": "Revolver cal .38",
+          "peso": 20,
+          "tipo": "Arma",
+          "corte": 0,
+          "acerto": 13,
+          "escala": "0",
+          "volume": 3,
+          "impacto": 0,
+          "bulletId": "o9nenhr4b3",
+          "categoria": "Arma de Fogo",
+          "perfuracao": 0,
+          "resistencia": 0,
+          "atributoBase": "Destreza",
+          "durabilidade": 100,
+          "magazineAmmo": [
+            {
+              "id": "0g5m4c2bq3",
+              "dano": "4d8",
+              "nome": "cal .38 ogival",
+              "impacto": 1,
+              "perfuracao": 1,
+              "resistencia": 0
+            },
+            {
+              "id": "bsyqzz63qr",
+              "dano": "4d8",
+              "nome": "cal .38 ogival",
+              "impacto": 1,
+              "perfuracao": 1,
+              "resistencia": 0
+            },
+            {
+              "id": "7k6e1zgql5",
+              "dano": "4d8",
+              "nome": "cal .38 ogival",
+              "impacto": 1,
+              "perfuracao": 1,
+              "resistencia": 0
+            },
+            {
+              "id": "6aepct1qae",
+              "dano": "4d8",
+              "nome": "cal .38 ogival",
+              "impacto": 1,
+              "perfuracao": 1,
+              "resistencia": 0
+            },
+            {
+              "id": "2p94r81gos",
+              "dano": "4d8",
+              "nome": "cal .38 ogival",
+              "impacto": 1,
+              "perfuracao": 1,
+              "resistencia": 0
+            },
+            {
+              "id": "27hqlq4rnf",
+              "dano": "4d8",
+              "nome": "cal .38 ogival",
+              "impacto": 1,
+              "perfuracao": 1,
+              "resistencia": 0
+            }
+          ],
+          "municaoTotal": 6,
+          "maxDurabilidade": 100,
+          "municaoCarregada": 6,
+          "durabilidadeMaxUtil": 100
+        }
+      ],
+      "catalisadores": [],
+      "habilidades": [],
+      "magias": [],
+      "armaduras": [],
+      "acessorios": [],
+      "compartimentos": [
+        {
+          "id": "z799etqnly",
+          "nome": "Mochila de Viagem",
+          "itens": [
+            {
+              "id": "6dfz2c4q3h",
+              "nome": "dados",
+              "peso": 0.1,
+              "tipo": "Geral",
+              "volume": 0.1,
+              "descricao": "Dados viciados.",
+              "quantidade": 2,
+              "durabilidade": 0,
+              "maxDurabilidade": 0
+            },
+            {
+              "id": "q2b6kd50jv",
+              "nome": "Relógio de pulso",
+              "peso": 0.5,
+              "tipo": "Geral",
+              "volume": 0.5,
+              "descricao": "",
+              "quantidade": 1,
+              "durabilidade": 0,
+              "maxDurabilidade": 0
+            }
+          ],
+          "externo": false,
+          "volumeMax": 50
+        },
+        {
+          "id": "2nx59o6t12",
+          "nome": "Bolsa de Cinto",
+          "itens": [
+            {
+              "id": "o9nenhr4b3",
+              "dano": "4d8",
+              "nome": "cal .38 ogival",
+              "peso": 0.3,
+              "tipo": "Munição",
+              "efeito": "",
+              "volume": 0.1,
+              "impacto": 1,
+              "descricao": "",
+              "perfuracao": 1,
+              "quantidade": 0,
+              "resistencia": 0,
+              "durabilidade": 0,
+              "maxDurabilidade": 0
+            }
+          ],
+          "externo": false,
+          "volumeMax": 3
+        }
+      ],
+      "conhecimentos": [
+        {
+          "xp": 0,
+          "name": "Flora",
+          "nivel": 0,
           "limite": 5
         },
         {
@@ -5184,13 +5261,13 @@
         {
           "xp": 0,
           "name": "Navegação",
-          "nivel": -1,
+          "nivel": 0,
           "limite": 5
         },
         {
           "xp": 0,
           "name": "Mecânica",
-          "nivel": 0,
+          "nivel": 2,
           "limite": 5
         },
         {
@@ -5202,7 +5279,7 @@
         {
           "xp": 0,
           "name": "Religião",
-          "nivel": 1,
+          "nivel": 0,
           "limite": 5
         },
         {
@@ -5214,13 +5291,13 @@
         {
           "xp": 0,
           "name": "Fauna",
-          "nivel": 0,
+          "nivel": -1,
           "limite": 5
         },
         {
           "xp": 0,
           "name": "Alquimia",
-          "nivel": 1,
+          "nivel": 0,
           "limite": 5
         },
         {
@@ -5238,7 +5315,7 @@
         {
           "xp": 0,
           "name": "Sobrevivência",
-          "nivel": 0,
+          "nivel": 1,
           "limite": 5
         },
         {
@@ -5250,13 +5327,13 @@
         {
           "xp": 0,
           "name": "Culinária",
-          "nivel": -1,
+          "nivel": 0,
           "limite": 5
         },
         {
           "xp": 0,
           "name": "Clima",
-          "nivel": -1,
+          "nivel": 0,
           "limite": 5
         }
       ],
@@ -5264,12 +5341,12 @@
       "efeitosNegativos": [],
       "anotacoes": [
         {
-          "id": "5wz4acm3te",
+          "id": "lmmpi5y23x",
           "titulo": "Traumas",
           "conteudo": ""
         },
         {
-          "id": "a1zf3qs4r8",
+          "id": "zzkiz42sxt",
           "titulo": "Vícios",
           "conteudo": ""
         }
@@ -5282,52 +5359,105 @@
       "user_email": "zeroastrooliveira@gmail.com",
       "campaign_id": null,
       "data": {
-        "id": "wqhp4n7x2u",
+        "id": "57ou4dbs97",
         "fome": 100,
-        "nome": "Megara Vernom",
+        "nome": "Erik Lehnsherr",
         "sede": 100,
         "armas": [
           {
-            "id": "40e25d44-39d4-4dd5-a42f-8be9147bb728",
-            "dano": "1d12",
-            "nome": "Espada larga de magnálio",
-            "peso": 7.2,
+            "id": "2ppzvsthvw",
+            "dano": "0",
+            "nome": "Revolver cal .38",
+            "peso": 20,
             "tipo": "Arma",
-            "corte": 4,
-            "acerto": 16,
-            "efeito": "Muito leve",
+            "corte": 0,
+            "acerto": 13,
             "escala": "0",
-            "volume": 14,
-            "impacto": 1,
-            "descricao": "Muito leve",
-            "perfuracao": 1,
-            "resistencia": 2,
-            "atributoBase": "Força",
-            "durabilidade": 4,
-            "maxDurabilidade": 0
+            "volume": 3,
+            "impacto": 0,
+            "bulletId": "o9nenhr4b3",
+            "categoria": "Arma de Fogo",
+            "perfuracao": 0,
+            "resistencia": 0,
+            "atributoBase": "Destreza",
+            "durabilidade": 100,
+            "magazineAmmo": [
+              {
+                "id": "0g5m4c2bq3",
+                "dano": "4d8",
+                "nome": "cal .38 ogival",
+                "impacto": 1,
+                "perfuracao": 1,
+                "resistencia": 0
+              },
+              {
+                "id": "bsyqzz63qr",
+                "dano": "4d8",
+                "nome": "cal .38 ogival",
+                "impacto": 1,
+                "perfuracao": 1,
+                "resistencia": 0
+              },
+              {
+                "id": "7k6e1zgql5",
+                "dano": "4d8",
+                "nome": "cal .38 ogival",
+                "impacto": 1,
+                "perfuracao": 1,
+                "resistencia": 0
+              },
+              {
+                "id": "6aepct1qae",
+                "dano": "4d8",
+                "nome": "cal .38 ogival",
+                "impacto": 1,
+                "perfuracao": 1,
+                "resistencia": 0
+              },
+              {
+                "id": "2p94r81gos",
+                "dano": "4d8",
+                "nome": "cal .38 ogival",
+                "impacto": 1,
+                "perfuracao": 1,
+                "resistencia": 0
+              },
+              {
+                "id": "27hqlq4rnf",
+                "dano": "4d8",
+                "nome": "cal .38 ogival",
+                "impacto": 1,
+                "perfuracao": 1,
+                "resistencia": 0
+              }
+            ],
+            "municaoTotal": 6,
+            "maxDurabilidade": 100,
+            "municaoCarregada": 6,
+            "durabilidadeMaxUtil": 100
           }
         ],
         "clima": 0,
-        "etnia": "",
+        "etnia": "Judeu",
         "itens": [],
         "joias": [],
         "stats": {
           "ADP": 0,
           "APR": 0,
-          "CON": 9,
-          "DEX": 12,
+          "CON": 10,
+          "DEX": 10,
           "FOR": 10,
           "INT": 0,
-          "MEN": 5,
-          "RES": 6,
-          "RIT": 4
+          "MEN": 10,
+          "RES": 5,
+          "RIT": 0
         },
         "defesa": {
-          "Pernas": 3,
-          "Tronco": 3,
-          "Cabeça": 3,
-          "Braço Direito": 3,
-          "Braço Esquerdo": 3
+          "Pernas": 0,
+          "Tronco": 0,
+          "Cabeça": 0,
+          "Braço Direito": 0,
+          "Braço Esquerdo": 0
         },
         "imagem": "",
         "magias": [],
@@ -5347,111 +5477,30 @@
           "RIT": 0
         },
         "dinheiro": {
-          "B": 15,
-          "C": 4,
+          "B": 10,
+          "C": 0,
           "O": 0,
-          "P": 0
+          "P": 2
         },
-        "anotacoes": [],
-        "armaduras": [
+        "anotacoes": [
           {
-            "id": "4a1c4bb3-0d1f-42a8-af84-320223d5ff1b",
-            "nome": "Capacete",
-            "peso": 30,
-            "tipo": "Armadura",
-            "corte": 3,
-            "efeito": "",
-            "volume": 3,
-            "impacto": 3,
-            "perfuracao": 3,
-            "reducaoDano": 3,
-            "durabilidade": 3
-          },
-          {
-            "id": "5f7b3ddc-0160-4e3c-bf82-f74dee198977",
-            "nome": "Peitoral parcial",
-            "peso": 50,
-            "tipo": "Armadura",
-            "corte": 3,
-            "efeito": "",
-            "volume": 10,
-            "impacto": 3,
-            "perfuracao": 3,
-            "reducaoDano": 3,
-            "durabilidade": 3
-          },
-          {
-            "id": "1cfc9ff5-8b14-450b-be9b-c5037d3ba096",
-            "nome": "Braçadeiras",
-            "peso": 15,
-            "tipo": "Armadura",
-            "corte": 3,
-            "efeito": "",
-            "volume": 6,
-            "impacto": 3,
-            "perfuracao": 3,
-            "reducaoDano": 3,
-            "durabilidade": 3
-          },
-          {
-            "id": "f9256ee4-1e7f-4a42-bd04-481a1eb51e8a",
-            "nome": "Grevas",
-            "peso": 20,
-            "tipo": "Armadura",
-            "corte": 3,
-            "efeito": "",
-            "volume": 8,
-            "impacto": 3,
-            "perfuracao": 3,
-            "reducaoDano": 3,
-            "durabilidade": 3
-          },
-          {
-            "id": "2c2ae8aa-0f3c-46b4-8dbb-911e1c592160",
-            "nome": "Broquel de magnálio",
-            "peso": 4.5,
-            "tipo": "Armadura",
-            "corte": 4,
-            "efeito": "Efeito: o contra ataque pode  ser feito com um 2 numa falha dos 3d8 de ataque inimigo.",
-            "volume": 4,
-            "impacto": 2,
-            "descricao": "Efeito: o contra ataque pode  ser feito com um 2 numa falha dos 3d8 de ataque inimigo.",
-            "perfuracao": 1,
-            "reducaoDano": 0,
-            "durabilidade": 3
+            "id": "7laxnsgact",
+            "titulo": "Anotações Gerais",
+            "conteudo": ""
           }
         ],
+        "armaduras": [],
         "manaAtual": 0,
-        "updatedAt": {
-          "type": "firestore/timestamp/1.0",
-          "seconds": 1780613923,
-          "nanoseconds": 556000000
-        },
         "userEmail": "zeroastrooliveira@gmail.com",
-        "vidaAtual": 18,
-        "acessorios": [
-          {
-            "id": "f8cd5dc0-1adb-4aeb-bf4b-7a457b3d7062",
-            "nome": "Anel da sorte",
-            "peso": 0.1,
-            "tipo": "Armadura",
-            "corte": 0,
-            "efeito": "+1 em achar coisas",
-            "volume": 0.1,
-            "impacto": 0,
-            "descricao": "+1 em achar coisas",
-            "perfuracao": 0,
-            "reducaoDano": 0,
-            "durabilidade": 1
-          }
-        ],
+        "vidaAtual": 20,
+        "acessorios": [],
         "habilidades": [],
         "catalisadores": [],
         "conhecimentos": [
           {
             "xp": 0,
             "name": "Flora",
-            "nivel": 1,
+            "nivel": 0,
             "limite": 5
           },
           {
@@ -5487,13 +5536,13 @@
           {
             "xp": 0,
             "name": "Navegação",
-            "nivel": -1,
+            "nivel": 0,
             "limite": 5
           },
           {
             "xp": 0,
             "name": "Mecânica",
-            "nivel": 0,
+            "nivel": 2,
             "limite": 5
           },
           {
@@ -5505,7 +5554,7 @@
           {
             "xp": 0,
             "name": "Religião",
-            "nivel": 1,
+            "nivel": 0,
             "limite": 5
           },
           {
@@ -5517,13 +5566,13 @@
           {
             "xp": 0,
             "name": "Fauna",
-            "nivel": 0,
+            "nivel": -1,
             "limite": 5
           },
           {
             "xp": 0,
             "name": "Alquimia",
-            "nivel": 1,
+            "nivel": 0,
             "limite": 5
           },
           {
@@ -5541,7 +5590,7 @@
           {
             "xp": 0,
             "name": "Sobrevivência",
-            "nivel": 0,
+            "nivel": 1,
             "limite": 5
           },
           {
@@ -5553,139 +5602,90 @@
           {
             "xp": 0,
             "name": "Culinária",
-            "nivel": -1,
+            "nivel": 0,
             "limite": 5
           },
           {
             "xp": 0,
             "name": "Clima",
-            "nivel": -1,
+            "nivel": 0,
             "limite": 5
           }
         ],
-        "sanidadeAtual": 10,
+        "sanidadeAtual": 20,
         "compartimentos": [
           {
-            "id": "4d453c1e-8f8d-43fc-a05e-0ac3edc1c142",
+            "id": "z799etqnly",
             "nome": "Mochila de Viagem",
             "itens": [
               {
-                "id": "ffa41ea2-7014-4f1c-920c-fad83827ff93",
-                "nome": "Pô de ossos de demônio de fogo",
+                "id": "6dfz2c4q3h",
+                "nome": "dados",
                 "peso": 0.1,
                 "tipo": "Geral",
                 "volume": 0.1,
-                "descricao": "",
-                "quantidade": 3,
+                "descricao": "Dados viciados.",
+                "quantidade": 2,
                 "durabilidade": 0,
                 "maxDurabilidade": 0
               },
               {
-                "id": "747fb266-94e4-4562-9e40-e30458583bc7",
-                "nome": "Infusão de adrenalina P",
+                "id": "q2b6kd50jv",
+                "nome": "Relógio de pulso",
                 "peso": 0.5,
                 "tipo": "Geral",
-                "volume": 1,
+                "volume": 0.5,
                 "descricao": "",
-                "quantidade": 3,
+                "quantidade": 1,
                 "durabilidade": 0,
                 "maxDurabilidade": 0
-              },
-              {
-                "id": "81b0c296-92ac-4dcb-9679-e2452890d536",
-                "dano": "2d8",
-                "nome": "Pistola de pulso de Mithril",
-                "peso": 2.5,
-                "tipo": "Arma",
-                "corte": 0,
-                "acerto": 14,
-                "escala": "0",
-                "volume": 3,
-                "impacto": 0,
-                "categoria": "Arma de Fogo",
-                "descricao": "Não corrosivo, leve",
-                "perfuracao": 0,
-                "quantidade": 1,
-                "resistencia": 0,
-                "atributoBase": "Destreza",
-                "durabilidade": 4,
-                "municaoTotal": 6,
-                "maxDurabilidade": 5,
-                "municaoCarregada": 6
-              },
-              {
-                "id": "dac2d1b3-48ec-45fa-87a7-e04d18d6a4d1",
-                "dano": "1d4",
-                "nome": "Shuriken de Cobalto",
-                "peso": 0.3,
-                "tipo": "Arma",
-                "corte": 2,
-                "acerto": 12,
-                "escala": "C",
-                "volume": 0.4,
-                "impacto": 0,
-                "descricao": "",
-                "perfuracao": 2,
-                "quantidade": 1,
-                "resistencia": 2,
-                "atributoBase": "Destreza",
-                "durabilidade": 3,
-                "maxDurabilidade": 3
-              },
-              {
-                "id": "6e93ed19-6104-478c-8dbb-1e1296f760d7",
-                "nome": "Peitoral de placas de Repulsinio",
-                "peso": 70,
-                "tipo": "Armadura",
-                "corte": 2,
-                "efeito": "Ao impacto, cria uma força anti gravidade, podendo arremessar inimigos no ar",
-                "volume": 15,
-                "impacto": 4,
-                "descricao": "Ao impacto, cria uma força anti gravidade, podendo arremessar inimigos no ar",
-                "perfuracao": 1,
-                "quantidade": 1,
-                "reducaoDano": -5,
-                "durabilidade": 5,
-                "maxDurabilidade": 5
               }
             ],
             "externo": false,
             "volumeMax": 50
           },
           {
-            "id": "6a5c6edb-e07d-4a3a-97e4-48a0466b5010",
+            "id": "2nx59o6t12",
             "nome": "Bolsa de Cinto",
             "itens": [
               {
-                "id": "d07e9dc0-94b7-4bf3-8e5e-b7eaf7956e71",
-                "nome": "Kit disparo de chumbo esférico ",
-                "peso": 0.5,
-                "tipo": "Geral",
-                "volume": 0.3,
-                "descricao": "Impacto: 4",
-                "quantidade": 12,
+                "id": "o9nenhr4b3",
+                "dano": "4d8",
+                "nome": "cal .38 ogival",
+                "peso": 0.3,
+                "tipo": "Munição",
+                "efeito": "",
+                "volume": 0.1,
+                "impacto": 1,
+                "descricao": "",
+                "perfuracao": 1,
+                "quantidade": 0,
+                "resistencia": 0,
                 "durabilidade": 0,
                 "maxDurabilidade": 0
               }
             ],
-            "volumeMax": 5
+            "externo": false,
+            "volumeMax": 3
           }
         ],
         "isRemoteSynced": true,
         "efeitosNegativos": [],
         "dadosCustomizados": [],
-        "bonusProficiencias": {}
+        "bonusProficiencias": {
+          "Atletismo": 1,
+          "Mentalidade": 7
+        }
       },
-      "updated_at": "2026-10-12T19:40:23.187+00:00",
+      "updated_at": "2026-10-12T19:31:37.005+00:00",
       "is_remote_synced": true,
-      "updatedAt": {
-        "type": "firestore/timestamp/1.0",
-        "seconds": 1780613923,
-        "nanoseconds": 556000000
-      },
       "userEmail": "zeroastrooliveira@gmail.com",
       "campaignId": "camp_uu3i63t2d",
-      "isRemoteSynced": true
+      "defenseType": null,
+      "isDefending": false,
+      "defenseRounds": 0,
+      "isRemoteSynced": true,
+      "defenseWeaponId": null
     },
     {
       "id": "jdrc9b60sy",
@@ -6040,12 +6040,12 @@
       "efeitosNegativos": [],
       "anotacoes": [
         {
-          "id": "e7t91mptbo",
+          "id": "vf77qayjts",
           "titulo": "Traumas",
           "conteudo": ""
         },
         {
-          "id": "3wavd8bvuq",
+          "id": "9e9z9dqvk9",
           "titulo": "Vícios",
           "conteudo": ""
         }
