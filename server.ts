@@ -170,7 +170,8 @@ async function startServer() {
   app.use('/functions/v1', supabaseProxy);
   app.use('/supabase-proxy', createNativeSupabaseProxy(getTarget, '/supabase-proxy'));
 
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   app.get("/api/health", (req, res) => {
     const supabaseUrl = currentTargetSupabase;
@@ -520,14 +521,68 @@ async function startServer() {
             return;
           }
 
-          if (msg.type === 'token_move' || msg.type === 'update_tokens' || msg.type === 'token_add' || msg.type === 'add_token') {
+          if (msg.type === 'token_move') {
+            const tk = msg.token || (msg.tokenId && typeof msg.x === 'number' && typeof msg.y === 'number' ? { id: msg.tokenId, x: msg.x, y: msg.y } : null);
+            if (tk && tk.id) {
+              let list = currentCampVtt.tokens || [];
+              const idx = list.findIndex((t: any) => t.id === tk.id);
+              let savedToken: any;
+              if (idx !== -1) {
+                list[idx] = { ...list[idx], ...tk };
+                savedToken = list[idx];
+              } else {
+                list.push(tk);
+                savedToken = tk;
+              }
+              currentCampVtt.tokens = list;
+              currentStore[campaignId] = currentCampVtt;
+
+              // 1. Instant targeted broadcast to all other players (< 1ms)
+              broadcastVtt(campaignId, { 
+                type: "token_move", 
+                token: savedToken, 
+                tokenId: tk.id, 
+                x: savedToken.x, 
+                y: savedToken.y, 
+                senderId: msg.senderId 
+              }, ws);
+
+              // 2. Debounced asynchronous file persist
+              saveVttStore(currentStore);
+
+              // 3. Background mirror of ONLY the moved token to Supabase
+              try {
+                fetch(`${targetSupabase}/rest/v1/tokens`, {
+                  method: "POST",
+                  headers: {
+                    apikey: SERVICE_ROLE_KEY,
+                    Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+                    "Content-Type": "application/json",
+                    Prefer: "resolution=merge-duplicates"
+                  },
+                  body: JSON.stringify({
+                    id: tk.id,
+                    campaign_id: campaignId,
+                    data: savedToken,
+                    updated_at: new Date().toISOString()
+                  })
+                }).catch(() => {});
+              } catch {}
+            }
+            return;
+          }
+
+          if (msg.type === 'update_tokens' || msg.type === 'token_add' || msg.type === 'add_token') {
             const incomingTokens = msg.tokens || (msg.token ? [msg.token] : []);
             if (incomingTokens.length > 0) {
               let list = currentCampVtt.tokens || [];
+              const tokenMap = new Map<string, any>(list.map((t: any) => [t.id, t]));
               for (const tk of incomingTokens) {
                 if (!tk || !tk.id) continue;
-                list = [...list.filter((t: any) => t.id !== tk.id), tk];
+                const prev = tokenMap.get(tk.id) || {};
+                tokenMap.set(tk.id, { ...prev, ...tk });
               }
+              list = Array.from(tokenMap.values());
               currentCampVtt.tokens = list;
               currentStore[campaignId] = currentCampVtt;
 
@@ -537,9 +592,10 @@ async function startServer() {
               // 2. Debounced asynchronous file persist
               saveVttStore(currentStore);
 
-              // 3. Background mirror to Supabase
+              // 3. Background mirror to Supabase (batched to prevent connection exhaustion)
               try {
-                for (const tk of incomingTokens) {
+                const batch = incomingTokens.slice(0, 20);
+                for (const tk of batch) {
                   if (!tk || !tk.id) continue;
                   fetch(`${targetSupabase}/rest/v1/tokens`, {
                     method: "POST",
@@ -559,6 +615,7 @@ async function startServer() {
                 }
               } catch {}
             }
+            return;
           } else if (msg.type === 'token_remove' || msg.type === 'remove_token') {
             const tokenId = msg.tokenId || (msg.token && msg.token.id);
             if (tokenId) {
@@ -748,21 +805,37 @@ async function startServer() {
       return res.status(400).json({ error: "Nenhum token fornecido para salvar." });
     }
 
+    const tokenMap = new Map<string, any>(currentTokens.map((t: any) => [t.id, t]));
     for (const tk of incoming) {
       if (!tk || !tk.id) continue;
-      currentTokens = [...currentTokens.filter((t: any) => t.id !== tk.id), tk];
+      const prev = tokenMap.get(tk.id) || {};
+      tokenMap.set(tk.id, { ...prev, ...tk });
     }
+    currentTokens = Array.from(tokenMap.values());
 
     campVtt.tokens = currentTokens;
     store[campaignId] = campVtt;
     saveVttStore(store);
 
-    // Instant zero-latency SSE push to all other players in this campaign
-    broadcastVtt(campaignId, { type: "vtt_tokens", tokens: currentTokens, config: campVtt.config, senderId });
+    // If a single token was moved/updated, broadcast a targeted token_move; otherwise broadcast full vtt_tokens
+    if (token && !bulkTokens) {
+      const savedToken = tokenMap.get(token.id) || token;
+      broadcastVtt(campaignId, { 
+        type: "token_move", 
+        token: savedToken, 
+        tokenId: token.id, 
+        x: savedToken.x, 
+        y: savedToken.y, 
+        senderId 
+      });
+    } else {
+      broadcastVtt(campaignId, { type: "vtt_tokens", tokens: currentTokens, config: campVtt.config, senderId });
+    }
 
     // Save to Supabase in background
     try {
-      for (const tk of incoming) {
+      const toSync = token && !bulkTokens ? [tokenMap.get(token.id) || token] : incoming.slice(0, 20);
+      for (const tk of toSync) {
         if (!tk || !tk.id) continue;
         fetch(`${targetSupabase}/rest/v1/tokens`, {
           method: "POST",

@@ -224,14 +224,28 @@ export const STAT_DESCRIPTIONS: Record<keyof Stats, { name: string; desc: string
 
 const STORAGE_KEY = "rpg_system_x_chars";
 
+// Função utilitária para verificar se uma ficha é um monstro, criatura ou inimigo temporário gerado no VTT
+export const isEnemyOrCreatureCharacter = (char: any): boolean => {
+  if (!char) return false;
+  if (char.etnia === 'Monstro') return true;
+  if (char.isCreature || char.isEnemy || char.isVttEnemy || char.isVttGenerated) return true;
+  if (char.type === 'creature') return true;
+  const charUserId = (char.userId || char.user_id || '').trim();
+  const charEmail = (char.userEmail || char.user_email || '').trim().toLowerCase();
+  if (charUserId === 'monster' || charEmail === 'monster') return true;
+  const nomeLower = (char.nome || '').toLowerCase().trim();
+  if (nomeLower.includes('(inimigo)') || nomeLower.startsWith('inimigo ')) return true;
+  return false;
+};
+
 // Função utilitária para verificar se uma ficha pertence ao usuário logado ou se é anônima/guest
 export const isCharacterOwnedByCurrentUser = (char: Character, currentUser: any | null): boolean => {
   if (!char) return false;
   const charEmail = (char.userEmail || (char as any).user_email || '').trim().toLowerCase();
   const charUserId = (char.userId || (char as any).user_id || '').trim();
 
-  // Criaturas e monstros nunca pertencem à biblioteca de personagens de um jogador
-  if (char.etnia === 'Monstro' || (char as any).isCreature || (char as any).type === 'creature') return false;
+  // Criaturas, monstros e inimigos do VTT nunca pertencem à biblioteca de personagens de um jogador ou mestre
+  if (isEnemyOrCreatureCharacter(char)) return false;
 
   if (currentUser) {
     const userEmail = (currentUser.email || '').trim().toLowerCase();
@@ -1980,8 +1994,10 @@ function App() {
     const charMap = new Map<string, Character>();
 
     // 1. Fichas próprias do usuário ou fichas de campanhas onde o usuário é Mestre
+    // NUNCA inclui monstros, criaturas ou inimigos de combate do VTT na biblioteca
     state.characters.forEach(c => {
       if (!c || !c.id || deletedCharsRef.current.has(c.id)) return;
+      if (isEnemyOrCreatureCharacter(c)) return;
       if (isCharacterOwnedByCurrentUser(c, user)) {
         charMap.set(c.id, c);
       } else if (c.campaignId && masterCampIds.has(c.campaignId)) {
@@ -1989,10 +2005,12 @@ function App() {
       }
     });
 
-    // 2. Fichas carregadas da campanha ativa (se for mestre da campanha ou se houver fichas na campanha)
+    // 2. Fichas de jogadores carregadas da campanha ativa
+    // NUNCA inclui monstros, criaturas ou inimigos de combate do VTT na biblioteca
     if (activeCampaignId && (masterCampIds.has(activeCampaignId) || campaigns.some(c => c.id === activeCampaignId && c.masterEmail?.toLowerCase() === userEmailLower))) {
       campaignCharacters.forEach(c => {
         if (c && c.id && !deletedCharsRef.current.has(c.id)) {
+          if (isEnemyOrCreatureCharacter(c)) return;
           charMap.set(c.id, c);
         }
       });

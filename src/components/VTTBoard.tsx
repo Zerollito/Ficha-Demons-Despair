@@ -4961,7 +4961,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     const monsterChar: Character = {
                       id: monsterId,
                       campaignId: campaignId,
-                      userId: auth.currentUser?.uid || 'monster',
+                      userId: 'monster',
+                      userEmail: 'monster',
                       nome: monster.name,
                       etnia: 'Monstro',
                       imagem: resolvedMonsterImage,
@@ -4972,6 +4973,10 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       sede: 100,
                       cansaco: 100,
                       clima: 0,
+                      isCreature: true,
+                      isEnemy: true,
+                      isVttEnemy: true,
+                      isVttGenerated: true,
                       stats: {
                         FOR: parseNum(monster.ataque.corte),
                         DEX: parseNum(monster.ataque.perfuracao),
@@ -5727,12 +5732,22 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               <EnemyGenerator 
                 customMaterials={customMaterials}
                 onEnemyGenerated={async (enemy: Character) => {
-                  const enemyWithCam = { ...enemy, campaignId };
+                  const enemyWithCam: Character = { 
+                    ...enemy, 
+                    campaignId,
+                    userId: 'monster',
+                    userEmail: 'monster',
+                    isCreature: true,
+                    isEnemy: true,
+                    isVttEnemy: true,
+                    isVttGenerated: true,
+                    type: 'creature'
+                  } as any;
                   if (onAddCharacter) {
                     onAddCharacter(enemyWithCam);
                   }
                   
-                  // Direct Firestore redundancy write
+                  // Direct Firestore redundancy write as campaign creature
                   saveCharacterToFirestore(enemyWithCam).catch(err => {
                     console.error("Erro ao salvar inimigo gerado diretamente:", err);
                   });
@@ -5746,6 +5761,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       size: 1,
                       type: 'creature',
                       characterId: enemy.id,
+                      userId: 'monster',
                       hp: enemy.vidaAtual,
                       maxHp: getVidaMaxima(enemy.stats.CON),
                       imageUrl: enemy.imagem || 'https://images.unsplash.com/photo-1599508704512-2f19efd1e35f?w=128&h=128&fit=crop',

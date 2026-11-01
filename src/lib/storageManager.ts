@@ -144,7 +144,7 @@ export function stripHeavyDataForCache(data: any, maxBase64Len = 500000): any {
  * preserving all character avatars and user media without data loss.
  */
 export const safeLocalStorageSetItem = (key: string, value: string): boolean => {
-  // 1. Always update in-memory cache immediately
+  // 1. Always update in-memory cache immediately - this is the immediate ground truth
   memoryStore.set(key, value);
 
   // 2. Always persist asynchronously to IndexedDB in background
@@ -154,7 +154,7 @@ export const safeLocalStorageSetItem = (key: string, value: string): boolean => 
     return true;
   }
 
-  // 3. Try saving full unstripped value to localStorage first
+  // 3. Try saving to localStorage
   try {
     localStorage.setItem(key, value);
     return true;
@@ -199,7 +199,13 @@ export const safeLocalStorageSetItem = (key: string, value: string): boolean => 
         // Ignore cleanup errors
       }
 
-      // If localStorage is still full, data is already safely stored in memory and IndexedDB!
+      // CRITICAL: If localStorage is still full, remove any stale/older value of this key
+      // so it will NEVER shadow or return stale data when read later!
+      try {
+        localStorage.removeItem(key);
+      } catch {}
+
+      // Data is already safely and synchronously stored in memoryStore and persisting in IndexedDB!
       console.warn(`⚠️ [Storage] Stored "${key}" in Memory & IndexedDB fallback (localStorage quota preserved).`);
       return true;
     }
@@ -210,18 +216,30 @@ export const safeLocalStorageSetItem = (key: string, value: string): boolean => 
 };
 
 /**
- * Safely reads a value, checking localStorage first, then the in-memory fallback.
+ * Safely reads a value, checking the synchronous in-memory store FIRST (which holds the freshest write),
+ * then falling back to localStorage.
  */
 export const safeLocalStorageGetItem = (key: string): string | null => {
+  // 1. In-memory store always contains the latest synchronous write
+  if (memoryStore.has(key)) {
+    const memVal = memoryStore.get(key);
+    if (memVal !== undefined && memVal !== null) {
+      return memVal;
+    }
+  }
+
+  // 2. Fall back to localStorage if not yet loaded in memory
   if (typeof localStorage !== 'undefined') {
     try {
       const val = localStorage.getItem(key);
       if (val !== null && val !== undefined) {
+        memoryStore.set(key, val);
         return val;
       }
     } catch (e) {}
   }
-  return memoryStore.get(key) || null;
+
+  return null;
 };
 
 /**

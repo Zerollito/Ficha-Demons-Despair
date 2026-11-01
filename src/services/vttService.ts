@@ -9,12 +9,23 @@ const tokenListeners = new Map<string, Set<(tokens: TableToken[]) => void>>();
 const configListeners = new Map<string, Set<(config: TableConfig) => void>>();
 const logListeners = new Map<string, Set<(logs: any[]) => void>>();
 
+// Synchronous high-speed in-memory store for tokens and configs (no quota, sub-microsecond access)
+const campaignTokensMemoryCache = new Map<string, TableToken[]>();
+const campaignConfigMemoryCache = new Map<string, TableConfig>();
+
 export const getLocalTokens = (campaignId: string): TableToken[] => {
+  // 1. Instant return from synchronous in-memory cache
+  const mem = campaignTokensMemoryCache.get(campaignId);
+  if (mem && Array.isArray(mem) && mem.length > 0) {
+    return mem;
+  }
+
   try {
-    const stored = safeLocalStorageGetItem(`vtt_tokens_${campaignId}`) || localStorage.getItem(`vtt_tokens_${campaignId}`);
+    const stored = safeLocalStorageGetItem(`vtt_tokens_${campaignId}`) || (typeof localStorage !== 'undefined' ? localStorage.getItem(`vtt_tokens_${campaignId}`) : null);
     if (stored) {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed) && parsed.length > 0) {
+        campaignTokensMemoryCache.set(campaignId, parsed);
         return parsed;
       }
     }
@@ -24,7 +35,7 @@ export const getLocalTokens = (campaignId: string): TableToken[] => {
 
   // Fallback recovery from supabase_table_tokens
   try {
-    const tableData = safeLocalStorageGetItem('supabase_table_tokens') || localStorage.getItem('supabase_table_tokens');
+    const tableData = safeLocalStorageGetItem('supabase_table_tokens') || (typeof localStorage !== 'undefined' ? localStorage.getItem('supabase_table_tokens') : null);
     if (tableData) {
       const list = JSON.parse(tableData);
       const campTokens: TableToken[] = [];
@@ -41,6 +52,7 @@ export const getLocalTokens = (campaignId: string): TableToken[] => {
         }
       });
       if (campTokens.length > 0) {
+        campaignTokensMemoryCache.set(campaignId, campTokens);
         return campTokens;
       }
     }
@@ -50,12 +62,16 @@ export const getLocalTokens = (campaignId: string): TableToken[] => {
 };
 
 export const saveLocalTokens = (campaignId: string, tokens: TableToken[]) => {
+  // 1. Immediately store in synchronous memory cache
+  campaignTokensMemoryCache.set(campaignId, tokens);
+
+  // 2. Persist safely in background storage
   try {
     safeLocalStorageSetItem(`vtt_tokens_${campaignId}`, JSON.stringify(tokens));
     
     // Also mirror to supabase_table_tokens for offline query consistency
     try {
-      const tableData = safeLocalStorageGetItem('supabase_table_tokens') || localStorage.getItem('supabase_table_tokens');
+      const tableData = safeLocalStorageGetItem('supabase_table_tokens') || (typeof localStorage !== 'undefined' ? localStorage.getItem('supabase_table_tokens') : null);
       let list = tableData ? JSON.parse(tableData) : [];
       // Remove previous tokens for this campaign and insert updated ones
       list = list.filter((r: any) => {
@@ -87,9 +103,12 @@ const notifyTokenListeners = (campaignId: string, tokens: TableToken[]) => {
 };
 
 export const getLocalConfig = (campaignId: string): TableConfig => {
+  const memCfg = campaignConfigMemoryCache.get(campaignId);
+  if (memCfg) return memCfg;
+
   let result: TableConfig = { gridSize: 50, showGrid: true, masterFog: false, mapUrl: '', gridColor: '#000000' };
   try {
-    const stored = safeLocalStorageGetItem(`vtt_config_${campaignId}`) || localStorage.getItem(`vtt_config_${campaignId}`);
+    const stored = safeLocalStorageGetItem(`vtt_config_${campaignId}`) || (typeof localStorage !== 'undefined' ? localStorage.getItem(`vtt_config_${campaignId}`) : null);
     if (stored) {
       const parsed = JSON.parse(stored);
       result = { ...result, ...parsed };
@@ -152,8 +171,9 @@ export const getLocalConfig = (campaignId: string): TableConfig => {
 };
 
 export const saveLocalConfig = (campaignId: string, config: TableConfig) => {
+  const finalCfg = { gridColor: '#000000', ...config };
+  campaignConfigMemoryCache.set(campaignId, finalCfg);
   try {
-    const finalCfg = { gridColor: '#000000', ...config };
     safeLocalStorageSetItem(`vtt_config_${campaignId}`, JSON.stringify(finalCfg));
     
     // Also mirror to supabase_table_campaign_configs
@@ -295,8 +315,26 @@ function connectVttStream(campaignId: string) {
       return;
     }
 
+    // Targeted single token move from another player or server confirmation
+    if (payload.type === 'token_move') {
+      if (payload.senderId && payload.senderId === vttClientId) return;
+      const movedTk = payload.token || (payload.tokenId ? { id: payload.tokenId, x: payload.x, y: payload.y } : null);
+      if (!movedTk || !movedTk.id) return;
+      if (activelyDraggedTokenId && activelyDraggedTokenId === movedTk.id) return;
+
+      const current = getLocalTokens(campaignId);
+      const tokenMap = new Map(current.map(t => [t.id, t]));
+      const prev = tokenMap.get(movedTk.id) || {};
+      tokenMap.set(movedTk.id, { ...prev, ...movedTk });
+      const updated = Array.from(tokenMap.values());
+      saveLocalTokens(campaignId, updated);
+      notifyTokenListeners(campaignId, updated);
+      return;
+    }
+
     if (payload.tokens && Array.isArray(payload.tokens)) {
       const isOwnEcho = payload.senderId && payload.senderId === vttClientId;
+      const isServerPoll = payload.senderId === 'server_poll';
       const now = Date.now();
 
       // Merge tokens protecting local drag positions and recent local moves from being snapped back
@@ -309,10 +347,17 @@ function connectVttStream(campaignId: string) {
           const dragging = currentMap.get(t.id);
           if (dragging) return { ...t, x: dragging.x, y: dragging.y };
         }
-        // 2. If locally moved within the last 3500ms, protect against stale server echoes/snapshots!
+        // 2. If locally moved within the last 15000ms, protect against stale server echoes/snapshots!
         const recent = recentLocalMoves.get(t.id);
-        if (recent && (now - recent.time < 3500)) {
+        if (recent && (now - recent.time < 15000)) {
           return { ...t, x: recent.x, y: recent.y };
+        }
+        // 3. If own echo or background server poll, keep local position if available
+        if (isOwnEcho || isServerPoll) {
+          const local = currentMap.get(t.id);
+          if (local && local.x !== undefined && local.y !== undefined) {
+            return { ...t, x: local.x, y: local.y };
+          }
         }
         return t;
       });
@@ -447,19 +492,10 @@ function connectVttStream(campaignId: string) {
         if (res.ok) {
           const data = await res.json();
           if (data && Array.isArray(data.tokens)) {
-            const current = getLocalTokens(campaignId);
-            if (JSON.stringify(current) !== JSON.stringify(data.tokens)) {
-              saveLocalTokens(campaignId, data.tokens);
-              notifyTokenListeners(campaignId, data.tokens);
-            }
+            handleIncomingPayload({ type: 'vtt_tokens', tokens: data.tokens, senderId: 'server_poll' });
           }
           if (data && data.config) {
-            const currentCfg = getLocalConfig(campaignId);
-            const mergedCfg = { gridColor: '#000000', ...data.config };
-            if (JSON.stringify(currentCfg) !== JSON.stringify(mergedCfg)) {
-              saveLocalConfig(campaignId, mergedCfg);
-              notifyConfigListeners(campaignId, mergedCfg);
-            }
+            handleIncomingPayload({ type: 'vtt_config', config: data.config, senderId: 'server_poll' });
           }
         }
       } catch {}
@@ -510,8 +546,20 @@ export const subscribeToTokens = (campaignId: string, onUpdate: (tokens: TableTo
     .then(res => res.json())
     .then(data => {
       if (data && Array.isArray(data.tokens)) {
-        saveLocalTokens(campaignId, data.tokens);
-        notifyTokenListeners(campaignId, data.tokens);
+        const current = getLocalTokens(campaignId);
+        const tokenMap = new Map<string, TableToken>(data.tokens.map((t: any) => [t.id, t]));
+        for (const localT of current) {
+          const recent = recentLocalMoves.get(localT.id);
+          if (recent && (Date.now() - recent.time < 15000)) {
+            const remote = tokenMap.get(localT.id) || localT;
+            tokenMap.set(localT.id, { ...remote, x: recent.x, y: recent.y });
+          } else if (!tokenMap.has(localT.id)) {
+            tokenMap.set(localT.id, localT);
+          }
+        }
+        const merged = Array.from(tokenMap.values());
+        saveLocalTokens(campaignId, merged);
+        notifyTokenListeners(campaignId, merged);
       }
     })
     .catch(() => {});
@@ -679,31 +727,33 @@ export const updateTokenPosition = async (
   tokensFallback?: TableToken[]
 ) => {
   // Always apply change locally first and dispatch UI updates instantly!
-  let currentTokens = getLocalTokens(campaignId);
-  
+  const currentTokens = getLocalTokens(campaignId);
+  const tokenMap = new Map<string, TableToken>();
+
+  // 1. Initialize with fallback tokens from React state
   if (tokensFallback && tokensFallback.length > 0) {
-    const existingIds = new Set(currentTokens.map(t => t.id));
     for (const t of tokensFallback) {
-      if (!existingIds.has(t.id)) {
-        currentTokens.push(t);
-        existingIds.add(t.id);
-      }
+      tokenMap.set(t.id, t);
     }
   }
 
-  // If token is still missing from currentTokens, create or recover from fallback
-  if (!currentTokens.some(t => t.id === tokenId)) {
-    const fromFallback = tokensFallback?.find(t => t.id === tokenId);
-    if (fromFallback) {
-      currentTokens.push(fromFallback);
+  // 2. Overlay current tokens from memory cache
+  for (const t of currentTokens) {
+    if (!tokenMap.has(t.id)) {
+      tokenMap.set(t.id, t);
     }
   }
 
-  const updatedTokens = currentTokens.map(t => t.id === tokenId ? { ...t, ...updates } : t);
+  const existing = tokenMap.get(tokenId) || currentTokens.find(t => t.id === tokenId) || tokensFallback?.find(t => t.id === tokenId);
+  if (existing) {
+    tokenMap.set(tokenId, { ...existing, ...updates });
+  }
+
+  const updatedTokens = Array.from(tokenMap.values());
   saveLocalTokens(campaignId, updatedTokens);
   notifyTokenListeners(campaignId, updatedTokens);
 
-  const matchedToken = updatedTokens.find(t => t.id === tokenId);
+  const matchedToken = tokenMap.get(tokenId);
   if (!matchedToken) return;
 
   // Record move locally to prevent server echo snap-back
@@ -711,8 +761,15 @@ export const updateTokenPosition = async (
     recordLocalMove(tokenId, matchedToken.x, matchedToken.y);
   }
 
-  // 1. Instant sub-5ms duplex WebSocket transmission to all peers
-  sendVttRealtimeMessage(campaignId, { type: 'token_move', token: matchedToken, tokens: updatedTokens, senderId: vttClientId });
+  // 1. Instant sub-5ms targeted duplex WebSocket transmission to all peers
+  sendVttRealtimeMessage(campaignId, { 
+    type: 'token_move', 
+    token: matchedToken, 
+    tokenId, 
+    x: matchedToken.x, 
+    y: matchedToken.y, 
+    senderId: vttClientId 
+  });
 
   // 2. Post to backend server VTT API as fast HTTP backup
   try {
