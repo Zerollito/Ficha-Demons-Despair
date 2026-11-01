@@ -1839,10 +1839,16 @@ function App() {
         }
       }
     });
+    // Overlay state.characters so active local modifications (such as ammo reloading & combat damage) take immediate priority!
     state.characters.forEach(c => {
-      if (c && c.id && !deletedCharsRef.current.has(c.id) && !map.has(c.id)) {
+      if (c && c.id && !deletedCharsRef.current.has(c.id)) {
         if (isMasterOfActive || isCharacterOwnedByCurrentUser(c, user)) {
-          map.set(c.id, c);
+          const existing = map.get(c.id);
+          if (existing) {
+            map.set(c.id, { ...existing, ...c });
+          } else {
+            map.set(c.id, c);
+          }
         }
       }
     });
@@ -1872,11 +1878,11 @@ function App() {
               charMap.set(cc.id, cc);
               changed = true;
             } else {
-              // Atualiza se houver dados novos do jogador
+              // Atualiza preservando alterações locais ativas
               const existingStr = JSON.stringify({ ...existing, dirty: undefined });
               const incomingStr = JSON.stringify({ ...cc, dirty: undefined });
               if (existingStr !== incomingStr) {
-                charMap.set(cc.id, { ...existing, ...cc });
+                charMap.set(cc.id, { ...cc, ...existing });
                 changed = true;
               }
             }
@@ -3709,6 +3715,16 @@ function App() {
   // Auto-save removed - handled by debounced effect above
 
   const updateChar = useCallback((updatesOrFn: (Partial<Character> & Record<string, any>) | ((c: Character) => Partial<Character> & Record<string, any>), characterId?: string) => {
+    if (characterId) {
+      setCampaignCharacters(prevList => prevList.map(c => {
+        if (c.id === characterId) {
+          const upd = typeof updatesOrFn === 'function' ? updatesOrFn(c) : updatesOrFn;
+          return { ...c, ...upd };
+        }
+        return c;
+      }));
+    }
+
     setState(prev => {
       const characters = [...prev.characters];
       
@@ -3794,15 +3810,6 @@ function App() {
       }
 
       const targetId = characterId || prev.activeCharacterId;
-      if (characterId) {
-        setCampaignCharacters(prevList => prevList.map(c => {
-          if (c.id === characterId) {
-            const upd = typeof updatesOrFn === 'function' ? updatesOrFn(c) : updatesOrFn;
-            return { ...c, ...upd };
-          }
-          return c;
-        }));
-      }
       let charIndex = characters.findIndex(c => c.id === targetId);
       if (charIndex === -1) {
         const campChar = campaignCharacters.find(c => c.id === targetId);

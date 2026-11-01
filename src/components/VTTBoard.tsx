@@ -6,7 +6,7 @@ import Konva from 'konva';
 import { TableToken, TableConfig, Character, MonsterAction, NegativeEffect } from '../types';
 import { updateTokenPosition, updateMultipleTokens, addCombatLog, subscribeToCombatLogs, broadcastTokenLivePosition, setActivelyDraggedToken } from '../services/vttService';
 import { saveCharacterToFirestore } from '../services/characterService';
-import { optimizeCharactersForCache } from '../services/campaignService';
+import { optimizeCharactersForCache, saveLocalCampaignCharacters, notifyCampaignCharListeners, getLocalCampaignCharacters } from '../services/campaignService';
 import { Shield, User, UserPlus, Trash2, Plus, Settings, ZoomIn, ZoomOut, Maximize, Eye, EyeOff, Upload, ChevronLeft, ChevronRight, Skull, Info, Heart, Minus, FileText, Zap, Dices, Swords, AlertTriangle, RefreshCw, Calendar, Clock, Sun, Cloud, Wind, Snowflake, Target, X, Package, PawPrint, ChevronUp, ChevronDown, GripHorizontal, RotateCw, RotateCcw } from 'lucide-react';
 import { randomInt, randomElement, generateId, secureRandom } from '../lib/random';
 import { cn } from '../lib/utils';
@@ -1178,19 +1178,22 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       };
     });
     
-    // 2. Also save to the local campaign characters list cache so other subscriptions are aware
+    // 2. Also save to the local campaign characters list cache and notify listeners so all VTT views update instantly
     if (campaignId) {
       try {
         const cached = safeLocalStorageGetItem(`campaign_characters_${campaignId}`) || localStorage.getItem(`campaign_characters_${campaignId}`);
-        if (cached) {
-          const chars = JSON.parse(cached) as Character[];
-          const idx = chars.findIndex(c => c.id === characterId);
-          if (idx !== -1) {
-            chars[idx] = { ...chars[idx], ...updates };
-            const optimized = optimizeCharactersForCache(chars);
-            safeLocalStorageSetItem(`campaign_characters_${campaignId}`, JSON.stringify(optimized));
+        let chars = cached ? (JSON.parse(cached) as Character[]) : [];
+        const idx = chars.findIndex(c => c.id === characterId);
+        if (idx !== -1) {
+          chars[idx] = { ...chars[idx], ...updates };
+        } else {
+          const base = existingChar || fetchedCharacters[characterId];
+          if (base) {
+            chars.push({ ...base, ...updates });
           }
         }
+        saveLocalCampaignCharacters(campaignId, chars);
+        notifyCampaignCharListeners(campaignId, chars);
       } catch (e) {
         console.warn("Warning updating local campaign chars cache:", e);
       }
@@ -1332,7 +1335,10 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const ammoSelectWeapon = useMemo(() => {
     if (!selectedAmmoWeaponId || !weaponSelectTokenId) return null;
     const attacker = tokens.find(t => t.id === weaponSelectTokenId);
-    const char = attacker?.characterId ? (fetchedCharacters[attacker.characterId] || availableCharacters.find(c => c.id === attacker.characterId)) : null;
+    if (!attacker?.characterId) return null;
+    const rawAvail = availableCharacters.find(c => c.id === attacker.characterId);
+    const rawFetched = fetchedCharacters[attacker.characterId];
+    const char = rawFetched && rawAvail ? { ...rawAvail, ...rawFetched } : (rawFetched || rawAvail);
     if (!char) return null;
     return char.armas.find((w: any) => w.id === selectedAmmoWeaponId) || 
            char.compartimentos?.flatMap((c: any) => c.itens || []).find((i: any) => i.id === selectedAmmoWeaponId);
@@ -1693,12 +1699,16 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const deductAmmoFromCompartments = (comps: any[], targetAmmo: any, amountToDeduct: number) => {
     let remaining = amountToDeduct;
     const getQty = (it: any) => typeof it?.quantidade === 'number' ? it.quantidade : (parseInt(it?.quantidade) || (it ? 1 : 0));
+    const targetIdStr = targetAmmo?.id !== undefined && targetAmmo?.id !== null ? String(targetAmmo.id).trim() : "";
+    const targetNameLower = (targetAmmo?.nome || "").trim().toLowerCase();
 
-    // Phase 1: Deduct from the exact selected item ID
+    // Phase 1: Deduct from the exact selected item ID (if ID provided)
     let updatedComps = (comps || []).map(comp => ({
       ...comp,
       itens: (comp.itens || []).map((it: any) => {
-        if (remaining > 0 && it.id === targetAmmo.id) {
+        const itIdStr = it?.id !== undefined && it?.id !== null ? String(it.id).trim() : "";
+        const isExactId = targetIdStr && itIdStr && itIdStr === targetIdStr;
+        if (remaining > 0 && isExactId) {
           const q = getQty(it);
           const take = Math.min(q, remaining);
           remaining -= take;
@@ -1709,12 +1719,32 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     }));
 
     // Phase 2: If still remaining, deduct from other matching stacks of same name
-    if (remaining > 0 && targetAmmo.nome) {
-      const targetNameLower = targetAmmo.nome.trim().toLowerCase();
+    if (remaining > 0 && targetNameLower) {
       updatedComps = updatedComps.map(comp => ({
         ...comp,
         itens: (comp.itens || []).map((it: any) => {
-          if (remaining > 0 && it.id !== targetAmmo.id && it.nome && it.nome.trim().toLowerCase() === targetNameLower && getQty(it) > 0) {
+          const itIdStr = it?.id !== undefined && it?.id !== null ? String(it.id).trim() : "";
+          const itNameLower = (it?.nome || "").trim().toLowerCase();
+          const isSameName = itNameLower === targetNameLower;
+          const isNotExactId = !targetIdStr || itIdStr !== targetIdStr;
+          if (remaining > 0 && isSameName && isNotExactId && getQty(it) > 0) {
+            const q = getQty(it);
+            const take = Math.min(q, remaining);
+            remaining -= take;
+            return { ...it, quantidade: Math.max(0, q - take) };
+          }
+          return it;
+        })
+      }));
+    }
+
+    // Phase 3: Failsafe: if targetAmmo had no ID or Phase 1 & 2 left remaining, deduct from any matching name
+    if (remaining > 0 && targetNameLower) {
+      updatedComps = updatedComps.map(comp => ({
+        ...comp,
+        itens: (comp.itens || []).map((it: any) => {
+          const itNameLower = (it?.nome || "").trim().toLowerCase();
+          if (remaining > 0 && itNameLower === targetNameLower && getQty(it) > 0) {
             const q = getQty(it);
             const take = Math.min(q, remaining);
             remaining -= take;
@@ -1887,6 +1917,18 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     charUpdates.compartimentos = finalComps;
 
     await updateCharacterLocalAndRemote(char.id, charUpdates);
+
+    // Refresh selected ammo ID if the current stack was fully loaded into the weapon
+    const remainingInTarget = (finalComps.flatMap(c => c.itens || []) as any[])
+      .find(i => String(i.id) === String(ammo.id));
+    if (!remainingInTarget || (Number(remainingInTarget.quantidade) || 0) <= 0) {
+      const nextAvailable = (finalComps.flatMap(c => c.itens || []) as any[])
+        .find(i => isMatchingAmmoItem(i, isBow));
+      if (nextAvailable) {
+        setSelectedAmmoId(nextAvailable.id);
+      }
+    }
+
     const unloadNote = bulletsUnloadedCount > 0 ? ` (${bulletsUnloadedCount} balas anteriores voltaram para a mochila)` : "";
     await addCombatLog(campaignId, { msg: `${char.nome} recarregou 1 munição (${ammo.nome}) em ${weapon.nome}.${unloadNote}`, type: 'info' });
   };
@@ -2658,11 +2700,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   };
 
   const handleDragEnd = (id: string, x: number, y: number) => {
-    setActivelyDraggedToken(null);
     const token = tokens.find(t => t.id === id);
     if (token) {
       updateTokenPosition(campaignId, id, { x, y, prevX: token.x, prevY: token.y }, tokens);
     }
+    // Brief 150ms buffer to ensure local state and recentLocalMoves protect against server echo
+    setTimeout(() => {
+      setActivelyDraggedToken(null);
+    }, 150);
   };
 
   const handleUndoMove = () => {
@@ -6531,8 +6576,9 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             <div className="p-4 max-h-[70vh] overflow-y-auto space-y-2 custom-scrollbar">
               {(() => {
                 const attacker = tokens.find(t => t.id === weaponSelectTokenId);
-                const attackerChar = (attacker?.characterId ? fetchedCharacters[attacker.characterId] : undefined) || 
-                  availableCharacters.find(c => c.id === attacker?.characterId);
+                const rawAvail = attacker?.characterId ? availableCharacters.find(c => c.id === attacker.characterId) : undefined;
+                const rawFetched = attacker?.characterId ? fetchedCharacters[attacker.characterId] : undefined;
+                const attackerChar = rawFetched && rawAvail ? { ...rawAvail, ...rawFetched } : (rawFetched || rawAvail);
                 const weapons = (attackerChar?.armas || []).filter(w => !isArmorItem(w, attackerChar) && ((w.tipo || "").toLowerCase() !== 'armadura') && !(w as any).reducaoDano);
                 const catalysts = attackerChar?.catalisadores || [];
                 const spells = attackerChar?.magias || [];

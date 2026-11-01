@@ -532,7 +532,7 @@ async function startServer() {
               currentStore[campaignId] = currentCampVtt;
 
               // 1. Instant zero-delay broadcast to all other players (< 1ms)
-              broadcastVtt(campaignId, { type: "vtt_tokens", tokens: list, config: currentCampVtt.config }, ws);
+              broadcastVtt(campaignId, { type: "vtt_tokens", tokens: list, config: currentCampVtt.config, senderId: msg.senderId }, ws);
 
               // 2. Debounced asynchronous file persist
               saveVttStore(currentStore);
@@ -735,7 +735,7 @@ async function startServer() {
   // Dedicated VTT API: Add or update tokens
   app.post("/api/campaigns/:campaignId/vtt/tokens", async (req, res) => {
     const { campaignId } = req.params;
-    const { token, tokens: bulkTokens } = req.body;
+    const { token, tokens: bulkTokens, senderId } = req.body;
 
     if (!campaignId) return res.status(400).json({ error: "campaignId é obrigatório" });
 
@@ -758,7 +758,7 @@ async function startServer() {
     saveVttStore(store);
 
     // Instant zero-latency SSE push to all other players in this campaign
-    broadcastVtt(campaignId, { type: "vtt_tokens", tokens: currentTokens, config: campVtt.config });
+    broadcastVtt(campaignId, { type: "vtt_tokens", tokens: currentTokens, config: campVtt.config, senderId });
 
     // Save to Supabase in background
     try {

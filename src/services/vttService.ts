@@ -249,11 +249,17 @@ export const setActivelyDraggedToken = (tokenId: string | null) => {
 };
 export const getActivelyDraggedToken = () => activelyDraggedTokenId;
 
+// Track recent local moves to prevent remote echoes or stale snapshots from rubber-banding tokens back
+const recentLocalMoves = new Map<string, { x: number; y: number; time: number }>();
+export const recordLocalMove = (tokenId: string, x: number, y: number) => {
+  recentLocalMoves.set(tokenId, { x, y, time: Date.now() });
+};
+
 export const sendVttRealtimeMessage = (campaignId: string, payload: any) => {
   const entry = activeRealtimeStreams.get(campaignId);
   if (entry && entry.ws && entry.ws.readyState === WebSocket.OPEN) {
     try {
-      entry.ws.send(JSON.stringify(payload));
+      entry.ws.send(JSON.stringify({ ...payload, senderId: vttClientId }));
       return true;
     } catch (e) {
       console.warn("[VTT WS send error]", e);
@@ -290,15 +296,34 @@ function connectVttStream(campaignId: string) {
     }
 
     if (payload.tokens && Array.isArray(payload.tokens)) {
-      let finalTokens = payload.tokens;
-      // If we are actively dragging a token, do NOT overwrite its local drag position with remote snapshots!
-      if (activelyDraggedTokenId) {
-        const current = getLocalTokens(campaignId);
-        const dragging = current.find(t => t.id === activelyDraggedTokenId);
-        if (dragging) {
-          finalTokens = payload.tokens.map((t: any) => t.id === activelyDraggedTokenId ? { ...t, x: dragging.x, y: dragging.y } : t);
+      const isOwnEcho = payload.senderId && payload.senderId === vttClientId;
+      const now = Date.now();
+
+      // Merge tokens protecting local drag positions and recent local moves from being snapped back
+      const current = getLocalTokens(campaignId);
+      const currentMap = new Map(current.map(t => [t.id, t]));
+
+      const finalTokens = payload.tokens.map((t: any) => {
+        // 1. If actively dragging right now, preserve drag coordinates
+        if (activelyDraggedTokenId === t.id) {
+          const dragging = currentMap.get(t.id);
+          if (dragging) return { ...t, x: dragging.x, y: dragging.y };
+        }
+        // 2. If locally moved within the last 3500ms, protect against stale server echoes/snapshots!
+        const recent = recentLocalMoves.get(t.id);
+        if (recent && (now - recent.time < 3500)) {
+          return { ...t, x: recent.x, y: recent.y };
+        }
+        return t;
+      });
+
+      // Preserve any tokens currently in local state that might be missing from an incomplete remote snapshot
+      for (const curToken of current) {
+        if (!finalTokens.some(ft => ft.id === curToken.id)) {
+          finalTokens.push(curToken);
         }
       }
+
       saveLocalTokens(campaignId, finalTokens);
       notifyTokenListeners(campaignId, finalTokens);
     }
@@ -681,15 +706,20 @@ export const updateTokenPosition = async (
   const matchedToken = updatedTokens.find(t => t.id === tokenId);
   if (!matchedToken) return;
 
+  // Record move locally to prevent server echo snap-back
+  if (matchedToken.x !== undefined && matchedToken.y !== undefined) {
+    recordLocalMove(tokenId, matchedToken.x, matchedToken.y);
+  }
+
   // 1. Instant sub-5ms duplex WebSocket transmission to all peers
-  sendVttRealtimeMessage(campaignId, { type: 'token_move', token: matchedToken, tokens: updatedTokens });
+  sendVttRealtimeMessage(campaignId, { type: 'token_move', token: matchedToken, tokens: updatedTokens, senderId: vttClientId });
 
   // 2. Post to backend server VTT API as fast HTTP backup
   try {
     fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt/tokens`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: matchedToken })
+      body: JSON.stringify({ token: matchedToken, senderId: vttClientId })
     }).catch(() => {});
   } catch (e) {}
 
@@ -741,7 +771,11 @@ export const updateMultipleTokens = async (
   for (const [id, updates] of updateMap.entries()) {
     const existing = baseMap.get(id);
     if (existing) {
-      baseMap.set(id, { ...existing, ...updates });
+      const merged = { ...existing, ...updates };
+      baseMap.set(id, merged);
+      if (merged.x !== undefined && merged.y !== undefined) {
+        recordLocalMove(id, merged.x, merged.y);
+      }
     }
   }
 
@@ -750,14 +784,14 @@ export const updateMultipleTokens = async (
   notifyTokenListeners(campaignId, updatedTokens);
 
   // 1. Instant WebSocket push
-  sendVttRealtimeMessage(campaignId, { type: 'update_tokens', tokens: updatedTokens });
+  sendVttRealtimeMessage(campaignId, { type: 'update_tokens', tokens: updatedTokens, senderId: vttClientId });
 
   // 2. HTTP push in background
   try {
     fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/vtt/tokens`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tokens: updatedTokens })
+      body: JSON.stringify({ tokens: updatedTokens, senderId: vttClientId })
     }).catch(() => {});
   } catch (e) {}
 
