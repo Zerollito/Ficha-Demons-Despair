@@ -116,8 +116,7 @@ import {
   safeLocalStorageSetItem,
   safeLocalStorageGetItem,
   idbGet,
-  isSupabaseConnected as initialSupabaseConnected,
-  DEFAULT_LOCAL_ANON_KEY
+  isSupabaseConnected as initialSupabaseConnected
 } from "./lib/supabase";
 import type { FirebaseUserLike as User } from "./lib/supabase";
 import { subscribeToUserCharacters, saveCharacterToFirestore, deleteCharacterFromFirestore, getMaxCapacity } from "./services/characterService";
@@ -224,55 +223,21 @@ export const STAT_DESCRIPTIONS: Record<keyof Stats, { name: string; desc: string
 
 const STORAGE_KEY = "rpg_system_x_chars";
 
-// Função utilitária para verificar se uma ficha é um monstro, criatura ou inimigo temporário gerado no VTT
-export const isEnemyOrCreatureCharacter = (char: any): boolean => {
-  if (!char) return false;
-  if (char.etnia === 'Monstro') return true;
-  if (char.isCreature || char.isEnemy || char.isVttEnemy || char.isVttGenerated) return true;
-  if (char.type === 'creature') return true;
-  const charUserId = (char.userId || char.user_id || '').trim();
-  const charEmail = (char.userEmail || char.user_email || '').trim().toLowerCase();
-  if (charUserId === 'monster' || charEmail === 'monster') return true;
-  const nomeLower = (char.nome || '').toLowerCase().trim();
-  if (nomeLower.includes('(inimigo)') || nomeLower.startsWith('inimigo ')) return true;
-  return false;
-};
-
 // Função utilitária para verificar se uma ficha pertence ao usuário logado ou se é anônima/guest
 export const isCharacterOwnedByCurrentUser = (char: Character, currentUser: any | null): boolean => {
   if (!char) return false;
   const charEmail = (char.userEmail || (char as any).user_email || '').trim().toLowerCase();
-  const charUserId = (char.userId || (char as any).user_id || '').trim();
+  const isGuestEmail = !charEmail || charEmail.startsWith('guest_');
 
-  // Criaturas, monstros e inimigos do VTT nunca pertencem à biblioteca de personagens de um jogador ou mestre
-  if (isEnemyOrCreatureCharacter(char)) return false;
-
-  if (currentUser) {
+  if (currentUser && currentUser.email) {
     const userEmail = (currentUser.email || '').trim().toLowerCase();
-    const userId = (currentUser.uid || currentUser.id || '').trim();
-
     const isSameEmail = Boolean(userEmail && charEmail && userEmail === charEmail);
-    const isSameId = Boolean(userId && charUserId && userId === charUserId);
-
-    if (isSameEmail || isSameId) return true;
-
-    // Se a ficha possui outro e-mail ou outro userId associado, ela pertence estritamente a outro jogador
-    if (charEmail || charUserId) return false;
-
-    // Se a ficha possui vínculo com uma campanha (campaignId), veio de uma mesa e NÃO pertence a este usuário!
-    if (char.campaignId) return false;
-
-    // Se veio de um token ou cache de mesa, não pertence ao usuário
-    if ((char as any).isCampaignChar || (char as any).fromCampaign) return false;
-
-    // Apenas se a ficha não possui nem e-mail nem userId nem campanha é tratada como anônima/guest local deste navegador
-    return true;
+    return isSameEmail || isGuestEmail;
   }
 
   // Se o usuário NÃO está logado (!currentUser):
-  // Fichas com campanha nunca são anônimas locais do visitante
-  if (char.campaignId) return false;
-  return (!charEmail && !charUserId) || charEmail.startsWith('guest_');
+  // Ele SÓ tem permissão para visualizar fichas anônimas/de convidado (guest).
+  return isGuestEmail;
 };
 
 // Using generateId from lib/random
@@ -1244,9 +1209,9 @@ function App() {
   }, [user, showToast]);
 
   const [isOnline, setIsOnline] = useState(typeof window !== 'undefined' ? window.navigator.onLine : true);
-  const [isSupabaseConnected, setIsSupabaseConnected] = useState(false);
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState(initialSupabaseConnected);
 
-  // Monitorar conectividade geral e eventos de status do Supabase
+  // Monitorar conexão
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -1255,7 +1220,7 @@ function App() {
     
     const handleStatusChange = (e: any) => {
       if (e.detail) {
-        setIsSupabaseConnected(Boolean(e.detail.connected));
+        setIsSupabaseConnected(e.detail.connected);
       }
     };
     window.addEventListener('supabase_connection_status_changed', handleStatusChange);
@@ -1267,78 +1232,13 @@ function App() {
     };
     window.addEventListener('supabase_connection_mixed_content_error', handleMixedContentError);
 
-    // Verificação proativa real: testa a conexão ao montar e ao focar a janela, sem falsos positivos
-    let isMounted = true;
-    const probeSupabase = async () => {
-      try {
-        const res = await testSupabaseConnection();
-        if (isMounted) {
-          setIsSupabaseConnected(res.success);
-        }
-      } catch {
-        if (isMounted) {
-          setIsSupabaseConnected(false);
-        }
-      }
-    };
-
-    probeSupabase();
-    const interval = setInterval(probeSupabase, 25000);
-    window.addEventListener('focus', probeSupabase);
-
     return () => {
-      isMounted = false;
-      clearInterval(interval);
-      window.removeEventListener('focus', probeSupabase);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('supabase_connection_status_changed', handleStatusChange);
       window.removeEventListener('supabase_connection_mixed_content_error', handleMixedContentError);
     };
   }, [showToast]);
-
-  // Database / Supabase configuration modal state
-  const [isDbModalOpen, setIsDbModalOpen] = useState(false);
-  const [dbConfigUrl, setDbConfigUrl] = useState(() => getSupabaseConfig().rawUrl || "http://127.0.0.1:54321");
-  const [dbConfigKey, setDbConfigKey] = useState(() => getSupabaseConfig().anonKey);
-  const [dbTesting, setDbTesting] = useState(false);
-  const [dbTestResult, setDbTestResult] = useState<{ success: boolean; message: string; latency?: number; tablesReady?: boolean } | null>(null);
-
-  const handleTestDatabase = useCallback(async (overrideUrl?: string, overrideKey?: string) => {
-    setDbTesting(true);
-    setDbTestResult(null);
-    try {
-      const url = overrideUrl || dbConfigUrl;
-      const key = overrideKey !== undefined ? overrideKey : dbConfigKey;
-      const res = await testSupabaseConnection(url, key);
-      setDbTestResult(res);
-      if (res.success) {
-        setIsSupabaseConnected(true);
-      }
-    } catch (e: any) {
-      setDbTestResult({ success: false, message: e.message || "Falha ao testar conexão." });
-    } finally {
-      setDbTesting(false);
-    }
-  }, [dbConfigUrl, dbConfigKey]);
-
-  const handleSaveDatabaseConfig = useCallback(async () => {
-    setDbTesting(true);
-    try {
-      setSupabaseConfig(dbConfigUrl, dbConfigKey);
-      const res = await testSupabaseConnection(dbConfigUrl, dbConfigKey);
-      setDbTestResult(res);
-      if (res.success) {
-        showToast("Configurações do Supabase salvas e conectadas!", "success");
-      } else {
-        showToast(res.message || "Configuração salva, mas o Supabase não respondeu.", "info");
-      }
-    } catch (e: any) {
-      showToast("Erro ao salvar configuração: " + (e.message || String(e)), "error");
-    } finally {
-      setDbTesting(false);
-    }
-  }, [dbConfigUrl, dbConfigKey, showToast]);
 
   // Bloqueio de gestos do navegador para evitar pull-to-refresh e pinch-zoom
   useEffect(() => {
@@ -1641,10 +1541,10 @@ function App() {
           const isRemote = sanitizedFireChars.some(fc => fc.id === lc.id);
           const isOwn = lc.userId === user.uid || (lc.userEmail && lc.userEmail === user.email);
 
-          // Se não é nossa ficha (por exemplo, pertence a outro jogador ou é de campanha),
-          // NUNCA incluir na lista de fichas próprias do usuário!
+          // Se não é nossa ficha (por exemplo, pertence a outro jogador ou é uma criatura na campanha),
+          // não devemos aplicar a lógica de remoção/sincronização de ficha própria privada.
           if (!isOwn) {
-            return false;
+            return !isRemote && !deletedCharsRef.current.has(lc.id);
           }
 
           // Se a ficha não existe no servidor mas existe localmente e não foi deletada pelo usuário:
@@ -1835,48 +1735,25 @@ function App() {
     };
   }, [activeCampaignId]);
 
-  // Personagens disponíveis no VTT:
-  // Se for Mestre da campanha ativa: visualiza todas as fichas da campanha + suas fichas locais.
-  // Se for Jogador: visualiza APENAS suas próprias fichas (não vê as fichas de outros jogadores na lista do VTT).
+  // Merge campaign characters with user's local characters so players always see their characters in VTT
   const vttAvailableCharacters = useMemo(() => {
-    const userEmailLower = (user?.email || '').trim().toLowerCase();
-    const isMasterOfActive = !!(activeCampaignId && (
-      masterCampaigns.some(c => c.id === activeCampaignId) ||
-      campaigns.some(c => c.id === activeCampaignId && ((c.masterEmail && c.masterEmail.toLowerCase() === userEmailLower) || (c.masterId && c.masterId === user?.uid)))
-    ));
-
     const map = new Map<string, Character>();
     campaignCharacters.forEach(c => {
-      if (c && c.id && !deletedCharsRef.current.has(c.id)) {
-        if (isMasterOfActive || isCharacterOwnedByCurrentUser(c, user)) {
-          map.set(c.id, c);
-        }
+      if (!deletedCharsRef.current.has(c.id)) {
+        map.set(c.id, c);
       }
     });
-    // Overlay state.characters so active local modifications (such as ammo reloading & combat damage) take immediate priority!
     state.characters.forEach(c => {
-      if (c && c.id && !deletedCharsRef.current.has(c.id)) {
-        if (isMasterOfActive || isCharacterOwnedByCurrentUser(c, user)) {
-          const existing = map.get(c.id);
-          if (existing) {
-            map.set(c.id, { ...existing, ...c });
-          } else {
-            map.set(c.id, c);
-          }
-        }
+      if (!deletedCharsRef.current.has(c.id) && !map.has(c.id)) {
+        map.set(c.id, c);
       }
     });
     return Array.from(map.values());
-  }, [campaignCharacters, state.characters, activeCampaignId, user, masterCampaigns, campaigns]);
+  }, [campaignCharacters, state.characters]);
 
-  // Merge campaign characters: apenas para o MESTRE (para inspecionar e abrir as fichas dos jogadores)
-  // ou para o jogador atualizar dados da sua própria ficha. Jogadores NUNCA recebem fichas alheias.
+  // Automatically merge campaign characters into state.characters so Mestre and players have full sheet access
   useEffect(() => {
     if (!user?.uid || !activeCampaignId || campaignCharacters.length === 0) return;
-
-    const userEmailLower = (user.email || '').trim().toLowerCase();
-    const isMasterOfActive = masterCampaigns.some(c => c.id === activeCampaignId) ||
-      campaigns.some(c => c.id === activeCampaignId && ((c.masterEmail && c.masterEmail.toLowerCase() === userEmailLower) || (c.masterId && c.masterId === user.uid)));
 
     setState(prev => {
       let changed = false;
@@ -1884,48 +1761,31 @@ function App() {
 
       campaignCharacters.forEach(cc => {
         if (cc && cc.id && !deletedCharsRef.current.has(cc.id)) {
-          const isOwn = isCharacterOwnedByCurrentUser(cc, user);
-          // O Mestre pode carregar as fichas dos jogadores da mesa; o jogador SÓ carrega a sua própria ficha!
-          if (isMasterOfActive || isOwn) {
-            const existing = charMap.get(cc.id);
-            if (!existing) {
-              charMap.set(cc.id, cc);
+          const existing = charMap.get(cc.id);
+          if (!existing) {
+            charMap.set(cc.id, cc);
+            changed = true;
+          } else {
+            // Atualiza se houver dados novos do jogador
+            const existingStr = JSON.stringify({ ...existing, dirty: undefined });
+            const incomingStr = JSON.stringify({ ...cc, dirty: undefined });
+            if (existingStr !== incomingStr) {
+              charMap.set(cc.id, { ...existing, ...cc });
               changed = true;
-            } else {
-              // Atualiza preservando alterações locais ativas
-              const existingStr = JSON.stringify({ ...existing, dirty: undefined });
-              const incomingStr = JSON.stringify({ ...cc, dirty: undefined });
-              if (existingStr !== incomingStr) {
-                charMap.set(cc.id, { ...cc, ...existing });
-                changed = true;
-              }
             }
           }
         }
       });
-
-      // Se for jogador comum (não é o Mestre desta campanha), purga fichas de outros jogadores
-      // que possam ter sido injetadas anteriormente em sessões passadas
-      if (!isMasterOfActive) {
-        for (const [id, c] of charMap.entries()) {
-          if (!isCharacterOwnedByCurrentUser(c, user)) {
-            charMap.delete(id);
-            changed = true;
-          }
-        }
-      }
 
       if (!changed) return prev;
       const newChars = Array.from(charMap.values());
       return {
         ...prev,
         characters: newChars,
-        activeCharacterId: prev.activeCharacterId && charMap.has(prev.activeCharacterId)
-          ? prev.activeCharacterId
-          : (newChars.length > 0 ? newChars[0].id : "")
+        activeCharacterId: prev.activeCharacterId || (newChars.length > 0 ? newChars[0].id : "")
       };
     });
-  }, [activeCampaignId, campaignCharacters, user?.uid, masterCampaigns, campaigns]);
+  }, [activeCampaignId, campaignCharacters, user?.uid]);
 
   const [tocaEditingCreatureId, setTocaEditingCreatureId] = useState<string | null>(null);
   const [bestiaryEditingMonsterId, setBestiaryEditingMonsterId] = useState<string | null>(null);
@@ -1994,10 +1854,8 @@ function App() {
     const charMap = new Map<string, Character>();
 
     // 1. Fichas próprias do usuário ou fichas de campanhas onde o usuário é Mestre
-    // NUNCA inclui monstros, criaturas ou inimigos de combate do VTT na biblioteca
     state.characters.forEach(c => {
       if (!c || !c.id || deletedCharsRef.current.has(c.id)) return;
-      if (isEnemyOrCreatureCharacter(c)) return;
       if (isCharacterOwnedByCurrentUser(c, user)) {
         charMap.set(c.id, c);
       } else if (c.campaignId && masterCampIds.has(c.campaignId)) {
@@ -2005,12 +1863,10 @@ function App() {
       }
     });
 
-    // 2. Fichas de jogadores carregadas da campanha ativa
-    // NUNCA inclui monstros, criaturas ou inimigos de combate do VTT na biblioteca
+    // 2. Fichas carregadas da campanha ativa (se for mestre da campanha ou se houver fichas na campanha)
     if (activeCampaignId && (masterCampIds.has(activeCampaignId) || campaigns.some(c => c.id === activeCampaignId && c.masterEmail?.toLowerCase() === userEmailLower))) {
       campaignCharacters.forEach(c => {
         if (c && c.id && !deletedCharsRef.current.has(c.id)) {
-          if (isEnemyOrCreatureCharacter(c)) return;
           charMap.set(c.id, c);
         }
       });
@@ -2141,10 +1997,6 @@ function App() {
     dmgFormula?: string;
     hitFormula?: string;
     hitLocation?: string;
-    locationRoll?: number;
-    resRoll?: number;
-    resProf?: number;
-    effectApplied?: boolean;
     defenseRolls?: number[];
     defenseResult?: number;
     combatNote?: string;
@@ -2768,19 +2620,33 @@ function App() {
     };
     const statKey = statMap[arma.atributoBase || "Força"] || "FOR";
     const statValue = activeChar.stats[statKey] || 0;
-    const isFirearm = arma.categoria === 'Arma de Fogo' || ((arma as any).tipo || '').toLowerCase() === 'arma de fogo' ||
-      ['pistola', 'revol', 'rifle', 'fuzil', 'escopeta', 'trabuco', 'flintlock', 'garrucha'].some(w => (arma.nome || '').toLowerCase().includes(w));
-    const isBow = arma.categoria === 'Arco';
-    const scalingBonus = isFirearm ? 0 : (calculateWeaponDamageBonus(arma as any, statValue) || 0);
+    const scalingBonus =
+      calculateWeaponDamageBonus(arma as any, statValue) || 0;
     const totalDmgBonus = scalingBonus + (bonusManual || 0);
 
     // 4. Roll Damage using the robust utility
-    // Balas e flechas não possuem dano por si próprias, apenas a arma
-    let baseDano = arma.dano;
-    if (!baseDano || baseDano === '0' || baseDano === 'Sem Dano' || baseDano === 'Falta Bala' || baseDano === 'Falta Flecha') {
-      baseDano = isBow ? "1d6" : isFirearm ? "2d6" : "1d4";
+    let bulletDano = "1d6";
+    const isFirearm = arma.categoria === 'Arma de Fogo';
+    const isBow = arma.categoria === 'Arco';
+    if (isFirearm || isBow) {
+      const ammoId = isBow ? (arma.arrowId || arma.bulletId) : (arma.bulletId || arma.arrowId);
+      const loadedAmmo = (activeChar.compartimentos || [])
+        .flatMap((c: any) => (c.itens || []))
+        .find((i: any) => (ammoId && i.id === ammoId) || (arma.magazineAmmo?.[0] && (i.id === arma.magazineAmmo[0].id || i.nome === arma.magazineAmmo[0].nome)));
+
+      if (arma.magazineAmmo && arma.magazineAmmo.length > 0 && arma.magazineAmmo[0].dano && arma.magazineAmmo[0].dano !== '0') {
+        bulletDano = arma.magazineAmmo[0].dano;
+      } else if (loadedAmmo && loadedAmmo.dano && loadedAmmo.dano !== '0') {
+        bulletDano = loadedAmmo.dano;
+      } else if (arma.municaoDano && arma.municaoDano !== '0') {
+        bulletDano = arma.municaoDano;
+      } else if (arma.dano && arma.dano !== '0') {
+        bulletDano = arma.dano;
+      } else {
+        bulletDano = isBow ? "1d6" : "2d6";
+      }
     }
-    const rollData = parseAndRollDice(baseDano);
+    const rollData = parseAndRollDice((isFirearm || isBow) ? bulletDano : (arma.dano || "1d6"));
     
     // Add the scaling/manual bonus to the total
     const finalDmgTotal = rollData.total + totalDmgBonus;
@@ -3733,16 +3599,6 @@ function App() {
   // Auto-save removed - handled by debounced effect above
 
   const updateChar = useCallback((updatesOrFn: (Partial<Character> & Record<string, any>) | ((c: Character) => Partial<Character> & Record<string, any>), characterId?: string) => {
-    if (characterId) {
-      setCampaignCharacters(prevList => prevList.map(c => {
-        if (c.id === characterId) {
-          const upd = typeof updatesOrFn === 'function' ? updatesOrFn(c) : updatesOrFn;
-          return { ...c, ...upd };
-        }
-        return c;
-      }));
-    }
-
     setState(prev => {
       const characters = [...prev.characters];
       
@@ -4956,7 +4812,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.6</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.14.28</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -5066,14 +4922,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.6</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.14.28</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.6</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.14.28</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -5145,14 +5001,14 @@ function App() {
 
 
 
-          {/* Auth Status & Connection Indicator */}
+          {/* Auth Status & Login Indicator */}
           <motion.button
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => {
               if (user) {
-                if (window.confirm(`Conectado como ${user.email || user.displayName || 'Usuário'}.\n${isSupabaseConnected ? '• Supabase Local: Conectado' : '• Supabase Local: Desconectado (Nuvem VTT Ativa)'}\n\nDeseja sair da conta?`)) {
+                if (window.confirm(`Conectado como ${user.email || user.displayName || 'Usuário'}.\nDeseja sair da conta?`)) {
                   logout();
                   showToast("Você saiu da conta.", "info");
                 }
@@ -5162,33 +5018,25 @@ function App() {
               }
             }}
             className={cn(
-              "flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer shadow-sm",
-              !user
-                ? "bg-amber-500/20 border-amber-500/40 text-amber-500 hover:bg-amber-500/30"
-                : isSupabaseConnected
-                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
-                : "bg-sky-500/10 border-sky-500/30 text-sky-400 hover:bg-sky-500/20"
+              "flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer",
+              user 
+                ? (isSupabaseConnected 
+                    ? (state.dirtyCharacterIds?.length > 0 
+                        ? "bg-green-500/20 border-green-500/50" 
+                        : "bg-green-500/10 border-green-500/30")
+                    : "bg-blue-500/10 border-blue-500/30")
+                : "bg-amber-500/20 border-amber-500/40 text-amber-500 hover:bg-amber-500/30"
             )}
-            title={
-              !user
-                ? "Desconectado (Clique para entrar ou criar conta)"
-                : state.dirtyCharacterIds?.length > 0
-                ? "Sincronizando alterações..."
-                : isSupabaseConnected
-                ? `Conexão Total: Conta (${user.email || user.displayName || 'Usuário'}) + Supabase Local Conectado`
-                : `Conta Conectada: ${user.email || user.displayName || 'Usuário'} | Supabase Desconectado (Nuvem VTT Ativa)`
-            }
+            title={user ? (isSupabaseConnected ? (state.dirtyCharacterIds?.length > 0 ? "Sincronizando..." : `Conectado: ${user.email}`) : "Offline (Local Only)") : "Entrar ou Criar Conta"}
           >
-            {user && state.dirtyCharacterIds?.length > 0 ? (
-              <RefreshCwIcon size={16} className="text-amber-400 animate-spin" />
+            {user && isSupabaseConnected && state.dirtyCharacterIds?.length > 0 ? (
+              <RefreshCwIcon size={16} className="text-green-500 animate-spin" />
             ) : (
               <div className={cn(
-                "w-2.5 h-2.5 rounded-full transition-all",
-                !user 
-                  ? "bg-amber-500 animate-pulse"
-                  : isSupabaseConnected
-                  ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"
-                  : "bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.6)]"
+                "w-2.5 h-2.5 rounded-full",
+                user 
+                  ? (isSupabaseConnected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]")
+                  : "bg-amber-500 animate-pulse"
               )} />
             )}
           </motion.button>
@@ -5288,20 +5136,6 @@ function App() {
                 accept=".json"
               />
             </label>
-
-            <div className="pt-1 border-t border-zinc-800 mt-1">
-              <motion.button
-                whileTap={{ scale: 0.95 }}
-                onClick={() => {
-                  setIsDbModalOpen(true);
-                  setIsMenuOpen(false);
-                  handleTestDatabase();
-                }}
-                className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-emerald-400 cursor-pointer"
-              >
-                <Database size={18} /> Banco de Dados / Supabase
-              </motion.button>
-            </div>
 
             <div className="pt-1 border-t border-zinc-800 mt-1">
               <motion.button
@@ -9837,10 +9671,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                         };
                         const statKey = statMap[arma.atributoBase || "Força"];
                         const statValue = activeChar.stats[statKey] || 0;
-                        const isFirearm = arma.categoria === 'Arma de Fogo' || ((arma as any).tipo || '').toLowerCase() === 'arma de fogo' ||
-                          ['pistola', 'revol', 'rifle', 'fuzil', 'escopeta', 'trabuco', 'flintlock', 'garrucha'].some(w => (arma.nome || '').toLowerCase().includes(w));
-                        const isBow = arma.categoria === 'Arco';
-                        const scalingBonus = isFirearm ? 0 : calculateWeaponDamageBonus(
+                        const scalingBonus = calculateWeaponDamageBonus(
                           arma as any,
                           statValue,
                         );
@@ -9862,13 +9693,29 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
 
                         const totalHit = (acuraciaBonus || 0);
                         const weaponAcerto = (arma.acerto || 0);
-                        let displayDano = arma.dano || (isBow ? "1d6" : isFirearm ? "2d6" : "1d4");
-                        if (isFirearm && (!arma.municaoCarregada || arma.municaoCarregada <= 0)) {
-                          displayDano = (arma.dano && arma.dano !== '0' && arma.dano !== 'Sem Dano') ? arma.dano : "Falta Bala";
-                        } else if (isBow) {
-                          const ammoId = arma.arrowId || arma.bulletId;
-                          if (!ammoId) {
-                            displayDano = (arma.dano && arma.dano !== '0' && arma.dano !== 'Sem Dano') ? arma.dano : "Falta Flecha";
+                        let displayDano = arma.dano || "1d6";
+                        const isBow = arma.categoria === 'Arco';
+                        const isFirearm = arma.categoria === 'Arma de Fogo';
+                        if (isFirearm || isBow) {
+                          const ammoId = isBow ? (arma.arrowId || arma.bulletId) : (arma.bulletId || arma.arrowId);
+                          const loadedAmmo = (activeChar.compartimentos || [])
+                            .flatMap((c: any) => (c.itens || []))
+                            .find((i: any) => (ammoId && i.id === ammoId) || (arma.magazineAmmo?.[0] && (i.id === arma.magazineAmmo[0].id || i.nome === arma.magazineAmmo[0].nome)));
+
+                          if (arma.magazineAmmo && arma.magazineAmmo.length > 0 && arma.magazineAmmo[0].dano && arma.magazineAmmo[0].dano !== '0') {
+                            displayDano = arma.magazineAmmo[0].dano;
+                          } else if (loadedAmmo && loadedAmmo.dano && loadedAmmo.dano !== '0') {
+                            displayDano = loadedAmmo.dano;
+                          } else if (arma.municaoDano && arma.municaoDano !== '0') {
+                            displayDano = arma.municaoDano;
+                          } else if (arma.dano && arma.dano !== '0') {
+                            displayDano = arma.dano;
+                          } else if (isFirearm && (!arma.municaoCarregada || arma.municaoCarregada <= 0)) {
+                            displayDano = "Falta Bala";
+                          } else if (isBow && !ammoId) {
+                            displayDano = "Falta Flecha";
+                          } else {
+                            displayDano = isBow ? "1d6" : "2d6";
                           }
                         }
                         const danoStr = displayDano.toLowerCase().replace(/\s+/g, "");
@@ -9890,11 +9737,9 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                               </span>
                               <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
                                 <span className="text-[9px] text-zinc-500 font-bold uppercase">
-                                  {!isFirearm ? (
+                                  {arma.categoria !== 'Arma de Fogo' ? (
                                     <>Escala {arma.escala || "0"} • {arma.atributoBase} • </>
-                                  ) : (
-                                    <>Sem Escala • </>
-                                  )}
+                                  ) : null}
                                   Acerto Arma: {weaponAcerto}
                                 </span>
                               </div>
@@ -9917,15 +9762,11 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                                   Dano
                                 </span>
                                 <span className="text-xs font-black text-zinc-300">
-                                  {danoStr}{!isFirearm && (scalingBonus > 0 ? `+${scalingBonus}` : scalingBonus < 0 ? scalingBonus : "")}
+                                  {danoStr}{arma.categoria !== 'Arma de Fogo' && (scalingBonus > 0 ? `+${scalingBonus}` : scalingBonus < 0 ? scalingBonus : "")}
                                 </span>
-                                {!isFirearm ? (
+                                {arma.categoria !== 'Arma de Fogo' && (
                                   <span className="text-[7px] text-zinc-600 uppercase font-bold">
                                     Escala +{scalingBonus}
-                                  </span>
-                                ) : (
-                                  <span className="text-[7px] text-zinc-600 uppercase font-bold italic">
-                                    Dano Fixo
                                   </span>
                                 )}
                               </div>
@@ -10686,10 +10527,6 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                     whileTap={{ scale: 0.95 }}
                     onClick={() => {
                       const nc = createEmptyCharacter();
-                      if (user) {
-                        nc.userId = user.uid;
-                        nc.userEmail = user.email || "";
-                      }
                       setState((prev) => ({
                         ...prev,
                         characters: [nc, ...prev.characters],
@@ -12489,35 +12326,10 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
               <div className="bg-zinc-900/50 border border-zinc-800/80 rounded-xl p-3 space-y-1.5 text-xs">
                 {lastRoll.hitLocation && (
                   <div className="flex items-center justify-between">
-                    <span className="text-zinc-400 font-medium">Local do Golpe (1d6):</span>
-                    <span className="font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 font-mono">
-                      {lastRoll.locationRoll !== undefined ? `[${lastRoll.locationRoll}] ` : ""}{lastRoll.hitLocation}
+                    <span className="text-zinc-400 font-medium">Local do Golpe:</span>
+                    <span className="font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                      {lastRoll.hitLocation}
                     </span>
-                  </div>
-                )}
-                {lastRoll.resRoll !== undefined && (
-                  <div className="bg-zinc-950/80 border border-purple-500/30 rounded-lg p-2 my-1 space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-purple-300 font-bold uppercase text-[10px] tracking-wider">
-                        ⚡ Efeito ({lastRoll.effectType || "Status"}):
-                      </span>
-                      <span className={cn(
-                        "text-[9px] font-black uppercase px-1.5 py-0.5 rounded border",
-                        (lastRoll.combatStatus === 'hit_with_effect' || (lastRoll.resRoll + (lastRoll.resProf || 0)) < 70)
-                          ? "bg-red-500/20 text-red-400 border-red-500/30"
-                          : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                      )}>
-                        {(lastRoll.combatStatus === 'hit_with_effect' || (lastRoll.resRoll + (lastRoll.resProf || 0)) < 70)
-                          ? "Efeito Aplicado"
-                          : "Resistiu ao Efeito"}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between font-mono text-[11px] text-zinc-300">
-                      <span className="text-zinc-400 text-[10px]">Resistência (1d100):</span>
-                      <span>
-                        [{lastRoll.resRoll}] + {lastRoll.resProf || 0} RES = <strong className="text-amber-400">{lastRoll.resRoll + (lastRoll.resProf || 0)}</strong> <span className="text-zinc-500 text-[10px]">[Dificuldade 70]</span>
-                      </span>
-                    </div>
                   </div>
                 )}
                 {lastRoll.defenseResult !== undefined && (
@@ -12994,199 +12806,6 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
               </div>
             </div>
           )}
-        </motion.div>
-      </div>
-    )}
-  </AnimatePresence>
-
-  {/* Modal de Conexão com Banco de Dados / Supabase */}
-  <AnimatePresence>
-    {isDbModalOpen && (
-      <div 
-        className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
-        onClick={() => setIsDbModalOpen(false)}
-      >
-        <motion.div
-          initial={{ scale: 0.95, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.95, opacity: 0 }}
-          onClick={(e) => e.stopPropagation()}
-          className="bg-zinc-950 border border-zinc-800 p-6 rounded-2xl max-w-xl w-full shadow-2xl space-y-5 font-sans relative max-h-[90vh] overflow-y-auto custom-scrollbar"
-        >
-          {/* Botão Fechar */}
-          <button
-            type="button"
-            onClick={() => setIsDbModalOpen(false)}
-            className="absolute top-4 right-4 p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
-          >
-            <X size={20} />
-          </button>
-
-          {/* Cabeçalho */}
-          <div className="flex items-center gap-3 border-b border-zinc-800/80 pb-4">
-            <div className={cn(
-              "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border",
-              isSupabaseConnected 
-                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                : "bg-red-500/10 border-red-500/30 text-red-400"
-            )}>
-              <Database size={22} />
-            </div>
-            <div>
-              <h3 className="text-base font-black text-white uppercase tracking-tight flex items-center gap-2">
-                Conexão com Banco de Dados
-                <span className={cn(
-                  "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider",
-                  isSupabaseConnected 
-                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
-                    : "bg-red-500/20 text-red-400 border border-red-500/40"
-                )}>
-                  {isSupabaseConnected ? "Conectado" : "Desconectado"}
-                </span>
-              </h3>
-              <p className="text-xs text-zinc-400 mt-0.5">
-                Configure a URL e a chave de acesso do seu Supabase local ou remoto
-              </p>
-            </div>
-          </div>
-
-          {/* Resultado do Teste de Diagnóstico */}
-          {dbTestResult && (
-            <div className={cn(
-              "p-3.5 rounded-xl border text-xs space-y-1.5 animate-in fade-in duration-150",
-              dbTestResult.success 
-                ? (dbTestResult.tablesReady === false 
-                    ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
-                    : "bg-emerald-500/10 border-emerald-500/30 text-emerald-300")
-                : "bg-red-500/10 border-red-500/30 text-red-300"
-            )}>
-              <div className="flex items-center gap-2 font-bold">
-                {dbTestResult.success ? (
-                  dbTestResult.tablesReady === false ? <AlertCircle size={16} className="text-amber-400 shrink-0" /> : <Check size={16} className="text-emerald-400 shrink-0" />
-                ) : (
-                  <AlertCircle size={16} className="text-red-400 shrink-0" />
-                )}
-                <span>{dbTestResult.message}</span>
-              </div>
-              {dbTestResult.latency !== undefined && (
-                <div className="text-[11px] text-zinc-400 font-mono">
-                  Tempo de resposta: {dbTestResult.latency}ms
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Formulário de Configuração */}
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                URL do Supabase *
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={dbConfigUrl}
-                  onChange={(e) => setDbConfigUrl(e.target.value)}
-                  placeholder="http://127.0.0.1:54321 ou https://seu-tunnel.trycloudflare.com"
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs font-mono text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                />
-              </div>
-
-              {/* Botões de Atalho / Presets */}
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                <span className="text-[10px] text-zinc-500 font-bold uppercase self-center mr-1">Atalhos:</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDbConfigUrl("http://127.0.0.1:54321");
-                    handleTestDatabase("http://127.0.0.1:54321");
-                  }}
-                  className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg text-[10px] font-mono text-zinc-400 hover:text-white transition-colors cursor-pointer"
-                >
-                  127.0.0.1:54321
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDbConfigUrl("http://localhost:54321");
-                    handleTestDatabase("http://localhost:54321");
-                  }}
-                  className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg text-[10px] font-mono text-zinc-400 hover:text-white transition-colors cursor-pointer"
-                >
-                  localhost:54321
-                </button>
-                {typeof window !== 'undefined' && window.location.origin && !window.location.origin.includes('127.0.0.1') && !window.location.origin.includes('localhost') && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDbConfigUrl(window.location.origin);
-                      handleTestDatabase(window.location.origin);
-                    }}
-                    className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg text-[10px] font-mono text-zinc-400 hover:text-white transition-colors cursor-pointer"
-                  >
-                    Proxy Integrado ({window.location.host})
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                  Chave Anônima (Anon Key / Public Key)
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setDbConfigKey(DEFAULT_LOCAL_ANON_KEY)}
-                  className="text-[10px] text-amber-500 hover:underline cursor-pointer"
-                >
-                  Restaurar chave local padrão
-                </button>
-              </div>
-              <textarea
-                value={dbConfigKey}
-                onChange={(e) => setDbConfigKey(e.target.value)}
-                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
-                rows={2}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-[11px] font-mono text-zinc-300 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
-              />
-            </div>
-          </div>
-
-          {/* Botões de Ação */}
-          <div className="flex gap-2.5 pt-2 border-t border-zinc-800/80">
-            <button
-              type="button"
-              disabled={dbTesting}
-              onClick={() => handleTestDatabase()}
-              className="flex-1 py-2.5 bg-zinc-900 hover:bg-zinc-850 border border-zinc-750 text-zinc-200 font-bold rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2"
-            >
-              {dbTesting ? <RefreshCwIcon size={14} className="animate-spin text-amber-500" /> : <Terminal size={14} />}
-              <span>{dbTesting ? "Testando..." : "Testar Conexão"}</span>
-            </button>
-            <button
-              type="button"
-              disabled={dbTesting}
-              onClick={handleSaveDatabaseConfig}
-              className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-black rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-amber-500/10"
-            >
-              <Save size={14} />
-              <span>Salvar e Conectar</span>
-            </button>
-          </div>
-
-          {/* Guia Rápido de Configuração do Supabase Local */}
-          <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3.5 space-y-2 text-xs text-zinc-400">
-            <h4 className="font-bold text-zinc-200 flex items-center gap-1.5 uppercase text-[11px] tracking-wider">
-              <Info size={14} className="text-amber-500" /> Como configurar o Supabase Local no seu PC
-            </h4>
-            <ol className="list-decimal list-inside space-y-1 text-[11px] text-zinc-300">
-              <li>No terminal da sua máquina, inicie o Supabase com <code className="px-1.5 py-0.5 bg-zinc-950 rounded text-amber-400 font-mono">supabase start</code>.</li>
-              <li>Acesse o Supabase Studio em <code className="px-1.5 py-0.5 bg-zinc-950 rounded text-amber-400 font-mono">http://127.0.0.1:54323</code> no seu navegador.</li>
-              <li>Vá em <strong>SQL Editor</strong> e execute o script <code className="px-1.5 py-0.5 bg-zinc-950 rounded text-amber-400 font-mono">supabase_setup.sql</code> que está na raiz deste projeto.</li>
-              <li>Se estiver acessando o app pelo celular ou preview HTTPS, use um túnel como <code className="px-1.5 py-0.5 bg-zinc-950 rounded text-amber-400 font-mono">cloudflared tunnel --url http://127.0.0.1:54321</code> e insira a URL HTTPS gerada aqui.</li>
-            </ol>
-          </div>
         </motion.div>
       </div>
     )}

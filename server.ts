@@ -83,13 +83,11 @@ async function startServer() {
   // Supabase reverse proxy using native Node.js HTTP/HTTPS: allows mobile clients via Cloudflare Tunnel,
   // LAN, or remote domains to transparently communicate with the host PC's local Supabase without CORS,
   // Mixed Content, or extra tunnel ports, with zero external dependencies.
-  let targetSupabase = (process.env.SUPABASE_INTERNAL_URL || process.env.VITE_SUPABASE_URL || "http://127.0.0.1:54321").trim();
-  let currentTargetSupabase = targetSupabase;
+  const targetSupabase = (process.env.SUPABASE_INTERNAL_URL || process.env.VITE_SUPABASE_URL || "http://127.0.0.1:54321").trim();
   
-  const createNativeSupabaseProxy = (getTargetUrl: () => string, pathPrefixStrip?: string) => {
+  const createNativeSupabaseProxy = (targetBaseUrl: string, pathPrefixStrip?: string) => {
     return (req: express.Request, res: express.Response) => {
       try {
-        const targetBaseUrl = getTargetUrl();
         const parsedTarget = new URL(targetBaseUrl);
         const isHttps = parsedTarget.protocol === 'https:';
         const clientLib = isHttps ? https : http;
@@ -133,8 +131,7 @@ async function startServer() {
             res.status(502).json({
               error: 'Supabase local indisponível no host.',
               details: err.message,
-              code: 'PGRST_CONNECTION_REFUSED',
-              target: targetBaseUrl
+              code: 'PGRST_CONNECTION_REFUSED'
             });
           }
         });
@@ -144,8 +141,7 @@ async function startServer() {
           if (!res.headersSent) {
             res.status(504).json({
               error: 'Gateway Timeout ao conectar com Supabase.',
-              code: 'PGRST_GATEWAY_TIMEOUT',
-              target: targetBaseUrl
+              code: 'PGRST_GATEWAY_TIMEOUT'
             });
           }
         });
@@ -159,8 +155,7 @@ async function startServer() {
     };
   };
 
-  const getTarget = () => currentTargetSupabase;
-  const supabaseProxy = createNativeSupabaseProxy(getTarget);
+  const supabaseProxy = createNativeSupabaseProxy(targetSupabase);
 
   // Mount Supabase standard routes BEFORE express.json() so body streaming is untouched
   app.use('/auth/v1', supabaseProxy);
@@ -168,13 +163,12 @@ async function startServer() {
   app.use('/storage/v1', supabaseProxy);
   app.use('/realtime/v1', supabaseProxy);
   app.use('/functions/v1', supabaseProxy);
-  app.use('/supabase-proxy', createNativeSupabaseProxy(getTarget, '/supabase-proxy'));
+  app.use('/supabase-proxy', createNativeSupabaseProxy(targetSupabase, '/supabase-proxy'));
 
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+  app.use(express.json({ limit: '10mb' }));
 
   app.get("/api/health", (req, res) => {
-    const supabaseUrl = currentTargetSupabase;
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
     const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
     const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
     
@@ -189,57 +183,25 @@ async function startServer() {
     });
   });
 
-  // Get current Supabase proxy configuration
-  app.get("/api/supabase/config", (req, res) => {
-    res.json({
-      targetUrl: currentTargetSupabase,
-      defaultAnonKey: (process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNRebZhBc_4bXn6U").trim()
-    });
-  });
-
-  // Update Supabase proxy target URL dynamically
-  app.post("/api/supabase/config", (req, res) => {
-    const { targetUrl } = req.body || {};
-    if (typeof targetUrl === 'string' && targetUrl.trim()) {
-      let clean = targetUrl.trim();
-      if (clean.endsWith("/")) clean = clean.slice(0, -1);
-      if (!clean.startsWith("http://") && !clean.startsWith("https://")) clean = "http://" + clean;
-      currentTargetSupabase = clean;
-      targetSupabase = clean;
-      console.log(`📡 [Supabase Proxy] Alvo dinamicamente atualizado para: ${currentTargetSupabase}`);
-      return res.json({ success: true, targetUrl: currentTargetSupabase });
-    }
-    res.status(400).json({ error: "URL inválida fornecida." });
-  });
-
-  // Supabase ping diagnostic endpoint with table readiness check
+  // Supabase ping diagnostic endpoint
   app.get("/api/supabase/ping", async (req, res) => {
     const rawUrl = (req.query.url as string) || "";
     const anonKey = (req.query.key as string) || process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNRebZhBc_4bXn6U";
     
-    // Tenta primeiro testar a URL solicitada, depois localhost/127.0.0.1 e currentTargetSupabase
-    const candidates: string[] = [];
-    if (rawUrl) {
+    // Tenta primeiro testar a URL solicitada (se fornecida e não for localhost)
+    let candidates = [targetSupabase];
+    if (rawUrl && rawUrl !== targetSupabase) {
       let clean = rawUrl.trim();
       if (clean.endsWith("/")) clean = clean.slice(0, -1);
       if (!clean.startsWith("http://") && !clean.startsWith("https://")) clean = "http://" + clean;
-      candidates.push(clean);
-    }
-    if (!candidates.includes(currentTargetSupabase)) {
-      candidates.push(currentTargetSupabase);
-    }
-    if (!candidates.includes("http://127.0.0.1:54321")) {
-      candidates.push("http://127.0.0.1:54321");
-    }
-    if (!candidates.includes("http://localhost:54321")) {
-      candidates.push("http://localhost:54321");
+      candidates = [clean, targetSupabase];
     }
 
     let lastError = "Erro ao conectar com Supabase";
     for (const testUrl of candidates) {
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3500);
+        const timeout = setTimeout(() => controller.abort(), 3000);
         const start = Date.now();
         const headers: Record<string, string> = { "User-Agent": "DemonsDespair/1.14.3" };
         if (anonKey) headers["apikey"] = anonKey;
@@ -252,52 +214,23 @@ async function startServer() {
         const latency = Date.now() - start;
 
         if (healthRes.ok || healthRes.status < 500) {
-          // Check if table 'characters' exists by doing a quick limit 1 select
-          let tablesReady = false;
-          let tableMsg = "";
-          try {
-            const tableCtrl = new AbortController();
-            const tableTimeout = setTimeout(() => tableCtrl.abort(), 2500);
-            const tableRes = await fetch(`${testUrl}/rest/v1/characters?select=id&limit=1`, {
-              headers: { ...headers, "Authorization": `Bearer ${anonKey}` },
-              signal: tableCtrl.signal
-            });
-            clearTimeout(tableTimeout);
-            if (tableRes.ok) {
-              tablesReady = true;
-            } else {
-              const body = await tableRes.json().catch(() => ({}));
-              if (body.code === '42P01' || body.message?.includes('does not exist')) {
-                tablesReady = false;
-                tableMsg = "Tabela 'characters' não encontrada. Execute supabase_setup.sql no SQL Editor do Supabase.";
-              } else {
-                // Table exists but maybe RLS or empty
-                tablesReady = true;
-              }
-            }
-          } catch (tErr) {
-            tablesReady = true; // Assume true if auth responded
-          }
-
           return res.json({
             online: true,
             status: healthRes.status,
             latency,
             url: testUrl,
-            hostDirect: testUrl === currentTargetSupabase,
-            tablesReady,
-            tableMessage: tableMsg || (tablesReady ? "Tabelas verificadas com sucesso." : undefined)
+            hostDirect: testUrl === targetSupabase
           });
         }
       } catch (err: any) {
-        lastError = err.name === "AbortError" ? "Tempo limite esgotado (timeout 3.5s)" : (err.message || "Erro de rede");
+        lastError = err.name === "AbortError" ? "Tempo limite esgotado (timeout 3s)" : (err.message || "Erro de rede");
       }
     }
 
     return res.json({
       online: false,
       error: lastError,
-      url: currentTargetSupabase,
+      url: targetSupabase,
     });
   });
 
@@ -521,81 +454,26 @@ async function startServer() {
             return;
           }
 
-          if (msg.type === 'token_move') {
-            const tk = msg.token || (msg.tokenId && typeof msg.x === 'number' && typeof msg.y === 'number' ? { id: msg.tokenId, x: msg.x, y: msg.y } : null);
-            if (tk && tk.id) {
-              let list = currentCampVtt.tokens || [];
-              const idx = list.findIndex((t: any) => t.id === tk.id);
-              let savedToken: any;
-              if (idx !== -1) {
-                list[idx] = { ...list[idx], ...tk };
-                savedToken = list[idx];
-              } else {
-                list.push(tk);
-                savedToken = tk;
-              }
-              currentCampVtt.tokens = list;
-              currentStore[campaignId] = currentCampVtt;
-
-              // 1. Instant targeted broadcast to all other players (< 1ms)
-              broadcastVtt(campaignId, { 
-                type: "token_move", 
-                token: savedToken, 
-                tokenId: tk.id, 
-                x: savedToken.x, 
-                y: savedToken.y, 
-                senderId: msg.senderId 
-              }, ws);
-
-              // 2. Debounced asynchronous file persist
-              saveVttStore(currentStore);
-
-              // 3. Background mirror of ONLY the moved token to Supabase
-              try {
-                fetch(`${targetSupabase}/rest/v1/tokens`, {
-                  method: "POST",
-                  headers: {
-                    apikey: SERVICE_ROLE_KEY,
-                    Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-                    "Content-Type": "application/json",
-                    Prefer: "resolution=merge-duplicates"
-                  },
-                  body: JSON.stringify({
-                    id: tk.id,
-                    campaign_id: campaignId,
-                    data: savedToken,
-                    updated_at: new Date().toISOString()
-                  })
-                }).catch(() => {});
-              } catch {}
-            }
-            return;
-          }
-
-          if (msg.type === 'update_tokens' || msg.type === 'token_add' || msg.type === 'add_token') {
+          if (msg.type === 'token_move' || msg.type === 'update_tokens' || msg.type === 'token_add' || msg.type === 'add_token') {
             const incomingTokens = msg.tokens || (msg.token ? [msg.token] : []);
             if (incomingTokens.length > 0) {
               let list = currentCampVtt.tokens || [];
-              const tokenMap = new Map<string, any>(list.map((t: any) => [t.id, t]));
               for (const tk of incomingTokens) {
                 if (!tk || !tk.id) continue;
-                const prev = tokenMap.get(tk.id) || {};
-                tokenMap.set(tk.id, { ...prev, ...tk });
+                list = [...list.filter((t: any) => t.id !== tk.id), tk];
               }
-              list = Array.from(tokenMap.values());
               currentCampVtt.tokens = list;
               currentStore[campaignId] = currentCampVtt;
 
               // 1. Instant zero-delay broadcast to all other players (< 1ms)
-              broadcastVtt(campaignId, { type: "vtt_tokens", tokens: list, config: currentCampVtt.config, senderId: msg.senderId }, ws);
+              broadcastVtt(campaignId, { type: "vtt_tokens", tokens: list, config: currentCampVtt.config }, ws);
 
               // 2. Debounced asynchronous file persist
               saveVttStore(currentStore);
 
-              // 3. Background mirror to Supabase (batched to prevent connection exhaustion)
+              // 3. Background mirror to Supabase
               try {
-                const batch = incomingTokens.slice(0, 20);
-                for (const tk of batch) {
+                for (const tk of incomingTokens) {
                   if (!tk || !tk.id) continue;
                   fetch(`${targetSupabase}/rest/v1/tokens`, {
                     method: "POST",
@@ -615,7 +493,6 @@ async function startServer() {
                 }
               } catch {}
             }
-            return;
           } else if (msg.type === 'token_remove' || msg.type === 'remove_token') {
             const tokenId = msg.tokenId || (msg.token && msg.token.id);
             if (tokenId) {
@@ -792,7 +669,7 @@ async function startServer() {
   // Dedicated VTT API: Add or update tokens
   app.post("/api/campaigns/:campaignId/vtt/tokens", async (req, res) => {
     const { campaignId } = req.params;
-    const { token, tokens: bulkTokens, senderId } = req.body;
+    const { token, tokens: bulkTokens } = req.body;
 
     if (!campaignId) return res.status(400).json({ error: "campaignId é obrigatório" });
 
@@ -805,37 +682,21 @@ async function startServer() {
       return res.status(400).json({ error: "Nenhum token fornecido para salvar." });
     }
 
-    const tokenMap = new Map<string, any>(currentTokens.map((t: any) => [t.id, t]));
     for (const tk of incoming) {
       if (!tk || !tk.id) continue;
-      const prev = tokenMap.get(tk.id) || {};
-      tokenMap.set(tk.id, { ...prev, ...tk });
+      currentTokens = [...currentTokens.filter((t: any) => t.id !== tk.id), tk];
     }
-    currentTokens = Array.from(tokenMap.values());
 
     campVtt.tokens = currentTokens;
     store[campaignId] = campVtt;
     saveVttStore(store);
 
-    // If a single token was moved/updated, broadcast a targeted token_move; otherwise broadcast full vtt_tokens
-    if (token && !bulkTokens) {
-      const savedToken = tokenMap.get(token.id) || token;
-      broadcastVtt(campaignId, { 
-        type: "token_move", 
-        token: savedToken, 
-        tokenId: token.id, 
-        x: savedToken.x, 
-        y: savedToken.y, 
-        senderId 
-      });
-    } else {
-      broadcastVtt(campaignId, { type: "vtt_tokens", tokens: currentTokens, config: campVtt.config, senderId });
-    }
+    // Instant zero-latency SSE push to all other players in this campaign
+    broadcastVtt(campaignId, { type: "vtt_tokens", tokens: currentTokens, config: campVtt.config });
 
     // Save to Supabase in background
     try {
-      const toSync = token && !bulkTokens ? [tokenMap.get(token.id) || token] : incoming.slice(0, 20);
-      for (const tk of toSync) {
+      for (const tk of incoming) {
         if (!tk || !tk.id) continue;
         fetch(`${targetSupabase}/rest/v1/tokens`, {
           method: "POST",

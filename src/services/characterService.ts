@@ -40,18 +40,7 @@ export const saveCharacterToSupabase = async (character: Character) => {
     }
   }
 
-  const isMonsterOrEnemy = character.etnia === 'Monstro' || 
-    (character as any).isCreature || 
-    (character as any).isEnemy || 
-    (character as any).isVttEnemy || 
-    (character as any).userId === 'monster' ||
-    (character.userEmail === 'monster') ||
-    (typeof character.nome === 'string' && character.nome.toLowerCase().includes('(inimigo)'));
-
-  const userEmail = isMonsterOrEnemy
-    ? "monster"
-    : (character.userEmail || auth.currentUser?.email || "").trim().toLowerCase();
-
+  const userEmail = (character.userEmail || auth.currentUser?.email || "").trim().toLowerCase();
   if (!userEmail) {
     console.warn("⚠️ [Supabase] Tentativa de salvar ficha sem email associado.");
     return;
@@ -61,15 +50,8 @@ export const saveCharacterToSupabase = async (character: Character) => {
 
   try {
     const cleanCharacter = deepClean(character);
-    if (!isMonsterOrEnemy) {
-      delete (cleanCharacter as any).userId;
-      cleanCharacter.userEmail = userEmail;
-    } else {
-      cleanCharacter.userId = 'monster';
-      cleanCharacter.userEmail = 'monster';
-      cleanCharacter.isCreature = true;
-      cleanCharacter.isEnemy = true;
-    }
+    delete (cleanCharacter as any).userId;
+    cleanCharacter.userEmail = userEmail;
 
     const { error } = await supabase
       .from(CHARACTERS_TABLE)
@@ -276,20 +258,6 @@ export const subscribeToUserCharacters = (
         delete (char as any).userId;
 
         if (char.id && !blacklist.has(char.id) && (char.nome !== undefined || (char as any).atributos !== undefined)) {
-          // Never push combat enemies, monsters, or VTT creatures to the user's personal character list
-          if (
-            char.etnia === 'Monstro' || 
-            (char as any).isCreature || 
-            (char as any).isEnemy || 
-            (char as any).isVttEnemy || 
-            (char as any).isVttGenerated || 
-            (char as any).type === 'creature' || 
-            (char as any).userId === 'monster' || 
-            char.userEmail === 'monster' ||
-            (typeof char.nome === 'string' && (char.nome.toLowerCase().includes('(inimigo)') || char.nome.toLowerCase().startsWith('inimigo ')))
-          ) {
-            return;
-          }
           characters.push(char);
         }
       });

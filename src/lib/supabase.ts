@@ -91,7 +91,8 @@ export const getSupabaseConfig = () => {
   const hostname = isBrowser ? (window.location.hostname || 'localhost') : 'localhost';
   const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1';
 
-  // Default to standard local Supabase CLI port
+  // If accessed outside localhost (e.g. cloudflared tunnel, mobile device, remote domain, LAN IP):
+  // Default to window.location.origin so requests go through the backend proxy on port 3000 to the host PC's Supabase!
   let defaultUrl = "http://127.0.0.1:54321";
   if (isBrowser && !isLocalHost) {
     defaultUrl = window.location.origin;
@@ -99,12 +100,9 @@ export const getSupabaseConfig = () => {
 
   let currentUrl = (savedUrl || defaultUrl).trim();
   
-  // If the client is accessing from a mobile device or non-localhost client (LAN/phone/preview),
-  // raw http://127.0.0.1 or http://localhost URLs point to the phone itself, NOT the server running Supabase!
-  // Route them through window.location.origin (which proxies to the host machine via /supabase-proxy).
-  // BUT if the user entered an external tunnel URL (ngrok, cloudflared, custom domain), preserve it directly.
-  if (isBrowser && !isLocalHost && 
-      (currentUrl.startsWith('http://127.0.0.1') || currentUrl.startsWith('http://localhost') || currentUrl.startsWith('http://::1') || currentUrl.startsWith('http://0.0.0.0'))) {
+  // If the user is on a remote device/tunnel, but has saved a raw "127.0.0.1" / "localhost" URL from before,
+  // automatically redirect it through window.location.origin so mobile doesn't attempt to connect to itself!
+  if (isBrowser && !isLocalHost && (currentUrl.includes('127.0.0.1') || currentUrl.includes('localhost') || currentUrl.includes('::1'))) {
     currentUrl = window.location.origin;
   }
 
@@ -157,20 +155,19 @@ export let realSupabaseClient = createClient(currentConfig.url, currentConfig.an
 
 export let hasActiveRealSession = false;
 
-export let isSupabaseConnected = false;
+export let isSupabaseConnected = true;
 
 let connectionTimeout: any = null;
 
-export const setSupabaseConnectionState = (connected: boolean, immediate: boolean = false) => {
-  if (connectionTimeout) {
-    clearTimeout(connectionTimeout);
-    connectionTimeout = null;
-  }
-
+export const setSupabaseConnectionState = (connected: boolean) => {
   if (connected) {
+    if (connectionTimeout) {
+      clearTimeout(connectionTimeout);
+      connectionTimeout = null;
+    }
     if (isSupabaseConnected !== true) {
       isSupabaseConnected = true;
-      console.log(`📡 [Supabase Connection] State changed to: CONNECTED (Online)`);
+      console.log(`📡 [Supabase Connection] State changed to: CONNECTED`);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('supabase_connection_status_changed', { 
           detail: { connected: true } 
@@ -178,23 +175,20 @@ export const setSupabaseConnectionState = (connected: boolean, immediate: boolea
       }
     }
   } else {
-    const applyDisconnected = () => {
-      if (isSupabaseConnected !== false) {
-        isSupabaseConnected = false;
-        console.log(`📡 [Supabase Connection] State changed to: DISCONNECTED (Offline)`);
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('supabase_connection_status_changed', { 
-            detail: { connected: false } 
-          }));
+    // Only set to false after a 5 second delay to avoid flickering on transient timeouts
+    if (!connectionTimeout) {
+      connectionTimeout = setTimeout(() => {
+        if (isSupabaseConnected !== false) {
+          isSupabaseConnected = false;
+          console.log(`📡 [Supabase Connection] State changed to: CACHE_ONLY`);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('supabase_connection_status_changed', { 
+              detail: { connected: false } 
+            }));
+          }
         }
-      }
-      connectionTimeout = null;
-    };
-
-    if (immediate) {
-      applyDisconnected();
-    } else {
-      connectionTimeout = setTimeout(applyDisconnected, 1500);
+        connectionTimeout = null;
+      }, 5000);
     }
   }
 };
@@ -209,12 +203,6 @@ export const setSupabaseConfig = (newUrl: string, newAnonKey?: string) => {
     if (newAnonKey) {
       localStorage.setItem('supabase_custom_anon_key', cleanKey);
     }
-    // Informa o proxy do servidor Express para espelhar imediatamente o alvo
-    fetch('/api/supabase/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetUrl: normUrl })
-    }).catch(() => {});
   }
   currentConfig = { url: normUrl, rawUrl: newUrl, anonKey: cleanKey };
   realSupabaseClient = createClient(normUrl, cleanKey, {
@@ -245,7 +233,7 @@ export const setSupabaseConfig = (newUrl: string, newAnonKey?: string) => {
   }
 };
 
-export const testSupabaseConnection = async (targetUrl?: string, targetKey?: string): Promise<{ success: boolean; message: string; latency?: number; tablesReady?: boolean }> => {
+export const testSupabaseConnection = async (targetUrl?: string, targetKey?: string): Promise<{ success: boolean; message: string; latency?: number }> => {
   const urlToTest = normalizeSupabaseUrl(targetUrl || currentConfig.url);
   const keyToTest = (targetKey || currentConfig.anonKey).trim();
   
@@ -253,7 +241,7 @@ export const testSupabaseConnection = async (targetUrl?: string, targetKey?: str
   try {
     const start = Date.now();
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
+    const timeout = setTimeout(() => controller.abort(), 3000);
     const res = await fetch(`${urlToTest}/auth/v1/health`, {
       headers: keyToTest ? { apikey: keyToTest } : {},
       signal: controller.signal
@@ -261,32 +249,8 @@ export const testSupabaseConnection = async (targetUrl?: string, targetKey?: str
     clearTimeout(timeout);
     if (res.ok || res.status < 500) {
       const lat = Date.now() - start;
-      let tablesReady = true;
-      try {
-        const tCtrl = new AbortController();
-        const tTimeout = setTimeout(() => tCtrl.abort(), 2000);
-        const tRes = await fetch(`${urlToTest}/rest/v1/characters?select=id&limit=1`, {
-          headers: { apikey: keyToTest, Authorization: `Bearer ${keyToTest}` },
-          signal: tCtrl.signal
-        });
-        clearTimeout(tTimeout);
-        if (!tRes.ok) {
-          const body = await tRes.json().catch(() => ({}));
-          if (body.code === '42P01' || body.message?.includes('does not exist')) {
-            tablesReady = false;
-          }
-        }
-      } catch (tErr) {}
-
       setSupabaseConnectionState(true);
-      return { 
-        success: true, 
-        message: tablesReady 
-          ? `Conectado com sucesso ao Supabase (${lat}ms)` 
-          : `Conectado ao Supabase (${lat}ms), mas as tabelas ainda não foram criadas! Execute supabase_setup.sql no SQL Editor do Supabase.`, 
-        latency: lat,
-        tablesReady
-      };
+      return { success: true, message: `Conectado com sucesso (${lat}ms)`, latency: lat };
     }
   } catch (err: any) {
     // 2. Se falhar no browser (ex: Mixed Content ou CORS ou rede), tentar via proxy de diagnóstico do servidor Express
@@ -297,31 +261,23 @@ export const testSupabaseConnection = async (targetUrl?: string, targetKey?: str
         const sData = await sRes.json();
         if (sData.online) {
           setSupabaseConnectionState(true);
-          const tablesReady = sData.tablesReady !== false;
-          return { 
-            success: true, 
-            message: tablesReady 
-              ? `Conectado via servidor (${sData.latency}ms)` 
-              : `Conectado ao Supabase via servidor (${sData.latency}ms), mas tabela 'characters' não foi criada. Execute supabase_setup.sql.`, 
-            latency: sData.latency,
-            tablesReady
-          };
+          return { success: true, message: `Conectado via servidor (${sData.latency}ms)`, latency: sData.latency };
         } else {
-          setSupabaseConnectionState(false, true);
+          setSupabaseConnectionState(false);
           return { success: false, message: sData.error || "Supabase inacessível na URL especificada." };
         }
       }
     } catch (sErr: any) {}
     
-    setSupabaseConnectionState(false, true);
+    setSupabaseConnectionState(false);
     return { 
       success: false, 
       message: err.name === 'AbortError' 
-        ? "Tempo limite esgotado (timeout 3.5s). A URL não respondeu." 
+        ? "Tempo limite esgotado (timeout 3s). A URL não respondeu." 
         : (err.message || "Erro de rede ao conectar ao Supabase") 
     };
   }
-  setSupabaseConnectionState(false, true);
+  setSupabaseConnectionState(false);
   return { success: false, message: "Resposta inesperada do Supabase." };
 };
 
@@ -581,7 +537,7 @@ function saveLocalTable(table: string, data: any[], skipDispatch = false) {
 }
 
 // Helper to wrap promises with a timeout to avoid hanging UI
-function withTimeout(promise: any, ms: number = 4500): Promise<any> {
+function withTimeout(promise: any, ms: number = 2000): Promise<any> {
   return new Promise<any>((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new Error("Timeout de conexão com o banco de dados."));
@@ -891,16 +847,10 @@ class ResilientQueryBuilder {
             builder = builder.single();
           }
 
-          let { data, error, status } = (await withTimeout(builder, 4500)) as any;
+          let { data, error, status } = (await withTimeout(builder, 2000)) as any;
           if (error) {
             checkSupabaseError(error, status);
-            if (error.code === '42P01' || error.message?.includes('does not exist')) {
-              console.warn(`[Supabase Table Warning] Tabela '${this.table}' ainda não criada no banco.`);
-            } else {
-              setSupabaseConnectionState(false);
-            }
-          } else {
-            setSupabaseConnectionState(true);
+            setSupabaseConnectionState(false);
           }
 
           // If standard query failed or returned empty in local URL, try service_role admin client to bypass RLS
@@ -923,7 +873,7 @@ class ResilientQueryBuilder {
               if (this.limitCount !== null) adminBuilder = adminBuilder.limit(this.limitCount);
               if (this.isSingle) adminBuilder = adminBuilder.single();
 
-              const { data: adminData, error: adminErr } = (await withTimeout(adminBuilder, 4500)) as any;
+              const { data: adminData, error: adminErr } = (await withTimeout(adminBuilder, 2000)) as any;
               if (!adminErr && adminData && (!Array.isArray(adminData) || adminData.length > 0)) {
                 data = adminData;
                 error = null;
@@ -931,7 +881,7 @@ class ResilientQueryBuilder {
             } catch (adminE) {}
           }
 
-          if (!error && data !== undefined && data !== null) {
+          if (!error && data) {
             setSupabaseConnectionState(true);
             rows = Array.isArray(data) ? data : [data];
             loadedFromCloud = true;
