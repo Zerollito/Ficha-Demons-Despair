@@ -241,6 +241,13 @@ Munições são consumíveis necessários para o uso de armas à distância (arc
 - No seletor de armas para ataque do VTT, apenas armas e ações válidas de ataque são exibidas; peças de armadura e vestimentas são filtradas rigorosamente e nunca aparecem como armas para atacar.
 - A cada disparo no VTT ou rolagem com consumo, a munição carregada é reduzida do pente (`magazineAmmo` / `municaoCarregada`).
 
+### Geração Automática de Inimigos Atiradores (VTT / Bestiário)
+- Ao gerar um inimigo do tipo **Atirador** (ou que possua armas de longo alcance como arcos, bestas, pistolas, rifles, revólveres e espingardas):
+  - É gerada e depositada no compartimento principal (mochila) a munição respectiva à arma gerada (**Balas de [Material]**, **Flechas de [Material]** ou **Virotes de [Material]**).
+  - A quantidade gerada é balanceada para prontidão de combate (15 a 30 unidades).
+  - A arma é gerada com categoria apropriada (`'Arma de Fogo'` ou `'Arco'`) e já inicia vinculada e carregada (`municaoCarregada`, `magazineAmmo`, `bulletId` ou `arrowId`), com seus níveis de Corte, Perfuração, Impacto e Resistência sincronizados à munição correspondente, permitindo disparo imediato no VTT sem erros de arma descarregada ou falta de projéteis.
+
+
 ---
 
 ## 9. Manutenção e Recarga

@@ -993,6 +993,7 @@ const isFirearmItem = (item: any) => {
          name.includes('rifle') || 
          name.includes('fuzil') || 
          name.includes('escopeta') || 
+         name.includes('espingarda') || 
          name.includes('trabuco');
 };
 
@@ -1000,7 +1001,7 @@ const isBowItem = (item: any) => {
   if (!item) return false;
   const cat = (item.categoria || "").toLowerCase();
   const name = (item.nome || "").toLowerCase();
-  return cat === 'arco' || name.includes('arco') || name.includes('besta');
+  return cat === 'arco' || cat === 'besta' || name.includes('arco') || name.includes('besta');
 };
 
 const isThrowableItem = (item: any) => {
@@ -2709,9 +2710,20 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         }
       }
       if (isBow) {
-        const arrowId = action.arrowId;
+        let arrowId = action.arrowId;
         const inventoryItems = attackerChar ? (attackerChar.compartimentos?.flatMap(c => c.itens || []) || []) : [];
-        const foundArrow = inventoryItems.find((i: any) => i.id === arrowId);
+        let foundArrow = inventoryItems.find((i: any) => i.id === arrowId);
+        if (!foundArrow || (foundArrow.quantidade || 0) <= 0) {
+          foundArrow = inventoryItems.find((i: any) => 
+            ((i.tipo || '').toLowerCase() === 'munição' || (i.tipo || '').toLowerCase() === 'municao') &&
+            ((i.nome || '').toLowerCase().includes('flecha') || (i.nome || '').toLowerCase().includes('virote')) &&
+            (i.quantidade || 0) > 0
+          );
+          if (foundArrow) {
+            arrowId = foundArrow.id;
+            action.arrowId = arrowId;
+          }
+        }
         if (!arrowId || !foundArrow || (foundArrow.quantidade || 0) <= 0) {
           const msg = `⚠️ O arco "${action.nome || action.name}" não tem flechas selecionadas ou disponíveis no inventário!`;
           setCombatLog(prev => [{ msg, type: 'error' }, ...prev]);
@@ -5479,11 +5491,11 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                         }
                       },
                       acoes: enemy.armas.map(a => ({
-                          ...a, // Spread all weapon fields including corte/perfuracao/impacto
+                          ...a, // Spread all weapon fields including corte/perfuracao/impacto, magazineAmmo, municaoCarregada, bulletId, arrowId
                           id: a.id,
                           name: a.nome,
                           type: 'Major',
-                          categoria: a.corte > a.perfuracao ? 'Corte' : 'Perfuração',
+                          categoria: a.categoria || (a.corte > a.perfuracao ? 'Corte' : 'Perfuração'),
                           acerto: a.acerto,
                           dano: a.dano,
                           description: a.efeito || ''
