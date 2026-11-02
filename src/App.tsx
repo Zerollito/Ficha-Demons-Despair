@@ -1840,7 +1840,14 @@ function App() {
 
     if (!user) {
       // Quando não logado: isolamento estrito, exibe apenas fichas de visitante/convidado deste navegador
-      return state.characters.filter(c => isCharacterOwnedByCurrentUser(c, null) && !isVttEnemy(c));
+      return state.characters
+        .filter(c => isCharacterOwnedByCurrentUser(c, null) && !isVttEnemy(c))
+        .sort((a, b) => {
+          const nameA = (a.nome || '').trim().toLowerCase();
+          const nameB = (b.nome || '').trim().toLowerCase();
+          if (nameA !== nameB) return nameA.localeCompare(nameB);
+          return (a.id || '').localeCompare(b.id || '');
+        });
     }
 
     const userEmailLower = (user.email || '').trim().toLowerCase();
@@ -1875,7 +1882,12 @@ function App() {
       });
     }
 
-    return Array.from(charMap.values());
+    return Array.from(charMap.values()).sort((a, b) => {
+      const nameA = (a.nome || '').trim().toLowerCase();
+      const nameB = (b.nome || '').trim().toLowerCase();
+      if (nameA !== nameB) return nameA.localeCompare(nameB);
+      return (a.id || '').localeCompare(b.id || '');
+    });
   }, [state.characters, user, masterCampaigns, campaigns, activeCampaignId, campaignCharacters]);
 
   const activeChar = useMemo(() => {
@@ -4849,7 +4861,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.1</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.2</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4959,14 +4971,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.1</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.2</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.1</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.2</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -10658,9 +10670,8 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                   if (libraryFolderId === "") return !c.campaignId || c.campaignId === "";
                   return c.campaignId === libraryFolderId;
                 }).map((char) => (
-                  <motion.div
+                  <div
                     key={char.id}
-                    layoutId={char.id}
                     className={cn(
                       "group relative bg-zinc-900 border transition-all rounded-3xl overflow-hidden cursor-pointer",
                       state.activeCharacterId === char.id
@@ -10842,7 +10853,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                         </div>
                       </div>
                     </div>
-                  </motion.div>
+                  </div>
                 ))}
               </div>
 
