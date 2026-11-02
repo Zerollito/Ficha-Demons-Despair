@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence, useDragControls } from "motion/react";
 import { Stage, Layer, Image as KonvaImage, Rect, Circle, Line, Text, Group, RegularPolygon, Shape } from 'react-konva';
 import useImage from 'use-image';
@@ -770,6 +770,8 @@ const Token = React.memo(({ token, gridSize, onDragStart, onDragEnd, onDragMove,
 
   return (
     <Group
+      name="token"
+      id={`token-${token.id}`}
       draggable={canMove}
       x={token.x}
       y={token.y}
@@ -1118,6 +1120,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const hasBeenCentered = useRef(false);
+  const isDraggingStageRef = useRef(false);
   
   // UI states
   const [showLeftSidebar, setShowLeftSidebar] = useState(false);
@@ -2559,9 +2562,40 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     setSelectedTokenId(null);
   };
 
+  const cancelCombatSelection = useCallback(() => {
+    setIsAttackingMode(false);
+    setAttackerId(null);
+    setTargetId(null);
+    setWeaponSelectTokenId(null);
+    setPendingCombatAction(null);
+    setSelectedAmmoWeaponId(null);
+    setSelectedAmmoId(null);
+    setChosenAttackType(null);
+    setCombatLog(prev => [{ msg: "Modo de combate cancelado. Tokens desmarcados.", type: 'info' }, ...prev]);
+  }, []);
+
+  // Handle ESC key to cancel combat targeting and unmark tokens
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        if (isAttackingMode || attackerId || targetId || weaponSelectTokenId) {
+          cancelCombatSelection();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isAttackingMode, attackerId, targetId, weaponSelectTokenId, cancelCombatSelection]);
+
   const handleTokenClick = (tokenId: string) => {
     const token = tokens.find(t => t.id === tokenId);
     if (!token) return;
+
+    // Clicking the attacker token while in combat mode cancels and unmarks
+    if (attackerId && tokenId === attackerId) {
+      cancelCombatSelection();
+      return;
+    }
 
     if (isAttackingMode && attackerId && tokenId !== attackerId) {
       setTargetId(tokenId);
@@ -2583,9 +2617,18 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   };
 
   const startAttack = (tokenId: string) => {
+    // If clicking attack on the token that is already the attacker, cancel and unmark
+    if (attackerId === tokenId) {
+      cancelCombatSelection();
+      return;
+    }
     setIsAttackingMode(true);
     setAttackerId(tokenId);
-    setCombatLog([{ msg: "Selecione o alvo do ataque...", type: 'info' }]);
+    setTargetId(null);
+    setWeaponSelectTokenId(null);
+    setPendingCombatAction(null);
+    setSelectedTokenId(null); // Close token context menu so board is clear for targeting
+    setCombatLog(prev => [{ msg: "Modo de combate ativo. Selecione o alvo no mapa...", type: 'info' }, ...prev]);
   };
 
   const resolveCombat = async (actionOrWeapon: any, forcedType?: 'Corte' | 'Perfuração' | 'Impacto', chosenSpecificLimb?: string) => {
@@ -4847,35 +4890,77 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       >
         {/* Combat Status Bar */}
         <AnimatePresence>
-          {isAttackingMode && (
+          {(isAttackingMode || attackerId || targetId) && (
             <motion.div 
               initial={{ y: 50, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 50, opacity: 0 }}
-              className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-auto"
+              className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-auto max-w-[95vw]"
             >
-              <div className="bg-amber-600 border-2 border-amber-400 p-3 rounded-2xl shadow-2xl flex items-center gap-4">
-                <div className="flex items-center gap-2 text-white">
-                  <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center animate-pulse">
-                    <Target size={18} />
+              <div className="bg-zinc-950/95 border-2 border-amber-500/80 p-3 px-4 rounded-2xl shadow-2xl backdrop-blur-xl flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2.5 text-white">
+                  <div className="w-8 h-8 rounded-full bg-amber-500/20 border border-amber-400/40 flex items-center justify-center animate-pulse shrink-0">
+                    <Target size={18} className="text-amber-400" />
                   </div>
                   <div className="text-left">
-                    <div className="text-[10px] font-black uppercase opacity-80 leading-none">Modo de Combate</div>
-                    <div className="text-xs font-bold leading-tight">Selecione o Alvo</div>
+                    <div className="text-[10px] font-black uppercase text-amber-400 tracking-wider leading-none">
+                      Modo de Combate
+                    </div>
+                    <div className="text-xs font-bold text-zinc-200 flex items-center gap-1.5 mt-0.5">
+                      {(() => {
+                        const atkToken = tokens.find(t => t.id === attackerId);
+                        const trgToken = tokens.find(t => t.id === targetId);
+                        return (
+                          <>
+                            <span className="text-blue-400 font-black">{atkToken?.name || "Atacante"}</span>
+                            {trgToken ? (
+                              <>
+                                <span className="text-zinc-500">➔</span>
+                                <span className="text-red-400 font-black">{trgToken.name}</span>
+                              </>
+                            ) : (
+                              <span className="text-zinc-400 font-normal">» Clique no alvo no mapa</span>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
-                <button 
-                  onClick={() => {
-                    setIsAttackingMode(false);
-                    setAttackerId(null);
-                    setTargetId(null);
-                    setSelectedAmmoWeaponId(null);
-                    setWeaponSelectTokenId(null);
-                  }}
-                  className="bg-black/20 hover:bg-black/40 text-white p-2 px-4 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2"
-                >
-                  <X size={14} /> Cancelar
-                </button>
+
+                <div className="flex items-center gap-2 ml-auto">
+                  {targetId && !weaponSelectTokenId && (
+                    <button
+                      type="button"
+                      onClick={() => setWeaponSelectTokenId(attackerId)}
+                      className="bg-amber-600 hover:bg-amber-500 text-white p-2 px-3 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 shadow-md shadow-amber-600/20 cursor-pointer"
+                    >
+                      <Swords size={13} /> Atacar
+                    </button>
+                  )}
+                  {targetId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTargetId(null);
+                        setIsAttackingMode(true);
+                        setWeaponSelectTokenId(null);
+                        setPendingCombatAction(null);
+                      }}
+                      className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 p-2 px-3 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1 border border-zinc-700 cursor-pointer"
+                    >
+                      Trocar Alvo
+                    </button>
+                  )}
+                  <button 
+                    type="button"
+                    onClick={cancelCombatSelection}
+                    className="bg-red-600/20 hover:bg-red-600/30 text-red-400 hover:text-red-300 p-2 px-3.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 border border-red-500/40 cursor-pointer"
+                    title="Cancelar combate e desmarcar todos os tokens"
+                  >
+                    <X size={14} /> Cancelar / Desmarcar
+                  </button>
+                </div>
               </div>
             </motion.div>
           )}
@@ -4894,16 +4979,28 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           y={viewport.y}
           draggable={true}
           onClick={(e) => {
-            // Click on empty space (not a token) to cancel attack mode
-            if (e.target === e.target.getStage() && isAttackingMode) {
-              setIsAttackingMode(false);
-              setAttackerId(null);
-              setTargetId(null);
-              setWeaponSelectTokenId(null);
-              setSelectedAmmoWeaponId(null);
+            // Click on empty space (not a token) to cancel attack mode and token marking
+            if (isDraggingStageRef.current) return;
+            const targetName = e.target.name?.() || '';
+            const parentName = e.target.getParent?.()?.name?.() || '';
+            const isToken = targetName === 'token' || parentName === 'token';
+            if (!isToken && (isAttackingMode || attackerId || targetId)) {
+              cancelCombatSelection();
+            }
+          }}
+          onTap={(e) => {
+            if (isDraggingStageRef.current) return;
+            const targetName = e.target.name?.() || '';
+            const parentName = e.target.getParent?.()?.name?.() || '';
+            const isToken = targetName === 'token' || parentName === 'token';
+            if (!isToken && (isAttackingMode || attackerId || targetId)) {
+              cancelCombatSelection();
             }
           }}
           onDragStart={(e) => {
+            if (e.target === e.target.getStage()) {
+              isDraggingStageRef.current = true;
+            }
             // Disable drag if multi-touch detected in the native event
             if (e.evt && 'touches' in e.evt && (e.evt as any).touches.length > 1) {
               const stage = e.target.getStage();
@@ -4912,6 +5009,9 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           }}
           onDragEnd={(e) => {
             if (e.target === e.target.getStage()) {
+              setTimeout(() => {
+                isDraggingStageRef.current = false;
+              }, 50);
               setViewport(prev => ({
                 ...prev,
                 x: e.target.x(),
@@ -5387,18 +5487,13 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
               {/* Combat Log List */}
               <div className="flex-1 overflow-y-auto space-y-2 pr-1 pb-10 custom-scrollbar">
-                {isAttackingMode && (
+                {(isAttackingMode || attackerId || targetId) && (
                   <button 
-                    onClick={() => {
-                      setIsAttackingMode(false);
-                      setAttackerId(null);
-                      setTargetId(null);
-                      setWeaponSelectTokenId(null);
-                      setCombatLog(prev => [{ msg: "Ataque cancelado", type: 'info' }, ...prev]);
-                    }}
-                    className="w-full py-2 bg-red-600 hover:bg-red-500 text-white text-[10px] uppercase font-black rounded-lg transition-colors border border-red-400/20"
+                    type="button"
+                    onClick={cancelCombatSelection}
+                    className="w-full py-2 bg-red-600 hover:bg-red-500 text-white text-[10px] uppercase font-black rounded-lg transition-colors border border-red-400/20 flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
                   >
-                    Cancelar Ataque
+                    <X size={13} /> Cancelar Ataque e Desmarcar Tokens
                   </button>
                 )}
                 {combatLog.map((log, i) => (
@@ -6195,11 +6290,47 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
                   {isMasterOrOwner && (
                     <button 
-                      onClick={() => startAttack(token.id)}
-                      className="col-span-2 flex items-center justify-center gap-2 py-3 bg-red-600 hover:bg-red-500 text-white border border-red-400/20 rounded-xl transition-all group font-black uppercase text-xs tracking-widest shadow-lg shadow-red-600/20"
+                      onClick={() => {
+                        if (attackerId === token.id) {
+                          cancelCombatSelection();
+                          setSelectedTokenId(null);
+                        } else {
+                          startAttack(token.id);
+                        }
+                      }}
+                      className={cn(
+                        "col-span-2 flex items-center justify-center gap-2 py-3 text-white border rounded-xl transition-all group font-black uppercase text-xs tracking-widest shadow-lg cursor-pointer",
+                        attackerId === token.id
+                          ? "bg-amber-600 hover:bg-amber-500 border-amber-400/30 shadow-amber-600/20"
+                          : "bg-red-600 hover:bg-red-500 border-red-400/20 shadow-red-600/20"
+                      )}
                     >
-                      <Swords size={16} className="group-hover:rotate-12 transition-transform" />
-                      Combate / Ações
+                      {attackerId === token.id ? (
+                        <>
+                          <X size={16} />
+                          Cancelar Combate (Desmarcar)
+                        </>
+                      ) : (
+                        <>
+                          <Swords size={16} className="group-hover:rotate-12 transition-transform" />
+                          Combate / Ações
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  {targetId === token.id && (
+                    <button 
+                      onClick={() => {
+                        setTargetId(null);
+                        setWeaponSelectTokenId(null);
+                        setPendingCombatAction(null);
+                        setSelectedTokenId(null);
+                      }}
+                      className="col-span-2 flex items-center justify-center gap-2 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-red-400 border border-red-500/30 rounded-xl transition-all font-black uppercase text-[10px] tracking-widest shadow-md cursor-pointer"
+                    >
+                      <X size={14} />
+                      Desmarcar como Alvo
                     </button>
                   )}
 
@@ -6278,17 +6409,38 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       {weaponSelectTokenId && (
         <div 
           className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-          onClick={() => { setWeaponSelectTokenId(null); setPendingCombatAction(null); }}
+          onClick={cancelCombatSelection}
         >
           <div 
             className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-              <h3 className="text-sm font-black text-white uppercase tracking-widest">
-                {pendingCombatAction ? "Direcionar Ataque" : "Escolha o Ataque"}
-              </h3>
-              <button onClick={() => { setWeaponSelectTokenId(null); setPendingCombatAction(null); }} className="text-zinc-500 hover:text-white p-1 hover:bg-zinc-800 rounded-full transition-colors">
+              <div>
+                <h3 className="text-sm font-black text-white uppercase tracking-widest">
+                  {pendingCombatAction ? "Direcionar Ataque" : "Escolha o Ataque"}
+                </h3>
+                {(() => {
+                  const atk = tokens.find(t => t.id === attackerId);
+                  const trg = tokens.find(t => t.id === targetId);
+                  return (
+                    <div className="text-[10px] text-zinc-400 font-bold mt-0.5 flex items-center gap-1.5">
+                      <span className="text-blue-400">{atk?.name || "Atacante"}</span>
+                      {trg && (
+                        <>
+                          <span className="text-zinc-600">➔</span>
+                          <span className="text-red-400">{trg.name}</span>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+              <button 
+                onClick={cancelCombatSelection} 
+                className="text-zinc-500 hover:text-white p-1 hover:bg-zinc-800 rounded-full transition-colors cursor-pointer"
+                title="Cancelar combate e desmarcar tokens"
+              >
                 <Plus className="rotate-45" size={20} />
               </button>
             </div>
@@ -6452,12 +6604,23 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                         })}
                       </div>
 
-                      <button
-                        onClick={() => setPendingCombatAction(null)}
-                        className="w-full mt-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold transition-all uppercase tracking-widest text-center"
-                      >
-                        ⬅️ Voltar para os Ataques
-                      </button>
+                      <div className="flex gap-2 mt-4">
+                        <button
+                          type="button"
+                          onClick={() => setPendingCombatAction(null)}
+                          className="flex-1 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold transition-all uppercase tracking-widest text-center cursor-pointer"
+                        >
+                          ⬅️ Voltar aos Ataques
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelCombatSelection}
+                          className="py-2.5 px-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition-all uppercase tracking-widest text-center cursor-pointer flex items-center justify-center gap-1"
+                          title="Cancelar ataque e desmarcar tokens"
+                        >
+                          <X size={14} /> Desmarcar
+                        </button>
+                      </div>
                     </div>
                   );
                 }
@@ -6893,12 +7056,22 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             );
           })()}
         </div>
-            <div className="p-3 bg-zinc-950/50 border-t border-zinc-800">
+            <div className="p-3 bg-zinc-950/50 border-t border-zinc-800 flex gap-2">
                <button 
-                onClick={() => setWeaponSelectTokenId(null)}
-                className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold transition-all uppercase tracking-widest"
+                type="button"
+                onClick={cancelCombatSelection}
+                className="flex-1 py-2.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 hover:text-red-300 border border-red-500/30 rounded-xl text-xs font-black transition-all uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                title="Desmarcar todos os tokens e cancelar o ataque"
                >
-                 Cancelar / Sair
+                 <X size={14} /> Cancelar Ataque e Desmarcar
+               </button>
+               <button 
+                type="button"
+                onClick={() => { setWeaponSelectTokenId(null); setPendingCombatAction(null); }}
+                className="py-2.5 px-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white border border-zinc-700 rounded-xl text-xs font-bold transition-all uppercase tracking-wider cursor-pointer"
+                title="Fechar janela mantendo a marcação no mapa"
+               >
+                 Minimizar
                </button>
             </div>
           </div>

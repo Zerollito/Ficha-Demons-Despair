@@ -1,6 +1,6 @@
 {
-  "summary": "Confirmação explícita e detalhamento de que o layout da ficha de criatura (tanto na Toca quanto no Bestiário) é rigorosamente o mesmo da ficha de jogador, renderizando os mesmos blocos, inputs e estilos, apenas omitindo com precisão cirúrgica os pontos solicitados (etnia, dinheiro, barra de sanidade, conhecimentos, APR/RIT/MEN nos atributos, RIT no bônus de dano, e as 4 proficiências), mantendo os compartimentos vazios por padrão e integrando as 4 abas/seções especiais (Informações, Ataques, Níveis de Ataque e Níveis de Defesa).",
-  "updatedAt": "2026-10-17T17:06:23.067358995Z",
+  "summary": "Added combat targeting cancellation and token unmarking in the VTT board. Users can now easily cancel combat and clear token rings via the floating banner, the weapon select modal, the limb targeting view, the token popup, clicking on empty canvas space, clicking the attacker token again, the sidebar combat tab, or pressing Escape. Bumped version to v1.14.35.",
+  "updatedAt": "2026-11-02T14:29:37.876326786Z",
   "requestFeedback": true,
   "userFacing": true
 }
