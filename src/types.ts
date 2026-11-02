@@ -143,21 +143,12 @@ export interface MonsterAction {
   id: string;
   name: string;
   type: 'Major' | 'Minor';
-  categoria: 'Corte' | 'Perfuração' | 'Impacto' | 'Feitiço' | 'Elemental' | 'Magia Negra' | 'Efeito' | 'Outro' | 'Arma de Fogo' | 'Arco' | 'Arma Branca';
+  categoria: 'Corte' | 'Perfuração' | 'Impacto' | 'Feitiço' | 'Elemental' | 'Magia Negra' | 'Efeito' | 'Outro';
   acerto: number | string;
   dano: string;
   description: string;
   mana?: number | string;
   efeito?: string;
-  municaoTotal?: number;
-  municaoCarregada?: number;
-  bulletId?: string;
-  arrowId?: string;
-  magazineAmmo?: any[];
-  corte?: number;
-  impacto?: number;
-  perfuracao?: number;
-  resistencia?: number;
 }
 
 export interface BestiaryMonster {

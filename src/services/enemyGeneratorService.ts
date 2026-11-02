@@ -245,19 +245,15 @@ export class EnemyGeneratorService {
         if (!weaponMat) throw new Error("No weapon material available");
         const weapon = createWeaponFromMaterial(formulaKey, weaponMat);
         
-        const formulaLower = formulaKey.toLowerCase();
-        const isFirearm = formulaLower.includes('pistola') || 
-                         formulaLower.includes('rifle') || 
-                         formulaLower.includes('revólver') || 
-                         formulaLower.includes('revolver') || 
-                         formulaLower.includes('espingarda') ||
-                         formulaLower.includes('fuzil') ||
-                         formulaLower.includes('trabuco');
-
-        const isBowOrCrossbow = formulaLower.includes('arco') || formulaLower.includes('besta');
+        const isFirearm = formulaKey.toLowerCase().includes('pistola') || 
+                         formulaKey.toLowerCase().includes('rifle') || 
+                         formulaKey.toLowerCase().includes('revólver') || 
+                         formulaKey.toLowerCase().includes('espingarda');
 
         // Override scale based on difficulty
         weapon.escala = isFirearm ? "0" : config.scale;
+
+        const isBowOrCrossbow = formulaKey.toLowerCase().includes('arco') || formulaKey.toLowerCase().includes('besta');
 
         if (isFirearm || isBowOrCrossbow) {
           hasRanged = true;
@@ -268,13 +264,9 @@ export class EnemyGeneratorService {
           
           if (isFirearm) {
             weapon.categoria = 'Arma de Fogo';
-            weapon.municaoTotal = formulaLower.includes('revólver') || formulaLower.includes('revolver') ? 6 : randomInt(6, 12);
-            weapon.municaoCarregada = weapon.municaoTotal;
+            weapon.municaoTotal = randomInt(6, 12);
+            weapon.municaoCarregada = 6;
             weapon.durabilidadeMaxUtil = weapon.maxDurabilidade;
-          } else {
-            weapon.categoria = 'Arco';
-            weapon.municaoTotal = 1;
-            weapon.municaoCarregada = 1;
           }
         }
         
@@ -367,9 +359,7 @@ export class EnemyGeneratorService {
 
     // 1 to 3 generic items from library
     const numItems = randomInt(1, 3);
-    const libraryItems = ITEMS_LIBRARY.filter(i => 
-      i.tipo !== 'municao' && i.tipo !== 'equipamento' && i.tipo !== 'Munição' && i.tipo !== 'Arma' && i.tipo !== 'Armadura'
-    );
+    const libraryItems = ITEMS_LIBRARY.filter(i => i.tipo !== 'municao' && i.tipo !== 'equipamento');
     
     for (let i = 0; i < numItems; i++) {
       const baseItem = randomElement(libraryItems);
@@ -386,122 +376,51 @@ export class EnemyGeneratorService {
         peso: baseItem.peso,
         volume: baseItem.volume,
         quantidade: baseItem.quantidade || 1,
-        tipo: baseItem.tipo === 'consumivel' || baseItem.tipo === 'Consumível' ? 'Consumível' : 'Utilitário',
-        durabilidade: baseItem.durabilidade || 10,
-        maxDurabilidade: baseItem.maxDurabilidade || 10,
+        tipo: baseItem.tipo === 'consumivel' ? 'Consumível' : 'Utilitário',
+        durabilidade: 10,
+        maxDurabilidade: 10,
         descricao: baseItem.descricao,
         efeito: baseItem.efeito || ''
       });
     }
 
-    // Ammunition for shooters and ranged weapons (Armas de Fogo e Arcos)
-    const rangedWeapons = enemy.armas.filter(w => {
-      const n = (w.nome || '').toLowerCase();
-      const c = (w.categoria || '').toLowerCase();
-      return c === 'arma de fogo' || c === 'arco' || 
-             n.includes('pistola') || n.includes('revol') || n.includes('rifle') || 
-             n.includes('espingarda') || n.includes('fuzil') || n.includes('trabuco') ||
-             n.includes('arco') || n.includes('besta');
-    });
+    // Ammo for shooters (10 to 20)
+    if (hasRanged) {
+      const rangedWeapon = enemy.armas.find(w => 
+        w.nome.toLowerCase().includes('arco') || 
+        w.nome.toLowerCase().includes('besta') || 
+        w.nome.toLowerCase().includes('pistola') || 
+        w.nome.toLowerCase().includes('rifle')
+      );
 
-    for (const weapon of rangedWeapons) {
-      const isFirearm = (weapon.categoria === 'Arma de Fogo') || 
-                        ['pistola', 'revol', 'rifle', 'espingarda', 'fuzil', 'trabuco'].some(k => (weapon.nome || '').toLowerCase().includes(k));
-      const isCrossbow = (weapon.nome || '').toLowerCase().includes('besta');
-      const isLongBow = (weapon.nome || '').toLowerCase().includes('longo');
+      const isFirearm = rangedWeapon?.nome.toLowerCase().includes('pistola') || rangedWeapon?.nome.toLowerCase().includes('rifle');
+      
+    // Pick individual material for ammo to ensure variety
+    const ammoMatPool = this.shuffle([...materials]);
+    let ammoMat = randomElement(ammoMatPool.filter(m => 
+      !['madeira', 'ouro', 'mercúrio', 'estanho'].includes(m.id.toLowerCase())
+    ));
+    
+    if (!ammoMat) throw new Error("No ammo material available");
+    const baseAmmo = ITEMS_LIBRARY.find(i => i.nome.includes(isFirearm ? 'Balas' : 'Flechas')) || ITEMS_LIBRARY.find(i => i.tipo === 'municao');
 
-      // Pick material for ammo
-      const ammoMatPool = this.shuffle([...materials]);
-      let ammoMat = ammoMatPool.find(m => 
-        !['madeira', 'ouro', 'mercúrio', 'estanho'].includes(m.id.toLowerCase()) &&
-        !['madeira', 'ouro', 'mercúrio', 'estanho'].includes(m.nome.toLowerCase())
-      ) || ammoMatPool[0];
-
-      if (!ammoMat) {
-        ammoMat = {
-          id: 'ferro',
-          nome: 'Ferro',
-          corte: { fisico: 2, potencial: 0 },
-          impacto: { fisico: 2, potencial: 0 },
-          perfuracao: { fisico: 4, potencial: 0 },
-          resistencia: { fisico: 3, potencial: 0 },
-          durabilidade: '10',
-          peso: 1,
-          efeitos: []
-        } as any;
-      }
-
-      const ammoId = crypto.randomUUID();
-      const ammoName = isFirearm 
-        ? `Balas de ${ammoMat.nome}` 
-        : (isCrossbow ? `Virotes de ${ammoMat.nome}` : `Flechas de ${ammoMat.nome}`);
-
-      const ammoPeso = isFirearm ? 0.1 : (isLongBow ? 0.6 : 0.5);
-      const ammoVol = isFirearm ? 0.3 : (isLongBow ? 1.3 : 0.9);
-      const ammoQty = isFirearm ? randomInt(18, 30) : randomInt(15, 25);
-
-      const ammoItem: Item = {
-        id: ammoId,
-        nome: ammoName,
-        peso: ammoPeso,
-        volume: ammoVol,
-        quantidade: ammoQty,
-        tipo: 'Munição',
-        durabilidade: 10,
-        maxDurabilidade: 10,
-        corte: ammoMat.corte.fisico,
-        impacto: ammoMat.impacto.fisico,
-        perfuracao: ammoMat.perfuracao.fisico,
-        resistencia: ammoMat.resistencia.fisico,
-        descricao: isFirearm 
-          ? `Munição calibre padrão de ${ammoMat.nome} para ${weapon.nome}.` 
-          : `Projéteis de ${ammoMat.nome} para ${weapon.nome}.`,
-        efeito: ammoMat.efeitos.join(", ")
-      };
-
-      mochila.itens.push(ammoItem);
-
-      // Sincroniza os atributos físicos da arma com a munição carregada conforme SYSTEM_RULES.md
-      weapon.corte = ammoItem.corte;
-      weapon.impacto = ammoItem.impacto;
-      weapon.perfuracao = ammoItem.perfuracao;
-      weapon.resistencia = ammoItem.resistencia;
-
-      if (isFirearm) {
-        weapon.categoria = 'Arma de Fogo';
-        weapon.bulletId = ammoId;
-        const cap = weapon.municaoTotal || 6;
-        const loadedCount = Math.min(cap, 6);
-        weapon.municaoCarregada = loadedCount;
-        weapon.magazineAmmo = Array.from({ length: loadedCount }, () => ({
+      if (baseAmmo) {
+        mochila.itens.push({
           id: crypto.randomUUID(),
-          nome: ammoItem.nome,
+          nome: isFirearm ? `Balas de ${ammoMat.nome}` : `Flechas de ${ammoMat.nome}`,
+          peso: baseAmmo.peso,
+          volume: baseAmmo.volume,
+          quantidade: randomInt(10, 20),
           tipo: 'Munição',
-          corte: ammoItem.corte,
-          impacto: ammoItem.impacto,
-          perfuracao: ammoItem.perfuracao,
-          resistencia: ammoItem.resistencia,
-          dano: weapon.dano,
-          peso: ammoItem.peso,
-          volume: ammoItem.volume
-        }));
-      } else {
-        weapon.categoria = 'Arco';
-        weapon.arrowId = ammoId;
-        weapon.municaoTotal = 1;
-        weapon.municaoCarregada = 1;
-        weapon.magazineAmmo = [{
-          id: crypto.randomUUID(),
-          nome: ammoItem.nome,
-          tipo: 'Munição',
-          corte: ammoItem.corte,
-          impacto: ammoItem.impacto,
-          perfuracao: ammoItem.perfuracao,
-          resistencia: ammoItem.resistencia,
-          dano: weapon.dano,
-          peso: ammoItem.peso,
-          volume: ammoItem.volume
-        }];
+          durabilidade: 10,
+          maxDurabilidade: 10,
+          corte: ammoMat.corte.fisico,
+          impacto: ammoMat.impacto.fisico,
+          perfuracao: ammoMat.perfuracao.fisico,
+          resistencia: ammoMat.resistencia.fisico,
+          descricao: baseAmmo.descricao,
+          efeito: ammoMat.efeitos.join(", ")
+        });
       }
     }
   }

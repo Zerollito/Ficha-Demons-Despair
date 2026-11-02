@@ -4958,7 +4958,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     className="bg-red-600/20 hover:bg-red-600/30 text-red-400 hover:text-red-300 p-2 px-3.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 border border-red-500/40 cursor-pointer"
                     title="Cancelar combate e desmarcar todos os tokens"
                   >
-                    <X size={14} /> Cancelar / Desmarcar
+                    <X size={14} /> Cancelar
                   </button>
                 </div>
               </div>
@@ -5493,7 +5493,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     onClick={cancelCombatSelection}
                     className="w-full py-2 bg-red-600 hover:bg-red-500 text-white text-[10px] uppercase font-black rounded-lg transition-colors border border-red-400/20 flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
                   >
-                    <X size={13} /> Cancelar Ataque e Desmarcar Tokens
+                    <X size={13} /> Cancelar
                   </button>
                 )}
                 {combatLog.map((log, i) => (
@@ -6616,9 +6616,9 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                           type="button"
                           onClick={cancelCombatSelection}
                           className="py-2.5 px-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition-all uppercase tracking-widest text-center cursor-pointer flex items-center justify-center gap-1"
-                          title="Cancelar ataque e desmarcar tokens"
+                          title="Cancelar combate e desmarcar tokens"
                         >
-                          <X size={14} /> Desmarcar
+                          <X size={14} /> Cancelar
                         </button>
                       </div>
                     </div>
@@ -7056,22 +7056,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             );
           })()}
         </div>
-            <div className="p-3 bg-zinc-950/50 border-t border-zinc-800 flex gap-2">
+            <div className="p-3 bg-zinc-950/50 border-t border-zinc-800">
                <button 
                 type="button"
                 onClick={cancelCombatSelection}
-                className="flex-1 py-2.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 hover:text-red-300 border border-red-500/30 rounded-xl text-xs font-black transition-all uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
-                title="Desmarcar todos os tokens e cancelar o ataque"
+                className="w-full py-2.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 hover:text-red-300 border border-red-500/30 rounded-xl text-xs font-black transition-all uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                title="Cancelar combate e desmarcar tokens"
                >
-                 <X size={14} /> Cancelar Ataque e Desmarcar
-               </button>
-               <button 
-                type="button"
-                onClick={() => { setWeaponSelectTokenId(null); setPendingCombatAction(null); }}
-                className="py-2.5 px-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white border border-zinc-700 rounded-xl text-xs font-bold transition-all uppercase tracking-wider cursor-pointer"
-                title="Fechar janela mantendo a marcação no mapa"
-               >
-                 Minimizar
+                 <X size={14} /> Cancelar
                </button>
             </div>
           </div>

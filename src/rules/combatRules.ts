@@ -27,8 +27,6 @@ export interface Weapon {
   arrowId?: string;
   magazineAmmo?: any[];
   durabilidadeMaxUtil?: number;
-  municaoDano?: string;
-  capacidadePente?: number;
 }
 
 export interface Catalyst {

@@ -310,16 +310,12 @@ export const handleReload = async (
   let ammo = inventoryItems.find(i => i.id === ammoId);
   if (!ammo || (ammo.quantidade || 0) <= 0) {
     ammo = inventoryItems.find(i => {
-      const lowerTipo = (i.tipo || "").toLowerCase().trim();
-      const lowerNome = (i.nome || "").toLowerCase().trim();
-      const isAmmoType = lowerTipo === 'munição' || lowerTipo === 'municao' ||
-        lowerNome.includes('bala') || lowerNome.includes('cartucho') || lowerNome.includes('flecha') ||
-        lowerNome.includes('virote') || lowerNome.includes('munição') || lowerNome.includes('municao') ||
-        lowerNome.includes('cal .') || lowerNome.includes('calibre') || lowerNome.includes('ogival') ||
-        lowerNome.includes('chumbo');
+      const lowerTipo = (i.tipo || "").toLowerCase();
+      const lowerNome = (i.nome || "").toLowerCase();
+      const isAmmoType = lowerTipo === 'munição' || lowerTipo === 'municao';
       if (!isAmmoType) return false;
       if (isBow) {
-        if (lowerNome.includes('bala') || lowerNome.includes('cartucho') || lowerNome.includes('chumbo') || lowerNome.includes('cal .') || lowerNome.includes('ogival')) return false;
+        if (lowerNome.includes('bala') || lowerNome.includes('cartucho')) return false;
       } else {
         if (lowerNome.includes('flecha') || lowerNome.includes('virote')) return false;
       }
@@ -356,8 +352,7 @@ export const handleReload = async (
     perfuracao: Number(ammo.perfuracao) || 0,
     impacto: Number(ammo.impacto) || 0,
     resistencia: Number(ammo.resistencia) || 0,
-    dano: weapon.dano && weapon.dano !== '0' && weapon.dano !== 'Sem Dano' && weapon.dano !== 'Falta Bala' ? weapon.dano : (isBow ? "1d6" : "2d6"),
-    municaoDano: undefined
+    ...(ammo.dano ? { municaoDano: ammo.dano } : {})
   };
 
   charUpdates.armas = char.armas.map(w => w.id === weaponId ? updatedWeaponProps : w);
@@ -397,16 +392,12 @@ export const handleReloadAll = async (
   let ammo = inventoryItems.find(i => i.id === ammoId);
   if (!ammo || (ammo.quantidade || 0) <= 0) {
     ammo = inventoryItems.find(i => {
-      const lowerTipo = (i.tipo || "").toLowerCase().trim();
-      const lowerNome = (i.nome || "").toLowerCase().trim();
-      const isAmmoType = lowerTipo === 'munição' || lowerTipo === 'municao' ||
-        lowerNome.includes('bala') || lowerNome.includes('cartucho') || lowerNome.includes('flecha') ||
-        lowerNome.includes('virote') || lowerNome.includes('munição') || lowerNome.includes('municao') ||
-        lowerNome.includes('cal .') || lowerNome.includes('calibre') || lowerNome.includes('ogival') ||
-        lowerNome.includes('chumbo');
+      const lowerTipo = (i.tipo || "").toLowerCase();
+      const lowerNome = (i.nome || "").toLowerCase();
+      const isAmmoType = lowerTipo === 'munição' || lowerTipo === 'municao';
       if (!isAmmoType) return false;
       if (isBow) {
-        if (lowerNome.includes('bala') || lowerNome.includes('cartucho') || lowerNome.includes('chumbo') || lowerNome.includes('cal .') || lowerNome.includes('ogival')) return false;
+        if (lowerNome.includes('bala') || lowerNome.includes('cartucho')) return false;
       } else {
         if (lowerNome.includes('flecha') || lowerNome.includes('virote')) return false;
       }
@@ -445,8 +436,7 @@ export const handleReloadAll = async (
     perfuracao: Number(ammo.perfuracao) || 0,
     impacto: Number(ammo.impacto) || 0,
     resistencia: Number(ammo.resistencia) || 0,
-    dano: weapon.dano && weapon.dano !== '0' && weapon.dano !== 'Sem Dano' && weapon.dano !== 'Falta Bala' ? weapon.dano : (isBow ? "1d6" : "2d6"),
-    municaoDano: undefined
+    ...(ammo.dano ? { municaoDano: ammo.dano } : {})
   };
 
   charUpdates.armas = char.armas.map(w => w.id === weaponId ? updatedWeaponProps : w);
