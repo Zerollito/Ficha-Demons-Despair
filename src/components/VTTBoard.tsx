@@ -1718,6 +1718,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     }));
 
     await updateCharacterState(char.id, charUpdates);
+    await updateCharacterLocalAndRemote(char.id, charUpdates);
     await addCombatLog(campaignId, { msg: `${char.nome} recarregou 1 munição (${ammo.nome}) em ${weapon.nome}.`, type: 'info' });
   };
 
@@ -1834,6 +1835,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     }));
 
     await updateCharacterState(char.id, charUpdates);
+    await updateCharacterLocalAndRemote(char.id, charUpdates);
   };
 
   const [clipBoardItem, setClipBoardItem] = useState<{item: any, sourceId: string, charId: string, type: 'cut' | 'copy'} | null>(null);
@@ -1851,14 +1853,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       return prev;
     });
 
-    // 2. Check if the character is owned by the current user to update the main app state
-    const isOwn = availableCharacters.some(c => 
-      c.id === charId && 
-      (c.userId === auth.currentUser?.uid || c.userEmail === auth.currentUser?.email)
-    );
-    
-    if (isOwn && onUpdateCharacter) {
-      console.log(`[VTT] Updating owned character ${charId} via app sync.`, updates);
+    // 2. Synchronize with high-level app state immediately
+    if (onUpdateCharacter) {
       onUpdateCharacter(updates, charId);
     }
 
@@ -2742,7 +2738,10 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       }
 
       if (isFirearm) {
-        if ((action.municaoCarregada || 0) <= 0) {
+        const loadedQty = (action.magazineAmmo && action.magazineAmmo.length > 0)
+          ? action.magazineAmmo.length
+          : (typeof action.municaoCarregada === 'number' ? action.municaoCarregada : 0);
+        if (loadedQty <= 0) {
           const msg = `⚠️ A arma de fogo "${action.nome || action.name}" está descarregada!`;
           setCombatLog(prev => [{ msg, type: 'error' }, ...prev]);
           triggerScreenAlert(msg, 'warning');
@@ -3273,10 +3272,17 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
     if (hitSucceeded) {
       let effectiveDanoFormula = action.dano || "1d4";
       if (isFirearm || isBow) {
-        const weaponDano = action.dano;
-        effectiveDanoFormula = (weaponDano && weaponDano !== "0" && weaponDano !== "Sem Dano" && weaponDano !== "Falta Bala" && weaponDano !== "Falta Flecha")
-          ? weaponDano
-          : (isBow ? "1d6" : "2d6");
+        if (actingBullet && actingBullet.dano && actingBullet.dano !== '0' && actingBullet.dano !== 'Sem Dano' && actingBullet.dano !== 'Falta Bala' && actingBullet.dano !== 'Falta Flecha') {
+          effectiveDanoFormula = actingBullet.dano;
+        } else if (action.magazineAmmo && action.magazineAmmo.length > 0 && action.magazineAmmo[0]?.dano && action.magazineAmmo[0].dano !== '0' && action.magazineAmmo[0].dano !== 'Sem Dano') {
+          effectiveDanoFormula = action.magazineAmmo[0].dano;
+        } else if (action.municaoDano && action.municaoDano !== '0' && action.municaoDano !== 'Sem Dano') {
+          effectiveDanoFormula = action.municaoDano;
+        } else if (action.dano && action.dano !== '0' && action.dano !== 'Sem Dano' && action.dano !== 'Falta Bala' && action.dano !== 'Falta Flecha') {
+          effectiveDanoFormula = action.dano;
+        } else {
+          effectiveDanoFormula = isBow ? "1d6" : "2d6";
+        }
       }
 
       if (isCriticalHit) {
@@ -3549,7 +3555,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
     // 8. Durability Decay Processing
     if (attackerChar) {
-      const item = [...attackerChar.armas, ...attackerChar.catalisadores, ...attackerChar.compartimentos.flatMap(c => c.itens)].find(i => i.id === actionOrWeapon.id);
+      const item = [...attackerChar.armas, ...attackerChar.catalisadores, ...attackerChar.compartimentos.flatMap(c => c.itens)].find(i => i.id === actionOrWeapon.id || i.id === action.id || (i.nome && i.nome === (actionOrWeapon.nome || actionOrWeapon.name)));
       if (item) {
         let updatedArmas = [...attackerChar.armas];
         let updatedCatalisadores = [...attackerChar.catalisadores];
@@ -3584,14 +3590,21 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                 }
               }
               
-              const currentMag = (w as any).magazineAmmo || [];
-              const newMag = currentMag.slice(1);
+              const rawMag = Array.isArray((w as any).magazineAmmo) ? [...(w as any).magazineAmmo] : [];
+              let newMunCarregada = typeof w.municaoCarregada === 'number' ? w.municaoCarregada : rawMag.length;
+              let newMag = rawMag;
+              if (newMag.length > 0) {
+                newMag = newMag.slice(1);
+                newMunCarregada = newMag.length;
+              } else if (newMunCarregada > 0) {
+                newMunCarregada = Math.max(0, newMunCarregada - 1);
+              }
 
               return { 
                 ...w, 
                 durabilidade: newDur, 
                 maxDurabilidade: newMaxDur,
-                municaoCarregada: newMag.length,
+                municaoCarregada: newMunCarregada,
                 magazineAmmo: newMag
               };
             }
@@ -3635,14 +3648,21 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     }
                   }
                   
-                  const currentMag = (i as any).magazineAmmo || [];
-                  const newMag = currentMag.slice(1);
+                  const rawMag = Array.isArray((i as any).magazineAmmo) ? [...(i as any).magazineAmmo] : [];
+                  let newMunCarregada = typeof (i as any).municaoCarregada === 'number' ? (i as any).municaoCarregada : rawMag.length;
+                  let newMag = rawMag;
+                  if (newMag.length > 0) {
+                    newMag = newMag.slice(1);
+                    newMunCarregada = newMag.length;
+                  } else if (newMunCarregada > 0) {
+                    newMunCarregada = Math.max(0, newMunCarregada - 1);
+                  }
 
                   return {
                     ...i,
                     durabilidade: newDur,
                     maxDurabilidade: newMaxDur,
-                    municaoCarregada: newMag.length,
+                    municaoCarregada: newMunCarregada,
                     magazineAmmo: newMag
                   };
                 }
@@ -4738,6 +4758,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       userId: auth.currentUser?.uid || 'monster',
                       nome: monster.name,
                       etnia: 'Monstro',
+                      isVttGenerated: true,
+                      isEnemy: true,
                       imagem: resolvedMonsterImage,
                       vidaAtual: parseNum(monster.maxHp),
                       manaAtual: 0,
@@ -5541,7 +5563,13 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
               <EnemyGenerator 
                 customMaterials={customMaterials}
                 onEnemyGenerated={async (enemy: Character) => {
-                  const enemyWithCam = { ...enemy, campaignId };
+                  const enemyWithCam: Character = { 
+                    ...enemy, 
+                    campaignId, 
+                    isVttGenerated: true, 
+                    isEnemy: true,
+                    etnia: enemy.etnia || 'Monstro'
+                  };
                   if (onAddCharacter) {
                     onAddCharacter(enemyWithCam);
                   }

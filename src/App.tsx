@@ -119,7 +119,7 @@ import {
   isSupabaseConnected as initialSupabaseConnected
 } from "./lib/supabase";
 import type { FirebaseUserLike as User } from "./lib/supabase";
-import { subscribeToUserCharacters, saveCharacterToFirestore, deleteCharacterFromFirestore, getMaxCapacity } from "./services/characterService";
+import { subscribeToUserCharacters, saveCharacterToFirestore, deleteCharacterFromFirestore, getMaxCapacity, isFirearmItem, isBowItem } from "./services/characterService";
 import { 
   createCampaign, 
   saveCampaign,
@@ -1834,10 +1834,13 @@ function App() {
 
   // Lista de personagens visíveis e permitidos para a conta atual (ou guest se deslogado)
   // Inclui as fichas próprias E, se for Mestre, as fichas dos jogadores vinculadas às suas mesas!
+  // Inimigos gerados no VTT e tokens de monstros adicionados NÃO entram na Biblioteca do Mestre.
   const visibleCharacters = useMemo(() => {
+    const isVttEnemy = (c: Character) => Boolean(c.isVttGenerated || (c as any).isEnemy || c.etnia === 'Monstro');
+
     if (!user) {
       // Quando não logado: isolamento estrito, exibe apenas fichas de visitante/convidado deste navegador
-      return state.characters.filter(c => isCharacterOwnedByCurrentUser(c, null));
+      return state.characters.filter(c => isCharacterOwnedByCurrentUser(c, null) && !isVttEnemy(c));
     }
 
     const userEmailLower = (user.email || '').trim().toLowerCase();
@@ -1855,7 +1858,7 @@ function App() {
 
     // 1. Fichas próprias do usuário ou fichas de campanhas onde o usuário é Mestre
     state.characters.forEach(c => {
-      if (!c || !c.id || deletedCharsRef.current.has(c.id)) return;
+      if (!c || !c.id || deletedCharsRef.current.has(c.id) || isVttEnemy(c)) return;
       if (isCharacterOwnedByCurrentUser(c, user)) {
         charMap.set(c.id, c);
       } else if (c.campaignId && masterCampIds.has(c.campaignId)) {
@@ -1866,7 +1869,7 @@ function App() {
     // 2. Fichas carregadas da campanha ativa (se for mestre da campanha ou se houver fichas na campanha)
     if (activeCampaignId && (masterCampIds.has(activeCampaignId) || campaigns.some(c => c.id === activeCampaignId && c.masterEmail?.toLowerCase() === userEmailLower))) {
       campaignCharacters.forEach(c => {
-        if (c && c.id && !deletedCharsRef.current.has(c.id)) {
+        if (c && c.id && !deletedCharsRef.current.has(c.id) && !isVttEnemy(c)) {
           charMap.set(c.id, c);
         }
       });
@@ -2582,6 +2585,34 @@ function App() {
       return;
     }
 
+    const isFirearm = isFirearmItem(arma);
+    const isBow = isBowItem(arma);
+
+    if (isFirearm) {
+      const loadedQty = (arma.magazineAmmo && arma.magazineAmmo.length > 0)
+        ? arma.magazineAmmo.length
+        : (typeof arma.municaoCarregada === 'number' ? arma.municaoCarregada : 0);
+      if (loadedQty <= 0) {
+        showToast(`⚠️ A arma de fogo "${arma.nome}" está descarregada! Recarregue antes de atirar.`, "error");
+        return;
+      }
+    }
+
+    if (isBow) {
+      const ammoId = arma.arrowId || arma.bulletId;
+      const invItems = activeChar.compartimentos?.flatMap((c: any) => c.itens || []) || [];
+      const hasArrow = invItems.some((i: any) => 
+        (ammoId && i.id === ammoId && (i.quantidade || 0) > 0) ||
+        (((i.tipo || '').toLowerCase() === 'munição' || (i.tipo || '').toLowerCase() === 'municao') &&
+         ((i.nome || '').toLowerCase().includes('flecha') || (i.nome || '').toLowerCase().includes('virote')) &&
+         (i.quantidade || 0) > 0)
+      );
+      if (!hasArrow) {
+        showToast(`⚠️ O arco "${arma.nome}" não possui flechas disponíveis no inventário!`, "error");
+        return;
+      }
+    }
+
     // 1. Calculate Hit Bonus (Acurácia)
     const acuraciaBonus = calculateProficiencyBonus(
       activeChar.stats,
@@ -2626,21 +2657,19 @@ function App() {
 
     // 4. Roll Damage using the robust utility
     let bulletDano = "1d6";
-    const isFirearm = arma.categoria === 'Arma de Fogo';
-    const isBow = arma.categoria === 'Arco';
     if (isFirearm || isBow) {
       const ammoId = isBow ? (arma.arrowId || arma.bulletId) : (arma.bulletId || arma.arrowId);
       const loadedAmmo = (activeChar.compartimentos || [])
         .flatMap((c: any) => (c.itens || []))
         .find((i: any) => (ammoId && i.id === ammoId) || (arma.magazineAmmo?.[0] && (i.id === arma.magazineAmmo[0].id || i.nome === arma.magazineAmmo[0].nome)));
 
-      if (arma.magazineAmmo && arma.magazineAmmo.length > 0 && arma.magazineAmmo[0].dano && arma.magazineAmmo[0].dano !== '0') {
+      if (arma.magazineAmmo && arma.magazineAmmo.length > 0 && arma.magazineAmmo[0]?.dano && arma.magazineAmmo[0].dano !== '0' && arma.magazineAmmo[0].dano !== 'Sem Dano' && arma.magazineAmmo[0].dano !== 'Falta Bala' && arma.magazineAmmo[0].dano !== 'Falta Flecha') {
         bulletDano = arma.magazineAmmo[0].dano;
-      } else if (loadedAmmo && loadedAmmo.dano && loadedAmmo.dano !== '0') {
+      } else if (loadedAmmo && loadedAmmo.dano && loadedAmmo.dano !== '0' && loadedAmmo.dano !== 'Sem Dano') {
         bulletDano = loadedAmmo.dano;
-      } else if (arma.municaoDano && arma.municaoDano !== '0') {
+      } else if (arma.municaoDano && arma.municaoDano !== '0' && arma.municaoDano !== 'Sem Dano') {
         bulletDano = arma.municaoDano;
-      } else if (arma.dano && arma.dano !== '0') {
+      } else if (arma.dano && arma.dano !== '0' && arma.dano !== 'Sem Dano' && arma.dano !== 'Falta Bala' && arma.dano !== 'Falta Flecha') {
         bulletDano = arma.dano;
       } else {
         bulletDano = isBow ? "1d6" : "2d6";
@@ -2701,12 +2730,15 @@ function App() {
           }
         }
         
-        let newMunCarregada = w.municaoCarregada;
-        let newMagAmmo = w.magazineAmmo || [];
-        if ((isFirearm || isBow) && (newMunCarregada || 0) > 0) {
-          newMunCarregada = Math.max(0, newMunCarregada - 1);
+        const rawMag = Array.isArray(w.magazineAmmo) ? [...w.magazineAmmo] : [];
+        let newMunCarregada = typeof w.municaoCarregada === 'number' ? w.municaoCarregada : rawMag.length;
+        let newMagAmmo = rawMag;
+        if (isFirearm || isBow) {
           if (newMagAmmo.length > 0) {
             newMagAmmo = newMagAmmo.slice(1);
+            newMunCarregada = newMagAmmo.length;
+          } else if (newMunCarregada > 0) {
+            newMunCarregada = Math.max(0, newMunCarregada - 1);
           }
         }
         
@@ -2729,12 +2761,13 @@ function App() {
         }));
       }
 
-      if (isBow && arma.arrowId) {
+      if (isBow) {
+        const ammoId = arma.arrowId || arma.bulletId;
         newCompartimentos = newCompartimentos.map((comp: any) => ({
           ...comp,
           itens: (comp.itens || []).map((it: any) => {
-            if (it.id === arma.arrowId) {
-              return { ...it, quantidade: Math.max(0, (it.quantidade || 0) - 1) };
+            if ((ammoId && it.id === ammoId) || (((it.tipo || '').toLowerCase() === 'munição' || (it.tipo || '').toLowerCase() === 'municao') && (it.nome || '').toLowerCase().includes('flecha') && (it.quantidade || 0) > 0)) {
+              return { ...it, quantidade: Math.max(0, (it.quantidade || 1) - 1) };
             }
             return it;
           })
@@ -3674,9 +3707,24 @@ function App() {
       const charIndex = characters.findIndex(c => c.id === targetId);
       
       if (charIndex === -1) {
-        // Se pediu um ID específico mas não achamos, não fazemos nada para evitar resetar a ficha errada
+        // Se pediu um ID específico mas não achamos em state.characters, tentar atualizar em campaignCharacters
         if (characterId) {
-          console.warn(`updateChar: Personagem com ID ${characterId} não encontrado.`);
+          setCampaignCharacters(prevCamps => {
+            const campIdx = prevCamps.findIndex(c => c.id === characterId);
+            if (campIdx === -1) {
+              console.warn(`updateChar: Personagem com ID ${characterId} não encontrado.`);
+              return prevCamps;
+            }
+            const oldC = prevCamps[campIdx];
+            const up = typeof updatesOrFn === 'function' ? updatesOrFn(oldC) : updatesOrFn;
+            const updatedCampChar = { ...oldC, ...up };
+            const nextCamps = [...prevCamps];
+            nextCamps[campIdx] = updatedCampChar;
+            if (user) {
+              saveCharacterToFirestore(updatedCampChar).catch(e => console.error("Error saving campaign character update:", e));
+            }
+            return nextCamps;
+          });
           return prev;
         }
 
@@ -3728,6 +3776,15 @@ function App() {
 
       const updatedChar = { ...charToUpdate, ...updates };
       characters[charIndex] = updatedChar;
+
+      // Sincronizar também em campaignCharacters se existir lá
+      setCampaignCharacters(prevCamps => {
+        const campIdx = prevCamps.findIndex(c => c.id === updatedChar.id);
+        if (campIdx === -1) return prevCamps;
+        const nextCamps = [...prevCamps];
+        nextCamps[campIdx] = { ...prevCamps[campIdx], ...updatedChar };
+        return nextCamps;
+      });
 
       console.log(`updateChar: atualizando personagem ${updatedChar.nome}`);
       
@@ -4792,7 +4849,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.0</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.1</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4902,14 +4959,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.0</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.1</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.0</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.1</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -9674,23 +9731,23 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                         const totalHit = (acuraciaBonus || 0);
                         const weaponAcerto = (arma.acerto || 0);
                         let displayDano = arma.dano || "1d6";
-                        const isBow = arma.categoria === 'Arco';
-                        const isFirearm = arma.categoria === 'Arma de Fogo';
+                        const isBow = isBowItem(arma);
+                        const isFirearm = isFirearmItem(arma);
                         if (isFirearm || isBow) {
                           const ammoId = isBow ? (arma.arrowId || arma.bulletId) : (arma.bulletId || arma.arrowId);
                           const loadedAmmo = (activeChar.compartimentos || [])
                             .flatMap((c: any) => (c.itens || []))
                             .find((i: any) => (ammoId && i.id === ammoId) || (arma.magazineAmmo?.[0] && (i.id === arma.magazineAmmo[0].id || i.nome === arma.magazineAmmo[0].nome)));
 
-                          if (arma.magazineAmmo && arma.magazineAmmo.length > 0 && arma.magazineAmmo[0].dano && arma.magazineAmmo[0].dano !== '0') {
+                          if (arma.magazineAmmo && arma.magazineAmmo.length > 0 && arma.magazineAmmo[0]?.dano && arma.magazineAmmo[0].dano !== '0' && arma.magazineAmmo[0].dano !== 'Sem Dano' && arma.magazineAmmo[0].dano !== 'Falta Bala' && arma.magazineAmmo[0].dano !== 'Falta Flecha') {
                             displayDano = arma.magazineAmmo[0].dano;
-                          } else if (loadedAmmo && loadedAmmo.dano && loadedAmmo.dano !== '0') {
+                          } else if (loadedAmmo && loadedAmmo.dano && loadedAmmo.dano !== '0' && loadedAmmo.dano !== 'Sem Dano') {
                             displayDano = loadedAmmo.dano;
-                          } else if (arma.municaoDano && arma.municaoDano !== '0') {
+                          } else if (arma.municaoDano && arma.municaoDano !== '0' && arma.municaoDano !== 'Sem Dano') {
                             displayDano = arma.municaoDano;
-                          } else if (arma.dano && arma.dano !== '0') {
+                          } else if (arma.dano && arma.dano !== '0' && arma.dano !== 'Sem Dano' && arma.dano !== 'Falta Bala' && arma.dano !== 'Falta Flecha') {
                             displayDano = arma.dano;
-                          } else if (isFirearm && (!arma.municaoCarregada || arma.municaoCarregada <= 0)) {
+                          } else if (isFirearm && ((!arma.magazineAmmo || arma.magazineAmmo.length === 0) && (!arma.municaoCarregada || arma.municaoCarregada <= 0))) {
                             displayDano = "Falta Bala";
                           } else if (isBow && !ammoId) {
                             displayDano = "Falta Flecha";

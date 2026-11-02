@@ -280,6 +280,30 @@ export const subscribeToUserCharacters = (
   };
 };
 
+export const isFirearmItem = (item: any): boolean => {
+  if (!item) return false;
+  const cat = (item.categoria || "").toLowerCase();
+  const type = (item.tipo || "").toLowerCase();
+  const name = (item.nome || item.name || "").toLowerCase();
+  return cat === 'arma de fogo' || 
+         type === 'arma de fogo' || 
+         name.includes('pistola') || 
+         name.includes('revol') || 
+         name.includes('rifle') || 
+         name.includes('fuzil') || 
+         name.includes('escopeta') || 
+         name.includes('espingarda') || 
+         name.includes('trabuco');
+};
+
+export const isBowItem = (item: any): boolean => {
+  if (!item) return false;
+  const cat = (item.categoria || "").toLowerCase();
+  const type = (item.tipo || "").toLowerCase();
+  const name = (item.nome || item.name || "").toLowerCase();
+  return cat === 'arco' || cat === 'besta' || type === 'arco' || type === 'besta' || name.includes('arco') || name.includes('besta');
+};
+
 export const getMaxCapacity = (weapon: any): number => {
   if (!weapon) return 6;
   const isBow = (weapon.categoria || "").toLowerCase() === "arco" || (weapon.tipo || "").toLowerCase().includes("arco");

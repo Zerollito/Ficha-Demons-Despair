@@ -143,7 +143,7 @@ export interface MonsterAction {
   id: string;
   name: string;
   type: 'Major' | 'Minor';
-  categoria: 'Corte' | 'Perfuração' | 'Impacto' | 'Feitiço' | 'Elemental' | 'Magia Negra' | 'Efeito' | 'Outro';
+  categoria: 'Corte' | 'Perfuração' | 'Impacto' | 'Feitiço' | 'Elemental' | 'Magia Negra' | 'Efeito' | 'Outro' | 'Arma de Fogo' | 'Arma Branca' | 'Arco';
   acerto: number | string;
   dano: string;
   description: string;
@@ -277,6 +277,8 @@ export interface Character {
   userEmail?: string;
   campaignId?: string;
   isRemoteSynced?: boolean;
+  isVttGenerated?: boolean;
+  isEnemy?: boolean;
   nome: string;
   etnia: string;
   dinheiro: {

@@ -152,6 +152,10 @@ Este documento contém todas as regras lógicas e mecânicas do sistema para gar
 - **Botão "Turno"**: Exclusivo do Mestre. Ao ser clicado, processa a passagem de tempo em combate.
 - **Danos Automáticos**: Efeitos como Sangramento aplicam seu dano (conforme o nível/stacks) automaticamente ao HP do token e à ficha do personagem quando o turno é passado.
 
+### Ciclo de Vida de Inimigos e Criaturas Geradas no VTT
+- **Isolamento da Biblioteca do Mestre**: Fichas de inimigos gerados proceduralmente pelo Gerador de Inimigos do VTT ou tokens de criaturas adicionados diretamente ao mapa são marcados com `isVttGenerated: true` ou `etnia: 'Monstro'`. Elas pertencem ao contexto ativo da sessão de combate do VTT e **NÃO são listadas na Biblioteca de Personagens do Mestre**, mantendo a biblioteca focada exclusivamente nas fichas de jogadores e NPCs da campanha.
+- **Armazenamento e Acesso Ativo**: As fichas ativas dessas criaturas ficam vinculadas aos tokens do VTT e ao repositório de personagens disponíveis na campanha (`vttAvailableCharacters`). O Mestre e os jogadores podem inspecioná-las, interagir e verificar seus espólios e status diretamente clicando no token correspondente no grid.
+
 ---
 
 ## 6. Efeitos Negativos (Status)
@@ -235,8 +239,8 @@ Munições são consumíveis necessários para o uso de armas à distância (arc
 ### Integração VTT e Ficha Técnica
 - Tanto a Ficha Técnica quanto o VTT permitem selecionar a munição (flecha ou bala) a partir dos compartimentos do personagem.
 - Ao selecionar ou recarregar a munição, os níveis de Corte, Perfuração, Impacto, Resistência e o Dano da arma são atualizados para refletir a munição ativa.
-- No seletor de armas para ataque do VTT, apenas armas e ações válidas de ataque são exibidas; peças de armadura e vestimentas (peitorais, elmos, grevas, braçadeiras, etc.) são filtradas e nunca aparecem como armas para atacar.
-- A cada disparo no VTT ou rolagem com consumo, a munição carregada é reduzida do pente (`magazineAmmo` / `municaoCarregada`).
+- A cada disparo no VTT ou rolagem com consumo, a munição carregada é reduzida do pente (`magazineAmmo` / `municaoCarregada`). Caso `magazineAmmo` esteja temporariamente vazio mas `municaoCarregada` possua valor positivo, o valor é decrementado sem zerar indevidamente o pente.
+- O dano do disparo com arma de fogo utiliza prioritariamente a fórmula de dano da bala carregada no pente (`magazineAmmo[0]`), ou configurada em `bulletId` / `municaoDano`, sobrepondo qualquer dano base zerado configurado na arma. Disparos descarregados são estritamente bloqueados com aviso de arma descarregada.
 
 ---
 
