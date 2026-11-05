@@ -9,7 +9,8 @@
  */
 export function secureRandom(): number {
   const array = new Uint32Array(1);
-  window.crypto.getRandomValues(array);
+  const cryptoObj = typeof window !== 'undefined' ? window.crypto : globalThis.crypto;
+  cryptoObj.getRandomValues(array);
   // Divide by 2^32 to get a number between 0 and 1
   return array[0] / 4294967296;
 }

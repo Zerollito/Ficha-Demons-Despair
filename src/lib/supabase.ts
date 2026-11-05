@@ -1029,7 +1029,7 @@ class ResilientQueryBuilder {
 let currentAuthUser: any = null;
 
 // Synchronously restore previous session or initialize offline user
-const savedUser = localStorage.getItem('supabase_auth_user');
+const savedUser = typeof localStorage !== 'undefined' ? localStorage.getItem('supabase_auth_user') : null;
 if (savedUser) {
   try {
     currentAuthUser = JSON.parse(savedUser);

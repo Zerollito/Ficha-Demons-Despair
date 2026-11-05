@@ -326,9 +326,43 @@ export const WEAPON_FORMULAS: Record<string, WeaponFormula> = {
 export const createWeaponFromMaterial = (formulaKey: string, material: MaterialData): Weapon => {
   const formula = WEAPON_FORMULAS[formulaKey] || WEAPON_FORMULAS["Espada curta"];
   
-  const corte = Math.floor(material.corte.fisico * formula.corteMult + formula.corteBonus);
-  const impacto = Math.floor(material.impacto.fisico * formula.impactoMult + formula.impactoBonus);
-  const perfuracao = Math.floor(material.perfuracao.fisico * formula.perfuracaoMult + formula.perfuracaoBonus);
+  const lowerName = formula.nome.toLowerCase();
+  const isFirearm = lowerName.includes('pistola') || 
+                    lowerName.includes('rifle') || 
+                    lowerName.includes('revólver') || 
+                    lowerName.includes('espingarda');
+  const isBow = lowerName.includes('arco') || 
+                lowerName.includes('besta');
+  const categoria: 'Arma Branca' | 'Arma de Fogo' | 'Arco' = isFirearm ? 'Arma de Fogo' : isBow ? 'Arco' : 'Arma Branca';
+
+  let corte = Math.floor(material.corte.fisico * formula.corteMult + formula.corteBonus);
+  let impacto = Math.floor(material.impacto.fisico * formula.impactoMult + formula.impactoBonus);
+  let perfuracao = Math.floor(material.perfuracao.fisico * formula.perfuracaoMult + formula.perfuracaoBonus);
+
+  if (!isFirearm && !isBow) {
+    if (formula.corteMult > 0 && material.corte.fisico > 0 && corte === 0) {
+      corte = Math.max(1, Math.round(material.corte.fisico * formula.corteMult + formula.corteBonus));
+    }
+    if (formula.impactoMult > 0 && material.impacto.fisico > 0 && impacto === 0) {
+      impacto = Math.max(1, Math.round(material.impacto.fisico * formula.impactoMult + formula.impactoBonus));
+    }
+    if (formula.perfuracaoMult > 0 && material.perfuracao.fisico > 0 && perfuracao === 0) {
+      perfuracao = Math.max(1, Math.round(material.perfuracao.fisico * formula.perfuracaoMult + formula.perfuracaoBonus));
+    }
+
+    if (corte === 0 && impacto === 0 && perfuracao === 0) {
+      const bestStat = Math.max(1, material.corte.fisico || 0, material.perfuracao.fisico || 0, material.impacto.fisico || 0);
+      if (formula.corteMult >= formula.perfuracaoMult && formula.corteMult >= formula.impactoMult && formula.corteMult > 0) {
+        corte = bestStat;
+      } else if (formula.perfuracaoMult >= formula.impactoMult && formula.perfuracaoMult > 0) {
+        perfuracao = bestStat;
+      } else if (formula.impactoMult > 0) {
+        impacto = bestStat;
+      } else {
+        corte = 1;
+      }
+    }
+  }
   
   let durabilidadeBase = parseInt(material.durabilidade);
   if (isNaN(durabilidadeBase)) durabilidadeBase = 5;
@@ -344,6 +378,7 @@ export const createWeaponFromMaterial = (formulaKey: string, material: MaterialD
     dano: formula.danoBase,
     acerto: formula.acertoBase,
     tipo: formula.nome,
+    categoria,
     escala: formula.escala,
     atributoBase: formula.atributoBase,
     peso: Number(finalPeso.toFixed(2)),

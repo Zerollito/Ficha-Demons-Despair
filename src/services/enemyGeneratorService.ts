@@ -6,6 +6,7 @@ import { createWeaponFromMaterial, WEAPON_FORMULAS } from '../data/weaponFormula
 import { ITEMS_LIBRARY } from '../data/items';
 import { Scale } from '../rules/combatRules';
 import { randomInt, randomElement, secureRandom } from '../lib/random';
+import { isFirearmItem, isBowItem } from './characterService';
 
 export type EnemyDifficulty = 'fraco' | 'base' | 'forte';
 export type EnemyType = 'mago' | 'corpo_a_corpo' | 'atirador';
@@ -231,12 +232,24 @@ export class EnemyGeneratorService {
         }
 
         const isThrowing = formulaKey.toLowerCase().includes('arremesso') || formulaKey.toLowerCase().includes('shuriken') || formulaKey.toLowerCase().includes('pilum');
-        
+        const formula = WEAPON_FORMULAS[formulaKey];
+        const isFirearm = formulaKey.toLowerCase().includes('pistola') || 
+                         formulaKey.toLowerCase().includes('rifle') || 
+                         formulaKey.toLowerCase().includes('revólver') || 
+                         formulaKey.toLowerCase().includes('espingarda');
+        const isBowOrCrossbow = formulaKey.toLowerCase().includes('arco') || formulaKey.toLowerCase().includes('besta');
+
         // Pick material for weapon from pre-shuffled pool
         const weaponMaterials = finalMaterialPool.filter(m => {
-          if (isThrowing) {
-            return !['madeira', 'pedra', 'mercúrio', 'ouro'].includes(m.id.toLowerCase()) && 
-                   !['madeira', 'pedra', 'mercúrio', 'ouro'].includes(m.nome.toLowerCase());
+          const mId = m.id.toLowerCase();
+          const mName = m.nome.toLowerCase();
+          if (['mercúrio', 'estanho', 'ouro'].includes(mId) || ['mercúrio', 'estanho', 'ouro'].includes(mName)) return false;
+          if (isThrowing && ['madeira', 'pedra'].includes(mId)) return false;
+          if (!isFirearm && !isBowOrCrossbow && formula) {
+            if (formula.corteMult > 0 && m.corte.fisico > 0) return true;
+            if (formula.perfuracaoMult > 0 && m.perfuracao.fisico > 0) return true;
+            if (formula.impactoMult > 0 && m.impacto.fisico > 0) return true;
+            return false;
           }
           return true;
         });
@@ -244,29 +257,30 @@ export class EnemyGeneratorService {
         const weaponMat = randomElement(weaponMaterials) || randomElement(finalMaterialPool);
         if (!weaponMat) throw new Error("No weapon material available");
         const weapon = createWeaponFromMaterial(formulaKey, weaponMat);
-        
-        const isFirearm = formulaKey.toLowerCase().includes('pistola') || 
-                         formulaKey.toLowerCase().includes('rifle') || 
-                         formulaKey.toLowerCase().includes('revólver') || 
-                         formulaKey.toLowerCase().includes('espingarda');
 
         // Override scale based on difficulty
         weapon.escala = isFirearm ? "0" : config.scale;
 
-        const isBowOrCrossbow = formulaKey.toLowerCase().includes('arco') || formulaKey.toLowerCase().includes('besta');
-
         if (isFirearm || isBowOrCrossbow) {
           hasRanged = true;
-          weapon.corte = 0;
-          weapon.impacto = 0;
-          weapon.perfuracao = 0;
-          weapon.resistencia = 0;
-          
+          weapon.categoria = isFirearm ? 'Arma de Fogo' : 'Arco';
           if (isFirearm) {
-            weapon.categoria = 'Arma de Fogo';
             weapon.municaoTotal = randomInt(6, 12);
             weapon.municaoCarregada = 6;
             weapon.durabilidadeMaxUtil = weapon.maxDurabilidade;
+          } else {
+            weapon.municaoTotal = 1;
+            weapon.municaoCarregada = 1;
+            weapon.durabilidadeMaxUtil = weapon.maxDurabilidade;
+          }
+        } else {
+          weapon.categoria = 'Arma Branca';
+          if ((weapon.corte || 0) === 0 && (weapon.impacto || 0) === 0 && (weapon.perfuracao || 0) === 0) {
+            const bestStat = Math.max(1, weaponMat.corte.fisico || 0, weaponMat.perfuracao.fisico || 0, weaponMat.impacto.fisico || 0);
+            if (formula?.corteMult && formula.corteMult > 0) weapon.corte = bestStat;
+            else if (formula?.perfuracaoMult && formula.perfuracaoMult > 0) weapon.perfuracao = bestStat;
+            else if (formula?.impactoMult && formula.impactoMult > 0) weapon.impacto = bestStat;
+            else weapon.corte = 1;
           }
         }
         
@@ -357,12 +371,23 @@ export class EnemyGeneratorService {
     }
     enemy.dinheiro = money;
 
-    // 1 to 3 generic items from library
+    // Standard fallback items if library is empty
+    const fallbackItems: any[] = [
+      { id: 'cura', nome: "Poção de Cura Menor", peso: 0.5, volume: 0.5, quantidade: 1, durabilidade: 10, maxDurabilidade: 10, tipo: 'Consumível', descricao: "Elixir restaurador simples.", efeito: "Restaura 10 PV." },
+      { id: 'racao', nome: "Ração de Viagem", peso: 1, volume: 1, quantidade: 1, durabilidade: 10, maxDurabilidade: 10, tipo: 'Consumível', descricao: "Alimento nutritivo conservado.", efeito: "Sacia a fome por 1 dia." },
+      { id: 'agua', nome: "Cantil de Água", peso: 1.5, volume: 1.5, quantidade: 1, durabilidade: 10, maxDurabilidade: 10, tipo: 'Consumível', descricao: "Recipiente com água fresca potável.", efeito: "Sacia a sede por 1 dia." },
+      { id: 'bandagem', nome: "Bandagens", peso: 0.5, volume: 0.5, quantidade: 1, durabilidade: 10, maxDurabilidade: 10, tipo: 'Consumível', descricao: "Faixas esterilizadas para primeiros socorros.", efeito: "Estanca sangramento leve." },
+      { id: 'tocha', nome: "Tocha", peso: 1, volume: 1, quantidade: 1, durabilidade: 10, maxDurabilidade: 10, tipo: 'Utilitário', descricao: "Tocha de madeira com breu.", efeito: "Ilumina área por 1 hora." },
+      { id: 'isqueiro', nome: "Pederneira e Isqueiro", peso: 0.3, volume: 0.3, quantidade: 1, durabilidade: 10, maxDurabilidade: 10, tipo: 'Utilitário', descricao: "Kit para acender fogueiras.", efeito: "Permite fazer fogo." }
+    ];
+
+    // 1 to 3 generic items from library or fallback
     const numItems = randomInt(1, 3);
-    const libraryItems = ITEMS_LIBRARY.filter(i => i.tipo !== 'municao' && i.tipo !== 'equipamento');
+    const libraryItems: any[] = ITEMS_LIBRARY.filter(i => i.tipo !== 'municao' && i.tipo !== 'equipamento');
+    const availablePool: any[] = libraryItems.length > 0 ? libraryItems : fallbackItems;
     
     for (let i = 0; i < numItems; i++) {
-      const baseItem = randomElement(libraryItems);
+      const baseItem = randomElement(availablePool);
       if (!baseItem) continue;
 
       if (baseItem.nome === "Dinheiro extra") {
@@ -375,53 +400,95 @@ export class EnemyGeneratorService {
         nome: baseItem.nome,
         peso: baseItem.peso,
         volume: baseItem.volume,
-        quantidade: baseItem.quantidade || 1,
-        tipo: baseItem.tipo === 'consumivel' ? 'Consumível' : 'Utilitário',
+        quantidade: (baseItem as any).quantidade || 1,
+        tipo: (baseItem.tipo === 'consumivel' || baseItem.tipo === 'Consumível') ? 'Consumível' : 'Utilitário',
         durabilidade: 10,
         maxDurabilidade: 10,
-        descricao: baseItem.descricao,
+        descricao: baseItem.descricao || '',
         efeito: baseItem.efeito || ''
       });
     }
 
-    // Ammo for shooters (10 to 20)
-    if (hasRanged) {
-      const rangedWeapon = enemy.armas.find(w => 
-        w.nome.toLowerCase().includes('arco') || 
-        w.nome.toLowerCase().includes('besta') || 
-        w.nome.toLowerCase().includes('pistola') || 
-        w.nome.toLowerCase().includes('rifle')
-      );
+    // Ammunition Generation & Loading for all ranged weapons
+    const rangedWeapons = enemy.armas.filter(w => isFirearmItem(w) || isBowItem(w));
+    if (rangedWeapons.length > 0 || hasRanged) {
+      const validAmmoMaterials = materials.filter(m => {
+        const mId = m.id.toLowerCase();
+        const mName = m.nome.toLowerCase();
+        return !['madeira', 'ouro', 'mercúrio', 'estanho'].includes(mId) && !['madeira', 'ouro', 'mercúrio', 'estanho'].includes(mName);
+      });
+      const ammoSafetyPool = validAmmoMaterials.length > 0 ? validAmmoMaterials : materials;
 
-      const isFirearm = rangedWeapon?.nome.toLowerCase().includes('pistola') || rangedWeapon?.nome.toLowerCase().includes('rifle');
-      
-    // Pick individual material for ammo to ensure variety
-    const ammoMatPool = this.shuffle([...materials]);
-    let ammoMat = randomElement(ammoMatPool.filter(m => 
-      !['madeira', 'ouro', 'mercúrio', 'estanho'].includes(m.id.toLowerCase())
-    ));
-    
-    if (!ammoMat) throw new Error("No ammo material available");
-    const baseAmmo = ITEMS_LIBRARY.find(i => i.nome.includes(isFirearm ? 'Balas' : 'Flechas')) || ITEMS_LIBRARY.find(i => i.tipo === 'municao');
+      rangedWeapons.forEach(weapon => {
+        const isFirearm = isFirearmItem(weapon);
+        const ammoMat = randomElement(ammoSafetyPool) || ammoSafetyPool[0];
 
-      if (baseAmmo) {
-        mochila.itens.push({
-          id: crypto.randomUUID(),
-          nome: isFirearm ? `Balas de ${ammoMat.nome}` : `Flechas de ${ammoMat.nome}`,
-          peso: baseAmmo.peso,
-          volume: baseAmmo.volume,
-          quantidade: randomInt(10, 20),
+        const ammoId = crypto.randomUUID();
+        const isCrossbow = (weapon.nome || "").toLowerCase().includes('besta');
+        const ammoNome = isFirearm 
+          ? `Balas de ${ammoMat.nome}` 
+          : isCrossbow 
+            ? `Virotes de ${ammoMat.nome}` 
+            : `Flechas de ${ammoMat.nome}`;
+        const ammoPeso = isFirearm ? 0.1 : 0.5;
+        const ammoVolume = isFirearm ? 0.3 : 0.9;
+        const ammoCount = randomInt(24, 36);
+        const ammoDano = weapon.dano && weapon.dano !== '0' ? weapon.dano : (isFirearm ? '3d8' : '2d6');
+
+        const ammoItem: Item = {
+          id: ammoId,
+          nome: ammoNome,
+          peso: ammoPeso,
+          volume: ammoVolume,
+          quantidade: ammoCount,
           tipo: 'Munição',
+          categoria: 'Perfuração',
           durabilidade: 10,
           maxDurabilidade: 10,
           corte: ammoMat.corte.fisico,
+          perfuracao: Math.max(1, ammoMat.perfuracao.fisico || 1),
           impacto: ammoMat.impacto.fisico,
-          perfuracao: ammoMat.perfuracao.fisico,
           resistencia: ammoMat.resistencia.fisico,
-          descricao: baseAmmo.descricao,
+          dano: ammoDano,
+          descricao: isFirearm 
+            ? `Balas de ${ammoMat.nome} compatíveis com armas de fogo.` 
+            : `Flechas balanceadas com ponta de ${ammoMat.nome}.`,
           efeito: ammoMat.efeitos.join(", ")
-        });
-      }
+        };
+
+        // Add ammunition stack directly to backpack
+        mochila.itens.push(ammoItem);
+
+        // Pre-load and synchronize weapon according to SYSTEM_RULES.md Section 8
+        const loadedQty = isFirearm ? Math.min(6, weapon.municaoTotal || 6) : 1;
+        weapon.municaoTotal = isFirearm ? (weapon.municaoTotal || randomInt(6, 12)) : 1;
+        weapon.municaoCarregada = loadedQty;
+        weapon.durabilidadeMaxUtil = weapon.maxDurabilidade || 10;
+        weapon.durabilidade = weapon.maxDurabilidade || 10;
+        weapon.categoria = isFirearm ? 'Arma de Fogo' : 'Arco';
+        weapon.municaoDano = ammoDano;
+        if (isFirearm) {
+          weapon.bulletId = ammoId;
+        } else {
+          weapon.arrowId = ammoId;
+        }
+        weapon.magazineAmmo = Array.from({ length: loadedQty }, () => ({
+          id: ammoId,
+          nome: ammoNome,
+          dano: ammoDano,
+          corte: ammoItem.corte,
+          perfuracao: ammoItem.perfuracao,
+          impacto: ammoItem.impacto,
+          resistencia: ammoItem.resistencia,
+          efeito: ammoItem.efeito
+        }));
+        // Weapon attack levels directly reflect loaded ammo
+        weapon.corte = ammoItem.corte;
+        weapon.perfuracao = ammoItem.perfuracao;
+        weapon.impacto = ammoItem.impacto;
+        weapon.resistencia = ammoItem.resistencia;
+        weapon.dano = ammoDano;
+      });
     }
   }
 

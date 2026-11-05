@@ -242,6 +242,10 @@ Munições são consumíveis necessários para o uso de armas à distância (arc
 - A cada disparo no VTT ou rolagem com consumo, a munição carregada é reduzida do pente (`magazineAmmo` / `municaoCarregada`). Caso `magazineAmmo` esteja temporariamente vazio mas `municaoCarregada` possua valor positivo, o valor é decrementado sem zerar indevidamente o pente.
 - O dano do disparo com arma de fogo utiliza prioritariamente a fórmula de dano da bala carregada no pente (`magazineAmmo[0]`), ou configurada em `bulletId` / `municaoDano`, sobrepondo qualquer dano base zerado configurado na arma. Disparos descarregados são estritamente bloqueados com aviso de arma descarregada.
 
+### Geração Procedural de Inimigos (Gerador do VTT)
+- **Inimigos Atiradores (Armas de Fogo e Arcos)**: São gerados obrigatoriamente com estoque de munição em seu inventário principal (24 a 36 unidades de balas, flechas ou virotes com material compatível ao seu nível) e armas pré-carregadas (`magazineAmmo`, `municaoCarregada`, `bulletId`/`arrowId`), com seus níveis de ataque físico (Corte, Perfuração, Impacto), resistência e dano sincronizados com a munição ativa.
+- **Armas Brancas**: São categorizadas explicitamente como `'Arma Branca'` e possuem obrigatoriamente níveis de ataque físico úteis (mínimo Lvl 1 na modalidade principal da fórmula da arma), garantindo que nenhuma arma corpo a corpo gerada apareça inutilizável ou sem nível de ataque.
+
 ---
 
 ## 9. Manutenção e Recarga
