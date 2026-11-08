@@ -293,7 +293,7 @@
     "itens": [],
     "userId": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
     "user_id": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
-    "user_email": "zeroastrooliveira@gmail.com",
+    "user_email": "evelynmelosantana@gmail.com",
     "campaign_id": "camp_uu3i63t2d",
     "data": {
       "id": "ad0dfc53-df89-4092-9634-f3b7f5b452be",
@@ -598,13 +598,17 @@
     },
     "updated_at": "2026-11-01T12:48:37.55+00:00",
     "is_remote_synced": true,
-    "userEmail": "zeroastrooliveira@gmail.com",
+    "userEmail": "evelynmelosantana@gmail.com",
     "campaignId": "camp_uu3i63t2d",
     "defenseType": null,
     "isDefending": false,
     "defenseRounds": 0,
     "isRemoteSynced": true,
-    "defenseWeaponId": null
+    "defenseWeaponId": null,
+    "allowedEmails": [
+      "evelynmelosantana@gmail.com",
+      "zeroastrooliveira@gmail.com"
+    ]
   },
   "ef478598-8530-494e-b638-bed189269579": {
     "id": "ef478598-8530-494e-b638-bed189269579",
@@ -984,7 +988,7 @@
     "itens": [],
     "userId": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
     "user_id": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
-    "user_email": "zeroastrooliveira@gmail.com",
+    "user_email": "evelynmelosantana@gmail.com",
     "campaign_id": "camp_uu3i63t2d",
     "data": {
       "id": "ef478598-8530-494e-b638-bed189269579",
@@ -1369,9 +1373,13 @@
     },
     "updated_at": "2026-11-01T12:48:37.451+00:00",
     "is_remote_synced": true,
-    "userEmail": "zeroastrooliveira@gmail.com",
+    "userEmail": "evelynmelosantana@gmail.com",
     "campaignId": "camp_uu3i63t2d",
-    "isRemoteSynced": true
+    "isRemoteSynced": true,
+    "allowedEmails": [
+      "evelynmelosantana@gmail.com",
+      "zeroastrooliveira@gmail.com"
+    ]
   },
   "57ou4dbs97": {
     "id": "57ou4dbs97",
@@ -1695,7 +1703,7 @@
     "itens": [],
     "userId": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
     "user_id": "6c553e2e-b65e-409a-b3b2-b716217af04e",
-    "user_email": "zeroastrooliveira@gmail.com",
+    "user_email": "evelynmelosantana@gmail.com",
     "campaign_id": null,
     "data": {
       "id": "57ou4dbs97",
@@ -2018,13 +2026,17 @@
     },
     "updated_at": "2026-10-12T19:31:37.005+00:00",
     "is_remote_synced": true,
-    "userEmail": "zeroastrooliveira@gmail.com",
+    "userEmail": "evelynmelosantana@gmail.com",
     "campaignId": "camp_uu3i63t2d",
     "defenseType": null,
     "isDefending": false,
     "defenseRounds": 0,
     "isRemoteSynced": true,
-    "defenseWeaponId": null
+    "defenseWeaponId": null,
+    "allowedEmails": [
+      "evelynmelosantana@gmail.com",
+      "zeroastrooliveira@gmail.com"
+    ]
   },
   "wqhp4n7x2u": {
     "id": "wqhp4n7x2u",
@@ -2425,7 +2437,7 @@
     "itens": [],
     "userId": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
     "user_id": "6c553e2e-b65e-409a-b3b2-b716217af04e",
-    "user_email": "zeroastrooliveira@gmail.com",
+    "user_email": "evelynmelosantana@gmail.com",
     "campaign_id": null,
     "data": {
       "id": "wqhp4n7x2u",
@@ -2829,9 +2841,13 @@
       "seconds": 1780613923,
       "nanoseconds": 556000000
     },
-    "userEmail": "zeroastrooliveira@gmail.com",
+    "userEmail": "evelynmelosantana@gmail.com",
     "campaignId": "camp_uu3i63t2d",
-    "isRemoteSynced": true
+    "isRemoteSynced": true,
+    "allowedEmails": [
+      "evelynmelosantana@gmail.com",
+      "zeroastrooliveira@gmail.com"
+    ]
   },
   "lzoskyhkfo": {
     "id": "lzoskyhkfo",
@@ -3136,7 +3152,7 @@
     "itens": [],
     "userId": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
     "user_id": "14c5719d-1035-4bdd-bc62-5d6e4a0d9e57",
-    "user_email": "zeroastrooliveira@gmail.com",
+    "user_email": "evelynmelosantana@gmail.com",
     "campaign_id": null,
     "data": {
       "id": "vp3n11pl86",
@@ -4072,10 +4088,14 @@
       "seconds": 1783554526,
       "nanoseconds": 875000000
     },
-    "userEmail": "zeroastrooliveira@gmail.com",
+    "userEmail": "evelynmelosantana@gmail.com",
     "campaignId": "camp_uu3i63t2d",
     "created_at": "2026-09-08T01:42:01.193Z",
-    "isRemoteSynced": true
+    "isRemoteSynced": true,
+    "allowedEmails": [
+      "evelynmelosantana@gmail.com",
+      "zeroastrooliveira@gmail.com"
+    ]
   },
   "jdrc9b60sy": {
     "id": "jdrc9b60sy",
@@ -4445,7 +4465,7 @@
     "itens": [],
     "userId": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
     "user_id": "6c553e2e-b65e-409a-b3b2-b716217af04e",
-    "user_email": "zeroastrooliveira@gmail.com",
+    "user_email": "evelynmelosantana@gmail.com",
     "campaign_id": null,
     "data": {
       "id": "jdrc9b60sy",
@@ -4824,9 +4844,13 @@
       "seconds": 1780139318,
       "nanoseconds": 543000000
     },
-    "userEmail": "zeroastrooliveira@gmail.com",
+    "userEmail": "evelynmelosantana@gmail.com",
     "campaignId": "camp_uu3i63t2d",
-    "isRemoteSynced": true
+    "isRemoteSynced": true,
+    "allowedEmails": [
+      "evelynmelosantana@gmail.com",
+      "zeroastrooliveira@gmail.com"
+    ]
   },
   "v8mioko6be": {
     "id": "v8mioko6be",
@@ -5120,7 +5144,7 @@
     "itens": [],
     "userId": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
     "user_id": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
-    "user_email": "zeroastrooliveira@gmail.com",
+    "user_email": "evelynmelosantana@gmail.com",
     "campaign_id": null,
     "data": {
       "id": "v8mioko6be",
@@ -5390,9 +5414,13 @@
     },
     "updated_at": "2026-10-12T23:01:15.916+00:00",
     "is_remote_synced": true,
-    "userEmail": "zeroastrooliveira@gmail.com",
+    "userEmail": "evelynmelosantana@gmail.com",
     "campaignId": "camp_uu3i63t2d",
-    "isRemoteSynced": true
+    "isRemoteSynced": true,
+    "allowedEmails": [
+      "evelynmelosantana@gmail.com",
+      "zeroastrooliveira@gmail.com"
+    ]
   },
   "q4g8vr1y5x": {
     "id": "q4g8vr1y5x",
@@ -5760,7 +5788,7 @@
     "itens": [],
     "userId": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
     "user_id": "6c553e2e-b65e-409a-b3b2-b716217af04e",
-    "user_email": "zeroastrooliveira@gmail.com",
+    "user_email": "evelynmelosantana@gmail.com",
     "campaign_id": null,
     "data": {
       "id": "q4g8vr1y5x",
@@ -6285,7 +6313,7 @@
       "seconds": 1780666214,
       "nanoseconds": 950000000
     },
-    "userEmail": "zeroastrooliveira@gmail.com",
+    "userEmail": "evelynmelosantana@gmail.com",
     "bonusCarga": 0,
     "campaignId": "camp_uu3i63t2d",
     "defenseType": null,
@@ -6435,6 +6463,10 @@
       }
     ],
     "isRemoteSynced": true,
-    "defenseWeaponId": null
+    "defenseWeaponId": null,
+    "allowedEmails": [
+      "evelynmelosantana@gmail.com",
+      "zeroastrooliveira@gmail.com"
+    ]
   }
 }

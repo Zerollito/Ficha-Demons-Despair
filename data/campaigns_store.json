@@ -1,1 +1,15 @@
-{}
+{
+  "camp_uu3i63t2d": {
+    "id": "camp_uu3i63t2d",
+    "name": "Demons Despair - Campanha Principal",
+    "masterId": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
+    "masterEmail": "evelynmelosantana@gmail.com",
+    "inviteCode": "DESPAIR",
+    "playerEmails": [
+      "evelynmelosantana@gmail.com",
+      "zeroastrooliveira@gmail.com"
+    ],
+    "playerCharacters": [],
+    "updated_at": "2026-11-08T15:20:32.979Z"
+  }
+}
