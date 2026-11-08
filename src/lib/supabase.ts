@@ -1620,6 +1620,7 @@ export const forceSyncAndRestoreByEmail = async (
 
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('supabase_local_change_characters'));
+    window.dispatchEvent(new CustomEvent('characters_restored_from_cloud', { detail: { characters: restoredCharacters } }));
     window.dispatchEvent(new Event('supabase_local_change_campaigns'));
     window.dispatchEvent(new CustomEvent('campaigns_updated', { detail: { campaigns: restoredCampaigns } }));
   }
@@ -2350,6 +2351,48 @@ export const loginWithEmailOnly = async (email: string, displayName?: string, pa
     displayName: displayName || cleanEmail.split('@')[0],
   };
 
+  // 1. Tentar login direto no servidor backend (sincroniza contas e UIDs entre múltiplos dispositivos)
+  try {
+    const authRes = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: cleanEmail,
+        password: typedPassword,
+        displayName: displayName || cleanEmail.split('@')[0]
+      })
+    });
+    const authJson = await authRes.json();
+    if (authRes.ok && authJson?.success && authJson?.user) {
+      console.log("⚡ [Auth Server] Conta autenticada com sucesso pelo backend:", authJson.user.id);
+      userObj.uid = authJson.user.id;
+      userObj.realUid = authJson.user.id;
+      userObj.email = authJson.user.email || cleanEmail;
+      userObj.displayName = authJson.user.displayName || userObj.displayName;
+      try {
+        localStorage.setItem('account_google_uid_' + cleanEmail, authJson.user.id);
+        localStorage.setItem('user_local_pwd_' + cleanEmail, btoa(typedPassword));
+      } catch (e) {}
+
+      currentAuthUser = userObj;
+      localStorage.setItem('supabase_auth_user', JSON.stringify(userObj));
+      window.dispatchEvent(new Event('supabase_auth_state_change_local'));
+
+      // Sincronização imediata de dados
+      forceSyncAndRestoreByEmail(cleanEmail, userObj.uid).catch(() => {});
+      syncLocalToCloud().catch(() => {});
+
+      return userObj;
+    } else if (authRes.status === 401) {
+      throw new Error(authJson.error || "Senha incorreta para esta conta.");
+    }
+  } catch (srvAuthErr: any) {
+    if (srvAuthErr.message?.includes("Senha incorreta")) {
+      throw srvAuthErr;
+    }
+    console.warn("⚠️ [Auth Server] Aviso na autenticação via backend (tentando fallback local):", srvAuthErr.message || srvAuthErr);
+  }
+
   // Try real Supabase Local Auth first so the user appears in the local Supabase dashboard
   if (realSupabaseClient) {
     console.log("⚡ [Supabase Local] Autenticando/registrando usuário:", cleanEmail);
@@ -2482,6 +2525,24 @@ export const updateUserPassword = async (newPassword: string, email?: string) =>
   }
   const cleanEmail = (email || currentAuthUser?.email || '').trim().toLowerCase();
 
+  let updatedViaServer = false;
+  // 1. Atualizar e sincronizar senha no servidor Express backend (compartilhado entre todos os dispositivos)
+  if (cleanEmail) {
+    try {
+      const srvRes = await fetch("/api/auth/set-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: cleanEmail, password: newPassword })
+      });
+      if (srvRes.ok) {
+        console.log("✅ [Auth Server] Senha atualizada no servidor para todos os dispositivos!");
+        updatedViaServer = true;
+      }
+    } catch (e) {
+      console.warn("⚠️ [Auth Server] Aviso ao salvar senha no backend:", e);
+    }
+  }
+
   if (realSupabaseClient) {
     console.log("⚡ [Supabase Local] Atualizando senha do usuário...");
     try {
@@ -2540,7 +2601,7 @@ export const updateUserPassword = async (newPassword: string, email?: string) =>
             }
           } else {
             console.warn("⚠️ [Supabase] Não foi possível verificar a senha via signIn:", signInError?.message);
-            if (!updatedViaUser) {
+            if (!updatedViaUser && !updatedViaServer) {
               const finalErr = signInError?.message || signUpError?.message || "Não foi possível definir a senha no Supabase Auth. Verifique se o servidor está ativo.";
               throw new Error(finalErr);
             }
@@ -2548,8 +2609,10 @@ export const updateUserPassword = async (newPassword: string, email?: string) =>
         }
       }
     } catch (err: any) {
-      console.error("❌ [Supabase] Exception ao salvar senha no banco de dados:", err);
-      throw new Error(err.message || String(err));
+      console.warn("⚠️ [Supabase] Aviso ao salvar senha no Supabase:", err);
+      if (!updatedViaServer) {
+        throw new Error(err.message || String(err));
+      }
     }
   }
 

@@ -245,6 +245,7 @@ export const subscribeToUserCharacters = (
   }
 
   let active = true;
+  let lastServerSerialized = '';
 
   const q = query(
     collection(db, CHARACTERS_TABLE),
@@ -279,6 +280,12 @@ export const subscribeToUserCharacters = (
         ? Boolean((snapshot as any).metadata.fromCache) 
         : !isSupabaseConnected;
       const hasPendingWrites = Boolean((snapshot as any)?.metadata?.hasPendingWrites);
+
+      // Se o snapshot do cache local vier vazio mas já possuímos dados válidos do servidor, não sobrescrever com vazio
+      if (characters.length === 0 && lastServerSerialized && lastServerSerialized !== '[]') {
+        return;
+      }
+
       onUpdate(characters, { hasPendingWrites, fromCache: isFromCache });
     } catch (e) {
       console.error("[subscribeToUserCharacters onSnapshot] Error:", e);
@@ -293,7 +300,6 @@ export const subscribeToUserCharacters = (
   });
 
   // Direct Express server store polling (guarantees cross-device sync even without external Supabase)
-  let lastServerSerialized = '';
   const fetchFromServer = async () => {
     if (!active) return;
     try {

@@ -1497,6 +1497,39 @@ function App() {
       }).then(r => r.json()).then(data => {
         if (data.characters && Array.isArray(data.characters) && data.characters.length > 0) {
           console.log(`📡 [App Master Sync] ${data.characters.length} fichas sincronizadas com o servidor para ${user.email}`);
+          const blacklist = deletedCharsRef.current;
+          const valid = data.characters
+            .filter((c: any) => c && c.id && !blacklist.has(c.id))
+            .map(c => ({ ...sanitizeCharacter(c), isRemoteSynced: true }));
+
+          if (valid.length > 0) {
+            setState(prev => {
+              const currentChars = prev.characters || [];
+              const isOnlyPlaceholder = currentChars.length === 1 && 
+                currentChars[0].nome === "Novo Personagem" && 
+                (!currentChars[0].armas || currentChars[0].armas.length === 0);
+
+              const charMap = new Map<string, Character>();
+              if (!isOnlyPlaceholder) {
+                currentChars.forEach(c => charMap.set(c.id, c));
+              }
+              valid.forEach(c => {
+                const existing = charMap.get(c.id);
+                charMap.set(c.id, existing ? { ...c, ...existing, isRemoteSynced: true } : c);
+              });
+
+              const finalChars = Array.from(charMap.values());
+              const activeId = finalChars.some(c => c.id === prev.activeCharacterId)
+                ? prev.activeCharacterId
+                : (finalChars[0]?.id || "");
+
+              return {
+                ...prev,
+                characters: finalChars,
+                activeCharacterId: activeId
+              };
+            });
+          }
         }
       }).catch(() => {});
     }
@@ -1632,14 +1665,56 @@ function App() {
         return {
           ...prev,
           characters: finalCharacters,
-          activeCharacterId: prev.activeCharacterId || (finalCharacters.length > 0 ? finalCharacters[0].id : ""),
+          activeCharacterId: finalCharacters.some(c => c.id === prev.activeCharacterId)
+            ? prev.activeCharacterId
+            : (finalCharacters.length > 0 ? finalCharacters[0].id : ""),
           dirtyCharacterIds: Array.from(dirtyIds)
         };
       });
     });
 
+    const onRestored = (e: any) => {
+      const chars = e?.detail?.characters;
+      if (Array.isArray(chars) && chars.length > 0) {
+        setState(prev => {
+          const blacklist = deletedCharsRef.current;
+          const valid = chars
+            .filter((c: any) => c && c.id && !blacklist.has(c.id))
+            .map(c => ({ ...sanitizeCharacter(c), isRemoteSynced: true }));
+          if (valid.length === 0) return prev;
+
+          const currentChars = prev.characters || [];
+          const isOnlyPlaceholder = currentChars.length === 1 && 
+            currentChars[0].nome === "Novo Personagem" && 
+            (!currentChars[0].armas || currentChars[0].armas.length === 0);
+
+          const charMap = new Map<string, Character>();
+          if (!isOnlyPlaceholder) {
+            currentChars.forEach(c => charMap.set(c.id, c));
+          }
+          valid.forEach(c => {
+            const existing = charMap.get(c.id);
+            charMap.set(c.id, existing ? { ...c, ...existing, isRemoteSynced: true } : c);
+          });
+
+          const finalChars = Array.from(charMap.values());
+          const activeId = finalChars.some(c => c.id === prev.activeCharacterId)
+            ? prev.activeCharacterId
+            : (finalChars[0]?.id || "");
+
+          return {
+            ...prev,
+            characters: finalChars,
+            activeCharacterId: activeId
+          };
+        });
+      }
+    };
+    window.addEventListener('characters_restored_from_cloud', onRestored);
+
     return () => {
       console.log("Limpando assinaturas de personagens...");
+      window.removeEventListener('characters_restored_from_cloud', onRestored);
       unsubscribe();
     };
   }, [user?.uid]);
@@ -4884,7 +4959,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.10</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.11</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4994,14 +5069,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.10</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.11</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.10</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.11</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(

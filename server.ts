@@ -7,6 +7,7 @@ import path from "path";
 import dotenv from "dotenv";
 import cors from "cors";
 import fs from "fs";
+import crypto from "crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { GoogleGenAI } from "@google/genai";
 import { MATERIALS } from "./src/data/materials";
@@ -138,6 +139,104 @@ async function startServer() {
     } catch (e) {
       console.error("[CharactersStore] Save error:", e);
     }
+  }
+
+  // Cross-device user accounts persistence store (PC <-> Mobile auth sync)
+  const USERS_STORE_PATH = path.join(process.cwd(), "data", "users_store.json");
+
+  interface StoredUser {
+    id: string;
+    email: string;
+    passwordHash: string;
+    displayName?: string;
+    createdAt: string;
+    updatedAt?: string;
+  }
+
+  function getUsersStore(): Record<string, StoredUser> {
+    try {
+      if (fs.existsSync(USERS_STORE_PATH)) {
+        const raw = fs.readFileSync(USERS_STORE_PATH, "utf-8");
+        return JSON.parse(raw) || {};
+      }
+    } catch (e) {
+      console.error("[UsersStore] Read error:", e);
+    }
+    return {};
+  }
+
+  function saveUsersStore(data: Record<string, StoredUser>) {
+    try {
+      const dir = path.dirname(USERS_STORE_PATH);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(USERS_STORE_PATH, JSON.stringify(data, null, 2), "utf-8");
+    } catch (e) {
+      console.error("[UsersStore] Save error:", e);
+    }
+  }
+
+  function getDeterministicUuid(input: string): string {
+    let hash = 0;
+    const cleanInput = (input || "").trim().toLowerCase();
+    for (let i = 0; i < cleanInput.length; i++) {
+      const char = cleanInput.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash |= 0;
+    }
+    const seedRandom = (s: number) => {
+      return () => {
+        s = Math.sin(s) * 10000;
+        return s - Math.floor(s);
+      };
+    };
+    const rand = seedRandom(Math.abs(hash) || 987654321);
+    const hex = (val: number) => Math.floor(val).toString(16).padStart(2, '0');
+    const parts = [
+      Array.from({ length: 4 }, () => hex(rand() * 256)).join(''),
+      Array.from({ length: 2 }, () => hex(rand() * 256)).join(''),
+      hex(64 + (rand() * 16)) + hex(rand() * 256),
+      hex(128 + (rand() * 64)) + hex(rand() * 256),
+      Array.from({ length: 6 }, () => hex(rand() * 256)).join('')
+    ];
+    return `${parts[0]}-${parts[1]}-${parts[2]}-${parts[3]}-${parts[4]}`;
+  }
+
+  function findUserIdForEmail(email: string): string {
+    const cleanEmail = email.trim().toLowerCase();
+    try {
+      const charStore = getCharactersStore();
+      for (const c of Object.values(charStore)) {
+        const cEmail = (c.userEmail || c.user_email || '').trim().toLowerCase();
+        if (cEmail === cleanEmail && c.userId) {
+          return c.userId;
+        }
+      }
+      const campStore = getCampaignsStore();
+      for (const camp of Object.values(campStore)) {
+        const mEmail = (camp.masterEmail || camp.master_email || '').trim().toLowerCase();
+        if (mEmail === cleanEmail && camp.masterId) {
+          return camp.masterId;
+        }
+      }
+    } catch (e) {}
+    return getDeterministicUuid(cleanEmail);
+  }
+
+  function hashPassword(password: string): string {
+    const clean = (password || "").trim();
+    return crypto.createHash("sha256").update(clean).digest("hex");
+  }
+
+  function verifyPassword(password: string, hashOrBase64: string): boolean {
+    const clean = (password || "").trim();
+    if (!clean || !hashOrBase64) return false;
+    const sha = crypto.createHash("sha256").update(clean).digest("hex");
+    if (sha === hashOrBase64) return true;
+    try {
+      if (Buffer.from(clean).toString('base64') === hashOrBase64) return true;
+      if (Buffer.from(hashOrBase64, 'base64').toString('utf-8') === clean) return true;
+    } catch (e) {}
+    return false;
   }
 
   let verifiedWorkingSupabaseUrl: string | null = null;
@@ -304,7 +403,7 @@ async function startServer() {
             if (!res.headersSent) {
               // Resilient internal store fallback when target Supabase port is not running
               if (targetPath.startsWith('/auth/v1/health')) {
-                return res.status(200).json({ status: "ok", name: "GoTrue", version: "DemonsDespair-v1.15.10" });
+                return res.status(200).json({ status: "ok", name: "GoTrue", version: "DemonsDespair-v1.15.11" });
               }
 
               if (targetPath.startsWith('/rest/v1/characters')) {
@@ -318,6 +417,26 @@ async function startServer() {
                   if (userEmailEq && userEmailEq.startsWith('eq.')) {
                     const targetEmail = userEmailEq.slice(3).trim().toLowerCase();
                     filtered = filtered.filter((c: any) => (c.userEmail || c.user_email || '').trim().toLowerCase() === targetEmail);
+                  }
+                  if (idEq && idEq.startsWith('eq.')) {
+                    const targetId = idEq.slice(3).trim();
+                    filtered = filtered.filter((c: any) => c.id === targetId);
+                  }
+                  return res.status(200).json(filtered);
+                }
+              }
+
+              if (targetPath.startsWith('/rest/v1/campaigns')) {
+                const campStore = getCampaignsStore();
+                const allCamps = Object.values(campStore);
+                if (req.method === 'GET' || req.method === 'HEAD') {
+                  const urlObj = new URL(targetPath, 'http://localhost');
+                  const masterEmailEq = urlObj.searchParams.get('master_email');
+                  const idEq = urlObj.searchParams.get('id');
+                  let filtered = allCamps;
+                  if (masterEmailEq && masterEmailEq.startsWith('eq.')) {
+                    const targetEmail = masterEmailEq.slice(3).trim().toLowerCase();
+                    filtered = filtered.filter((c: any) => (c.masterEmail || c.master_email || '').trim().toLowerCase() === targetEmail);
                   }
                   if (idEq && idEq.startsWith('eq.')) {
                     const targetId = idEq.slice(3).trim();
@@ -374,6 +493,179 @@ async function startServer() {
   app.use('/supabase-proxy', createNativeSupabaseProxy('/supabase-proxy'));
 
   app.use(express.json({ limit: '10mb' }));
+
+  // --- DEDICATED AUTHENTICATION & MULTI-DEVICE ACCOUNT SYNC APIS ---
+  // 1. Login
+  app.post("/api/auth/login", (req, res) => {
+    const { email, password, displayName } = req.body || {};
+    const cleanEmail = (email || "").trim().toLowerCase();
+    const cleanPassword = (password || "").trim();
+
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      return res.status(400).json({ error: "E-mail inválido." });
+    }
+    if (!cleanPassword) {
+      return res.status(400).json({ error: "Senha não fornecida." });
+    }
+
+    const usersStore = getUsersStore();
+    const existing = usersStore[cleanEmail];
+
+    if (!existing) {
+      // First-time login: auto-register with consistent userId
+      const userId = findUserIdForEmail(cleanEmail);
+      const newUser: StoredUser = {
+        id: userId,
+        email: cleanEmail,
+        passwordHash: hashPassword(cleanPassword),
+        displayName: displayName || cleanEmail.split('@')[0],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      usersStore[cleanEmail] = newUser;
+      saveUsersStore(usersStore);
+      console.log(`👤 [Auth API] Nova conta registrada no login: ${cleanEmail} (UID: ${userId})`);
+      return res.json({
+        success: true,
+        user: {
+          id: newUser.id,
+          email: newUser.email,
+          displayName: newUser.displayName
+        }
+      });
+    }
+
+    // Existing user: verify password
+    if (verifyPassword(cleanPassword, existing.passwordHash)) {
+      console.log(`👤 [Auth API] Login bem-sucedido para: ${cleanEmail} (UID: ${existing.id})`);
+      return res.json({
+        success: true,
+        user: {
+          id: existing.id,
+          email: existing.email,
+          displayName: existing.displayName || cleanEmail.split('@')[0]
+        }
+      });
+    } else {
+      console.warn(`⚠️ [Auth API] Senha incorreta para: ${cleanEmail}`);
+      return res.status(401).json({ error: "Senha incorreta para esta conta." });
+    }
+  });
+
+  // 2. Register / Sign Up
+  app.post("/api/auth/register", (req, res) => {
+    const { email, password, displayName } = req.body || {};
+    const cleanEmail = (email || "").trim().toLowerCase();
+    const cleanPassword = (password || "").trim();
+
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      return res.status(400).json({ error: "E-mail inválido." });
+    }
+    if (!cleanPassword || cleanPassword.length < 6) {
+      return res.status(400).json({ error: "A senha deve ter pelo menos 6 caracteres." });
+    }
+
+    const usersStore = getUsersStore();
+    const existing = usersStore[cleanEmail];
+
+    if (existing) {
+      if (verifyPassword(cleanPassword, existing.passwordHash)) {
+        return res.json({
+          success: true,
+          user: {
+            id: existing.id,
+            email: existing.email,
+            displayName: existing.displayName || displayName || cleanEmail.split('@')[0]
+          }
+        });
+      } else {
+        return res.status(400).json({ error: "Este e-mail já possui uma conta cadastrada. Faça login com a senha existente ou defina uma nova senha." });
+      }
+    }
+
+    const userId = findUserIdForEmail(cleanEmail);
+    const newUser: StoredUser = {
+      id: userId,
+      email: cleanEmail,
+      passwordHash: hashPassword(cleanPassword),
+      displayName: displayName || cleanEmail.split('@')[0],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    usersStore[cleanEmail] = newUser;
+    saveUsersStore(usersStore);
+    console.log(`👤 [Auth API] Conta registrada: ${cleanEmail} (UID: ${userId})`);
+    return res.json({
+      success: true,
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        displayName: newUser.displayName
+      }
+    });
+  });
+
+  // 3. Set or update password
+  app.post("/api/auth/set-password", (req, res) => {
+    const { email, password, displayName } = req.body || {};
+    const cleanEmail = (email || "").trim().toLowerCase();
+    const cleanPassword = (password || "").trim();
+
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      return res.status(400).json({ error: "E-mail inválido." });
+    }
+    if (!cleanPassword || cleanPassword.length < 6) {
+      return res.status(400).json({ error: "A senha deve ter pelo menos 6 caracteres." });
+    }
+
+    const usersStore = getUsersStore();
+    const existing = usersStore[cleanEmail];
+    const userId = existing?.id || findUserIdForEmail(cleanEmail);
+
+    const updatedUser: StoredUser = {
+      id: userId,
+      email: cleanEmail,
+      passwordHash: hashPassword(cleanPassword),
+      displayName: displayName || existing?.displayName || cleanEmail.split('@')[0],
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    usersStore[cleanEmail] = updatedUser;
+    saveUsersStore(usersStore);
+    console.log(`🔑 [Auth API] Senha configurada para conta: ${cleanEmail} (UID: ${userId})`);
+
+    return res.json({
+      success: true,
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        displayName: updatedUser.displayName
+      }
+    });
+  });
+
+  // 4. Get User Profile by email
+  app.get("/api/auth/user", (req, res) => {
+    const { email } = req.query;
+    const cleanEmail = email ? String(email).trim().toLowerCase() : "";
+    if (!cleanEmail) {
+      return res.status(400).json({ error: "E-mail obrigatório." });
+    }
+    const usersStore = getUsersStore();
+    const user = usersStore[cleanEmail];
+    if (user) {
+      return res.json({
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName || user.email.split('@')[0]
+        }
+      });
+    }
+    return res.status(404).json({ error: "Usuário não encontrado." });
+  });
 
   app.get("/api/health", (req, res) => {
     const active = getActiveSupabaseTarget();
@@ -481,7 +773,7 @@ async function startServer() {
         const timeout = setTimeout(() => controller.abort(), 2500);
         const start = Date.now();
         const headers: Record<string, string> = { 
-          "User-Agent": "DemonsDespair/1.15.10",
+          "User-Agent": "DemonsDespair/1.15.11",
           "apikey": anonKey,
           "Authorization": `Bearer ${anonKey}`
         };
