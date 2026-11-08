@@ -335,33 +335,36 @@ export const createWeaponFromMaterial = (formulaKey: string, material: MaterialD
                 lowerName.includes('besta');
   const categoria: 'Arma Branca' | 'Arma de Fogo' | 'Arco' = isFirearm ? 'Arma de Fogo' : isBow ? 'Arco' : 'Arma Branca';
 
-  let corte = Math.floor(material.corte.fisico * formula.corteMult + formula.corteBonus);
-  let impacto = Math.floor(material.impacto.fisico * formula.impactoMult + formula.impactoBonus);
-  let perfuracao = Math.floor(material.perfuracao.fisico * formula.perfuracaoMult + formula.perfuracaoBonus);
+  let corte = 0;
+  let impacto = 0;
+  let perfuracao = 0;
 
   if (!isFirearm && !isBow) {
-    if (formula.corteMult > 0 && material.corte.fisico > 0 && corte === 0) {
-      corte = Math.max(1, Math.round(material.corte.fisico * formula.corteMult + formula.corteBonus));
-    }
-    if (formula.impactoMult > 0 && material.impacto.fisico > 0 && impacto === 0) {
-      impacto = Math.max(1, Math.round(material.impacto.fisico * formula.impactoMult + formula.impactoBonus));
-    }
-    if (formula.perfuracaoMult > 0 && material.perfuracao.fisico > 0 && perfuracao === 0) {
-      perfuracao = Math.max(1, Math.round(material.perfuracao.fisico * formula.perfuracaoMult + formula.perfuracaoBonus));
-    }
+    // For melee weapons, each active attack type directly inherits the material's physical stat + bonus
+    corte = formula.corteMult > 0 ? (material.corte.fisico + formula.corteBonus) : 0;
+    impacto = formula.impactoMult > 0 ? (material.impacto.fisico + formula.impactoBonus) : 0;
+    perfuracao = formula.perfuracaoMult > 0 ? (material.perfuracao.fisico + formula.perfuracaoBonus) : 0;
 
+    // Fallback if none are active
     if (corte === 0 && impacto === 0 && perfuracao === 0) {
       const bestStat = Math.max(1, material.corte.fisico || 0, material.perfuracao.fisico || 0, material.impacto.fisico || 0);
-      if (formula.corteMult >= formula.perfuracaoMult && formula.corteMult >= formula.impactoMult && formula.corteMult > 0) {
-        corte = bestStat;
-      } else if (formula.perfuracaoMult >= formula.impactoMult && formula.perfuracaoMult > 0) {
-        perfuracao = bestStat;
-      } else if (formula.impactoMult > 0) {
-        impacto = bestStat;
+      if (formula.corteMult >= formula.perfuracaoMult && formula.corteMult >= formula.impactoMult) {
+        corte = bestStat + formula.corteBonus;
+      } else if (formula.perfuracaoMult >= formula.impactoMult) {
+        perfuracao = bestStat + formula.perfuracaoBonus;
       } else {
-        corte = 1;
+        impacto = bestStat + formula.impactoBonus;
       }
     }
+
+    corte = Math.max(0, corte);
+    impacto = Math.max(0, impacto);
+    perfuracao = Math.max(0, perfuracao);
+  } else {
+    // Ranged base stats (firearms and bows get active stats when loaded with ammo)
+    corte = Math.floor(material.corte.fisico * formula.corteMult + formula.corteBonus);
+    impacto = Math.floor(material.impacto.fisico * formula.impactoMult + formula.impactoBonus);
+    perfuracao = Math.floor(material.perfuracao.fisico * formula.perfuracaoMult + formula.perfuracaoBonus);
   }
   
   let durabilidadeBase = parseInt(material.durabilidade);

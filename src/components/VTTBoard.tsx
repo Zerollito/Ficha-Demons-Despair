@@ -1146,6 +1146,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const [viewingCreatureId, setViewingCreatureId] = useState<string | null>(null);
   const [lootingCharId, setLootingCharId] = useState<string | null>(null);
   const [fetchedCharacters, setFetchedCharacters] = useState<Record<string, Character>>({});
+  
+  const getEffectiveCharacter = useCallback((charId: string | null | undefined): Character | null => {
+    if (!charId) return null;
+    return fetchedCharacters[charId] || availableCharacters.find(c => c.id === charId) || null;
+  }, [fetchedCharacters, availableCharacters]);
+
   const fetchingIdsRef = useRef<Set<string>>(new Set());
   const pendingInitiativeClearsRef = useRef<Set<string>>(new Set());
   const [localIsVttSheetOpen, setLocalIsVttSheetOpen] = useState(false);
@@ -1174,15 +1180,13 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       onUpdateCharacter(updates, characterId);
     }
 
-    // Also update our locally cached fetchedCharacters in state if it exists
+    // Also update our locally cached fetchedCharacters in state immediately and unconditionally
     setFetchedCharacters(prev => {
-      if (prev[characterId]) {
-        return {
-          ...prev,
-          [characterId]: { ...prev[characterId], ...updates }
-        };
-      }
-      return prev;
+      const existing = prev[characterId] || availableCharacters.find(c => c.id === characterId) || ({} as any);
+      return {
+        ...prev,
+        [characterId]: { ...existing, ...updates }
+      };
     });
     
     // 2. Also save to the local campaign characters list cache so other subscriptions are aware
@@ -1216,7 +1220,16 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
         });
         await updateDoc(charRef, updateMap);
       } catch (error) {
-        console.warn("[VTTBoard] Error updating character on Firestore:", error);
+        try {
+          const charRef = doc(db, 'characters', characterId);
+          const cleanUpdate = deepCleanData(updates);
+          await setDoc(charRef, {
+            data: cleanUpdate,
+            updated_at: new Date().toISOString()
+          }, { merge: true });
+        } catch (e2) {
+          console.warn("[VTTBoard] Error updating character on Firestore:", e2);
+        }
       }
     } else {
       console.log(`[VTTBoard] Firebase quota exceeded. Character ${characterId} updated purely locally (will sync later).`);
@@ -1347,11 +1360,11 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   const ammoSelectWeapon = useMemo(() => {
     if (!selectedAmmoWeaponId || !weaponSelectTokenId) return null;
     const attacker = tokens.find(t => t.id === weaponSelectTokenId);
-    const char = attacker?.characterId ? (availableCharacters.find(c => c.id === attacker.characterId) || fetchedCharacters[attacker.characterId]) : null;
+    const char = getEffectiveCharacter(attacker?.characterId);
     if (!char) return null;
     return char.armas.find((w: any) => w.id === selectedAmmoWeaponId) || 
            char.compartimentos?.flatMap((c: any) => c.itens || []).find((i: any) => i.id === selectedAmmoWeaponId);
-  }, [selectedAmmoWeaponId, weaponSelectTokenId, tokens, availableCharacters, fetchedCharacters]);
+  }, [selectedAmmoWeaponId, weaponSelectTokenId, tokens, getEffectiveCharacter]);
 
   const [selectedAmmoId, setSelectedAmmoId] = useState<string | null>(null);
   const [ammoOptions, setAmmoOptions] = useState<any[]>([]);
@@ -1636,7 +1649,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
   };
 
   const handleReload = async (charId: string, weaponId: string, ammoId: string) => {
-    let char = availableCharacters.find(c => c.id === charId) || fetchedCharacters[charId];
+    let char = getEffectiveCharacter(charId);
     if (!char) return;
 
     let weapon = char.armas.find(w => w.id === weaponId);
@@ -1717,13 +1730,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       })
     }));
 
-    await updateCharacterState(char.id, charUpdates);
     await updateCharacterLocalAndRemote(char.id, charUpdates);
     await addCombatLog(campaignId, { msg: `${char.nome} recarregou 1 munição (${ammo.nome}) em ${weapon.nome}.`, type: 'info' });
   };
 
   const handleMaintenance = async (charId: string, weaponId: string) => {
-    let char = availableCharacters.find(c => c.id === charId) || fetchedCharacters[charId];
+    let char = getEffectiveCharacter(charId);
     if (!char) return;
 
     let weapon = char.armas.find(w => w.id === weaponId);
@@ -1746,12 +1758,12 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       itens: comp.itens.map((it: any) => it.id === weaponId ? { ...it, durabilidade: maxDur } : it)
     }));
 
-    await updateCharacterState(char.id, charUpdates);
+    await updateCharacterLocalAndRemote(char.id, charUpdates);
     await addCombatLog(campaignId, { msg: `${char.nome} realizou a manutenção de "${weapon.nome}". Durabilidade útil restaurada para ${maxDur}!`, type: 'success' });
   };
 
   const handleReloadAll = async (charId: string, weaponId: string, ammoId: string) => {
-    let char = availableCharacters.find(c => c.id === charId) || fetchedCharacters[charId];
+    let char = getEffectiveCharacter(charId);
     if (!char) return;
 
     let weapon = char.armas.find(w => w.id === weaponId);
@@ -1834,62 +1846,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       })
     }));
 
-    await updateCharacterState(char.id, charUpdates);
     await updateCharacterLocalAndRemote(char.id, charUpdates);
+    await addCombatLog(campaignId, { msg: `${char.nome} recarregou completamente "${weapon.nome}" (${amountToLoad} munições).`, type: 'info' });
   };
 
   const [clipBoardItem, setClipBoardItem] = useState<{item: any, sourceId: string, charId: string, type: 'cut' | 'copy'} | null>(null);
 
   const updateCharacterState = async (charId: string, updates: any) => {
-    // 1. Always update our locally cached fetchedCharacters FIRST so the UI updates instantly
-    setFetchedCharacters(prev => {
-      const existing = prev[charId] || availableCharacters.find(c => c.id === charId);
-      if (existing) {
-        return {
-          ...prev,
-          [charId]: { ...existing, ...updates }
-        };
-      }
-      return prev;
-    });
-
-    // 2. Synchronize with high-level app state immediately
-    if (onUpdateCharacter) {
-      onUpdateCharacter(updates, charId);
-    }
-
-    // 3. Always synchronize with Firestore directly for campaign character updates to notify other players
-    if (isFirebaseQuotaExceeded()) {
-      console.warn(`[VTT] Sincronização em nuvem ignorada devido a cota esgotada para o personagem: ${charId}`);
-      return;
-    }
-    console.log(`[VTT] Synchronizing character ${charId} directly in Firestore.`, updates);
-    const cleanUpdate = deepCleanData(updates);
-    const charRef = doc(db, 'characters', charId);
-    
-    try {
-      // Prepare dot-notation update map for updateDoc to update nested fields inside the 'data' map
-      const updateMap: any = {
-        updated_at: new Date().toISOString()
-      };
-      Object.entries(cleanUpdate).forEach(([key, val]) => {
-        updateMap[`data.${key}`] = val;
-      });
-      await updateDoc(charRef, updateMap);
-      console.log(`✅ [VTT] Sincronização direta Firestore concluída para ${charId}.`);
-    } catch (fError) {
-      console.warn(`[VTT] updateDoc falhou para ${charId}, tentando setDoc fallback:`, fError);
-      try {
-        await setDoc(charRef, {
-          data: cleanUpdate,
-          updated_at: new Date().toISOString()
-        }, { merge: true });
-        console.log(`✅ [VTT] Sincronização de backup setDoc direta concluída para ${charId}.`);
-      } catch (uError) {
-        console.warn(`⚠️ [VTT] Falha ao sincronizar ficha diretamente em Firestore (pode ser restrição de permissão de saque para jogadores):`, uError);
-        // Do not rethrow so that local looting / state works perfectly without throwing exception
-      }
-    }
+    return updateCharacterLocalAndRemote(charId, updates);
   };
 
   const handleCutItem = (charId: string, sourceId: string, item: any) => {
@@ -2666,8 +2630,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
 
       const attacker = tokens.find(t => t.id === attackerId);
       const target = tokens.find(t => t.id === targetId);
-      const attackerChar = availableCharacters.find(c => c.id === attacker?.characterId) || (attacker?.characterId ? fetchedCharacters[attacker.characterId] : undefined);
-      const targetChar = availableCharacters.find(c => c.id === target?.characterId) || (target?.characterId ? fetchedCharacters[target.characterId] : undefined);
+      const attackerChar = getEffectiveCharacter(attacker?.characterId);
+      const targetChar = getEffectiveCharacter(target?.characterId);
       
       if (!attacker || !target) return;
 
@@ -3396,7 +3360,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           const currentHpBeforeDmg = targetChar ? (targetChar.vidaAtual ?? 0) : (target.hp ?? 0);
           const newHp = Math.max(0, currentHpBeforeDmg - damage);
           
-          await updateTokenPosition(campaignId, target.id, { hp: newHp, efeitosNegativos: finalEffects, ...defenseClear });
+          await updateTokenPosition(campaignId, target.id, { hp: newHp, efeitosNegativos: finalEffects, ...defenseClear }, tokens);
           if (targetChar) {
             await updateCharacterLocalAndRemote(targetChar.id, { vidaAtual: newHp, efeitosNegativos: finalEffects, ...defenseClear });
           }
@@ -3407,7 +3371,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
           effectInfo = ` (Resistiu: ${resRoll}+${resProf}=${resRoll+resProf})`;
           const currentHpBeforeDmg = targetChar ? (targetChar.vidaAtual ?? 0) : (target.hp ?? 0);
           const newHp = Math.max(0, currentHpBeforeDmg - damage);
-          await updateTokenPosition(campaignId, target.id, { hp: newHp, ...defenseClear });
+          await updateTokenPosition(campaignId, target.id, { hp: newHp, ...defenseClear }, tokens);
           if (targetChar) await updateCharacterLocalAndRemote(targetChar.id, { vidaAtual: newHp, ...defenseClear });
 
           combatStatus = 'hit_resisted_effect';
@@ -3415,7 +3379,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       } else {
         const currentHpBeforeDmg = targetChar ? (targetChar.vidaAtual ?? 0) : (target.hp ?? 0);
         const newHp = Math.max(0, currentHpBeforeDmg - damage);
-        await updateTokenPosition(campaignId, target.id, { hp: newHp, ...defenseClear });
+        await updateTokenPosition(campaignId, target.id, { hp: newHp, ...defenseClear }, tokens);
         if (targetChar) await updateCharacterLocalAndRemote(targetChar.id, { vidaAtual: newHp, ...defenseClear });
 
         if (combatStatus !== 'weapon_blocked_half_damage' && combatStatus !== 'shield_blocked_half_damage') {
@@ -3493,7 +3457,7 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       await addCombatLog(campaignId, { msg, type: 'error' });
 
       if (target.isDefending) {
-        await updateTokenPosition(campaignId, target.id, defenseClear);
+        await updateTokenPosition(campaignId, target.id, defenseClear, tokens);
         if (targetChar) {
           await updateCharacterLocalAndRemote(targetChar.id, defenseClear);
         }
@@ -5570,6 +5534,25 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                     isEnemy: true,
                     etnia: enemy.etnia || 'Monstro'
                   };
+
+                  // 1. Immediately cache in fetchedCharacters so VTT token combat resolution finds the character instantly
+                  setFetchedCharacters(prev => ({
+                    ...prev,
+                    [enemyWithCam.id]: enemyWithCam
+                  }));
+
+                  // 2. Also write to campaign characters local storage cache
+                  if (campaignId) {
+                    try {
+                      const cached = safeLocalStorageGetItem(`campaign_characters_${campaignId}`) || localStorage.getItem(`campaign_characters_${campaignId}`);
+                      const chars = cached ? JSON.parse(cached) as Character[] : [];
+                      chars.push(enemyWithCam);
+                      safeLocalStorageSetItem(`campaign_characters_${campaignId}`, JSON.stringify(optimizeCharactersForCache(chars)));
+                    } catch (e) {
+                      console.warn("Erro ao cachear inimigo localmente:", e);
+                    }
+                  }
+
                   if (onAddCharacter) {
                     onAddCharacter(enemyWithCam);
                   }
@@ -5580,6 +5563,11 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                   });
                   
                   if (onAddToken) {
+                    const maxWeaponCorte = Math.max(0, ...enemy.armas.map(w => w.corte || 0));
+                    const maxWeaponPerf = Math.max(0, ...enemy.armas.map(w => w.perfuracao || 0));
+                    const maxWeaponImp = Math.max(0, ...enemy.armas.map(w => w.impacto || 0));
+                    const maxWeaponRes = Math.max(0, ...enemy.armas.map(w => w.resistencia || 0));
+
                     const newToken: TableToken = {
                       id: generateId(),
                       name: enemy.nome,
@@ -5593,36 +5581,47 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       imageUrl: enemy.imagem || 'https://images.unsplash.com/photo-1599508704512-2f19efd1e35f?w=128&h=128&fit=crop',
                       deslocamento: 6,
                       isDefending: false,
-                      // We don't necessarily need to populate stats and acoes anymore since it's linked to a characterId
-                      // But we can still keep them for quick reference if the VTT doesn't find the character
                       stats: {
                         acuracia: calculateProficiencyBonus(enemy.stats, 'Acurácia', ['FOR', 'DEX']),
                         esquiva: calculateProficiencyBonus(enemy.stats, 'Esquiva', ['DEX', 'ADP']),
                         ataque: { 
-                          corte: enemy.stats.FOR > enemy.stats.DEX ? 4 : 2, 
-                          perfuracao: enemy.stats.DEX >= enemy.stats.FOR ? 4 : 2, 
-                          impacto: 2, 
-                          resistencia: 0,
+                          corte: maxWeaponCorte || (enemy.stats.FOR > enemy.stats.DEX ? 4 : 2), 
+                          perfuracao: maxWeaponPerf || (enemy.stats.DEX >= enemy.stats.FOR ? 4 : 2), 
+                          impacto: maxWeaponImp || 2, 
+                          resistencia: maxWeaponRes || 0,
                           feitico: enemy.stats.INT > 10 ? 2 : 0, 
                           elemental: 0, 
                           magiaNegra: 0, 
                           potencial: 0
                         },
                         defesa: { 
-                          corte: 0, perfuracao: 0, impacto: 0,
+                          corte: Math.max(0, ...(enemy.armaduras || []).map(a => a.corte || 0)), 
+                          perfuracao: Math.max(0, ...(enemy.armaduras || []).map(a => a.perfuracao || 0)), 
+                          impacto: Math.max(0, ...(enemy.armaduras || []).map(a => a.impacto || 0)),
                           feitico: 0, elemental: 0, magiaNegra: 0
                         }
                       },
-                      acoes: enemy.armas.map(a => ({
-                          ...a, // Spread all weapon fields including corte/perfuracao/impacto, magazineAmmo, municaoCarregada, bulletId, arrowId
+                      acoes: enemy.armas.map(a => {
+                        const effectiveCat: 'Corte' | 'Perfuração' | 'Impacto' = 
+                          (a.corte || 0) > 0 ? 'Corte' : 
+                          (a.perfuracao || 0) > 0 ? 'Perfuração' : 
+                          (a.impacto || 0) > 0 ? 'Impacto' : 'Corte';
+                        return {
+                          ...a,
                           id: a.id,
                           name: a.nome,
                           type: 'Major',
-                          categoria: a.categoria || (a.corte > a.perfuracao ? 'Corte' : 'Perfuração'),
+                          categoria: effectiveCat,
+                          weaponCategory: a.categoria || 'Arma Branca',
                           acerto: a.acerto,
                           dano: a.dano,
+                          corte: a.corte,
+                          perfuracao: a.perfuracao,
+                          impacto: a.impacto,
+                          resistencia: a.resistencia,
                           description: a.efeito || ''
-                      })),
+                        };
+                      }),
                       efeitosNegativos: enemy.efeitosNegativos || []
                     };
                     onAddToken(newToken);

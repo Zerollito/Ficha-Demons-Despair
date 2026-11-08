@@ -195,7 +195,17 @@ export const setSupabaseConnectionState = (connected: boolean) => {
 
 console.log("⚡ [Supabase Local] Inicializado com:", currentConfig.url);
 
-export const setSupabaseConfig = (newUrl: string, newAnonKey?: string) => {
+export const fetchServerSupabaseConfig = async (): Promise<{ url: string; anonKey: string; source: string; isLocalhostTarget: boolean; updatedAt?: string } | null> => {
+  try {
+    const res = await fetch('/api/supabase/config');
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (e) {}
+  return null;
+};
+
+export const setSupabaseConfig = async (newUrl: string, newAnonKey?: string): Promise<{ success: boolean; message: string; latency?: number }> => {
   const normUrl = normalizeSupabaseUrl(newUrl);
   const cleanKey = (newAnonKey || currentConfig.anonKey).trim();
   if (typeof window !== 'undefined') {
@@ -214,6 +224,23 @@ export const setSupabaseConfig = (newUrl: string, newAnonKey?: string) => {
   });
   console.log("⚡ [Supabase Local] Cliente reconfigurado para:", normUrl);
   
+  // Sincroniza com o servidor Express backend para que o proxy também atualize o alvo
+  if (typeof window !== 'undefined') {
+    try {
+      const syncUrl = (normUrl === window.location.origin || normUrl === normalizeSupabaseUrl(window.location.origin))
+        ? "http://127.0.0.1:54321" 
+        : normUrl;
+      await fetch('/api/supabase/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: syncUrl, anonKey: cleanKey })
+      });
+      console.log("⚡ [Supabase Local] Configuração sincronizada com o proxy do servidor Express.");
+    } catch (err) {
+      console.warn("⚠️ [Supabase Local] Falha ao enviar nova config para /api/supabase/config:", err);
+    }
+  }
+
   // Recheck session & attach auth state change for the new client!
   hasActiveRealSession = false;
   try {
@@ -231,6 +258,8 @@ export const setSupabaseConfig = (newUrl: string, newAnonKey?: string) => {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('supabase_config_changed', { detail: { url: normUrl } }));
   }
+
+  return await testSupabaseConnection(normUrl, cleanKey);
 };
 
 export const testSupabaseConnection = async (targetUrl?: string, targetKey?: string): Promise<{ success: boolean; message: string; latency?: number }> => {

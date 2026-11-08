@@ -282,6 +282,7 @@ export class EnemyGeneratorService {
             else if (formula?.impactoMult && formula.impactoMult > 0) weapon.impacto = bestStat;
             else weapon.corte = 1;
           }
+          weapon.resistencia = weaponMat.resistencia.fisico;
         }
         
         if (isThrowing) {

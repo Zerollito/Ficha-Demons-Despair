@@ -80,15 +80,95 @@ async function startServer() {
 
   app.use(cors({ origin: true, credentials: true }));
 
+  // Standard local Supabase JWT anon key
+  const STANDARD_LOCAL_JWT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNRebZhBc_4bXn6U";
+  const SUPABASE_CONFIG_PATH = path.join(process.cwd(), "data", "supabase_config.json");
+
+  interface SupabaseConfigData {
+    targetUrl: string;
+    anonKey: string;
+    updatedAt?: string;
+  }
+
+  function getStoredSupabaseConfig(): SupabaseConfigData | null {
+    try {
+      if (fs.existsSync(SUPABASE_CONFIG_PATH)) {
+        const raw = fs.readFileSync(SUPABASE_CONFIG_PATH, "utf-8");
+        return JSON.parse(raw);
+      }
+    } catch (err) {
+      console.error("Error reading supabase_config.json:", err);
+    }
+    return null;
+  }
+
+  function saveSupabaseConfig(config: SupabaseConfigData): void {
+    try {
+      const dir = path.dirname(SUPABASE_CONFIG_PATH);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(SUPABASE_CONFIG_PATH, JSON.stringify(config, null, 2), "utf-8");
+    } catch (err) {
+      console.error("Error saving supabase_config.json:", err);
+    }
+  }
+
+  function getActiveSupabaseTarget(): { url: string; anonKey: string; source: string; updatedAt?: string } {
+    const stored = getStoredSupabaseConfig();
+    if (stored && stored.targetUrl && stored.targetUrl.trim()) {
+      let cleanKey = (stored.anonKey || "").trim();
+      if (!cleanKey || cleanKey.startsWith("sb_publishable_")) {
+        cleanKey = STANDARD_LOCAL_JWT;
+      }
+      return {
+        url: stored.targetUrl.trim(),
+        anonKey: cleanKey,
+        source: "data/supabase_config.json",
+        updatedAt: stored.updatedAt
+      };
+    }
+
+    if (process.env.SUPABASE_INTERNAL_URL && process.env.SUPABASE_INTERNAL_URL.trim()) {
+      return {
+        url: process.env.SUPABASE_INTERNAL_URL.trim(),
+        anonKey: STANDARD_LOCAL_JWT,
+        source: "env:SUPABASE_INTERNAL_URL"
+      };
+    }
+
+    const envUrl = (process.env.VITE_SUPABASE_URL || "").trim();
+    // Quick tunnels (*.trycloudflare.com) em env vars de contêineres expiram e falham no mobile.
+    // Ignora quick tunnel expirado a menos que explicitamente salvo pelo usuário no arquivo de config.
+    if (envUrl && !envUrl.includes(".trycloudflare.com") && envUrl !== "placeholder_url") {
+      let envKey = (process.env.VITE_SUPABASE_ANON_KEY || "").trim();
+      if (!envKey || envKey.startsWith("sb_publishable_")) {
+        envKey = STANDARD_LOCAL_JWT;
+      }
+      return {
+        url: envUrl,
+        anonKey: envKey,
+        source: "env:VITE_SUPABASE_URL"
+      };
+    }
+
+    return {
+      url: "http://127.0.0.1:54321",
+      anonKey: STANDARD_LOCAL_JWT,
+      source: "default_localhost"
+    };
+  }
+
+  const getTargetSupabase = () => getActiveSupabaseTarget().url;
+
   // Supabase reverse proxy using native Node.js HTTP/HTTPS: allows mobile clients via Cloudflare Tunnel,
   // LAN, or remote domains to transparently communicate with the host PC's local Supabase without CORS,
   // Mixed Content, or extra tunnel ports, with zero external dependencies.
-  const targetSupabase = (process.env.SUPABASE_INTERNAL_URL || process.env.VITE_SUPABASE_URL || "http://127.0.0.1:54321").trim();
-  
-  const createNativeSupabaseProxy = (targetBaseUrl: string, pathPrefixStrip?: string) => {
+  const createNativeSupabaseProxy = (pathPrefixStrip?: string) => {
     return (req: express.Request, res: express.Response) => {
       try {
-        const parsedTarget = new URL(targetBaseUrl);
+        const activeTarget = getActiveSupabaseTarget();
+        const parsedTarget = new URL(activeTarget.url);
         const isHttps = parsedTarget.protocol === 'https:';
         const clientLib = isHttps ? https : http;
 
@@ -104,13 +184,13 @@ async function startServer() {
         delete headers['content-length'];
 
         // Garante que clientes mobile ou de túnel que enviem chave antiga ou vazia usem a anon key JWT padrão do Supabase local
-        const defaultLocalKey = (process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNRebZhBc_4bXn6U").trim();
+        const activeKey = activeTarget.anonKey || STANDARD_LOCAL_JWT;
         const clientApiKey = (headers['apikey'] as string) || '';
         if (!clientApiKey || clientApiKey.startsWith('sb_publishable_')) {
-          headers['apikey'] = defaultLocalKey;
+          headers['apikey'] = activeKey;
           const authHeader = (headers['authorization'] as string) || '';
           if (!authHeader || authHeader.includes('sb_publishable_')) {
-            headers['authorization'] = `Bearer ${defaultLocalKey}`;
+            headers['authorization'] = `Bearer ${activeKey}`;
           }
         }
 
@@ -129,7 +209,8 @@ async function startServer() {
         proxyReq.on('error', (err: any) => {
           if (!res.headersSent) {
             res.status(502).json({
-              error: 'Supabase local indisponível no host.',
+              error: 'Supabase indisponível no host ou URL de destino.',
+              targetUrl: activeTarget.url,
               details: err.message,
               code: 'PGRST_CONNECTION_REFUSED'
             });
@@ -141,6 +222,7 @@ async function startServer() {
           if (!res.headersSent) {
             res.status(504).json({
               error: 'Gateway Timeout ao conectar com Supabase.',
+              targetUrl: activeTarget.url,
               code: 'PGRST_GATEWAY_TIMEOUT'
             });
           }
@@ -155,7 +237,7 @@ async function startServer() {
     };
   };
 
-  const supabaseProxy = createNativeSupabaseProxy(targetSupabase);
+  const supabaseProxy = createNativeSupabaseProxy();
 
   // Mount Supabase standard routes BEFORE express.json() so body streaming is untouched
   app.use('/auth/v1', supabaseProxy);
@@ -163,38 +245,98 @@ async function startServer() {
   app.use('/storage/v1', supabaseProxy);
   app.use('/realtime/v1', supabaseProxy);
   app.use('/functions/v1', supabaseProxy);
-  app.use('/supabase-proxy', createNativeSupabaseProxy(targetSupabase, '/supabase-proxy'));
+  app.use('/supabase-proxy', createNativeSupabaseProxy('/supabase-proxy'));
 
   app.use(express.json({ limit: '10mb' }));
 
   app.get("/api/health", (req, res) => {
-    const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
-    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+    const active = getActiveSupabaseTarget();
     const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
     
     res.json({ 
       status: "ok", 
       time: new Date().toISOString(),
-      supabaseConfigured: !!(supabaseUrl && supabaseAnonKey && supabaseUrl !== "placeholder_url"),
-      supabaseUrlLength: supabaseUrl ? supabaseUrl.length : 0,
-      supabaseUrlPrefix: supabaseUrl ? supabaseUrl.substring(0, 15) : "",
+      supabaseConfigured: !!(active.url && active.anonKey),
+      supabaseUrlLength: active.url ? active.url.length : 0,
+      supabaseUrlPrefix: active.url ? active.url.substring(0, 15) : "",
+      supabaseSource: active.source,
       geminiConfigured: !!geminiKey,
       geminiLength: geminiKey ? geminiKey.length : 0
     });
   });
 
+  // Supabase dynamic config management: enables mobile and PC clients to synchronize target URL/key
+  app.get("/api/supabase/config", (req, res) => {
+    const active = getActiveSupabaseTarget();
+    res.json({
+      url: active.url,
+      anonKey: active.anonKey,
+      source: active.source,
+      updatedAt: active.updatedAt,
+      isLocalhostTarget: active.url.includes("127.0.0.1") || active.url.includes("localhost")
+    });
+  });
+
+  app.post("/api/supabase/config", (req, res) => {
+    try {
+      const { url, anonKey } = req.body || {};
+      if (!url || typeof url !== "string") {
+        return res.status(400).json({ error: "URL do Supabase é obrigatória." });
+      }
+
+      let cleanUrl = url.trim();
+      if (cleanUrl.endsWith("/")) cleanUrl = cleanUrl.slice(0, -1);
+      if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
+        cleanUrl = "http://" + cleanUrl;
+      }
+
+      let cleanKey = (anonKey && typeof anonKey === "string" ? anonKey.trim() : "");
+      if (!cleanKey || cleanKey.startsWith("sb_publishable_")) {
+        cleanKey = STANDARD_LOCAL_JWT;
+      }
+
+      const newConfig: SupabaseConfigData = {
+        targetUrl: cleanUrl,
+        anonKey: cleanKey,
+        updatedAt: new Date().toISOString()
+      };
+
+      saveSupabaseConfig(newConfig);
+      console.log(`📡 [Supabase Proxy] Alvo dinâmico atualizado via API: ${cleanUrl}`);
+
+      res.json({
+        success: true,
+        message: "Configuração do Supabase atualizada com sucesso.",
+        config: {
+          url: cleanUrl,
+          anonKey: cleanKey,
+          updatedAt: newConfig.updatedAt
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: "Erro ao salvar configuração do Supabase", details: err.message });
+    }
+  });
+
   // Supabase ping diagnostic endpoint
   app.get("/api/supabase/ping", async (req, res) => {
     const rawUrl = (req.query.url as string) || "";
-    const anonKey = (req.query.key as string) || process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNRebZhBc_4bXn6U";
+    const active = getActiveSupabaseTarget();
+    const anonKey = (req.query.key as string) || active.anonKey || STANDARD_LOCAL_JWT;
     
-    // Tenta primeiro testar a URL solicitada (se fornecida e não for localhost)
-    let candidates = [targetSupabase];
-    if (rawUrl && rawUrl !== targetSupabase) {
+    // Tenta primeiro testar a URL solicitada (se fornecida) ou o alvo ativo
+    let candidates: string[] = [];
+    if (rawUrl && rawUrl.trim()) {
       let clean = rawUrl.trim();
       if (clean.endsWith("/")) clean = clean.slice(0, -1);
       if (!clean.startsWith("http://") && !clean.startsWith("https://")) clean = "http://" + clean;
-      candidates = [clean, targetSupabase];
+      candidates.push(clean);
+    }
+    if (!candidates.includes(active.url)) {
+      candidates.push(active.url);
+    }
+    if (!candidates.includes("http://127.0.0.1:54321")) {
+      candidates.push("http://127.0.0.1:54321");
     }
 
     let lastError = "Erro ao conectar com Supabase";
@@ -203,7 +345,7 @@ async function startServer() {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3000);
         const start = Date.now();
-        const headers: Record<string, string> = { "User-Agent": "DemonsDespair/1.14.3" };
+        const headers: Record<string, string> = { "User-Agent": "DemonsDespair/1.15.4" };
         if (anonKey) headers["apikey"] = anonKey;
 
         const healthRes = await fetch(`${testUrl}/auth/v1/health`, {
@@ -219,7 +361,8 @@ async function startServer() {
             status: healthRes.status,
             latency,
             url: testUrl,
-            hostDirect: testUrl === targetSupabase
+            activeUrl: active.url,
+            isCurrentTarget: testUrl === active.url
           });
         }
       } catch (err: any) {
@@ -230,7 +373,8 @@ async function startServer() {
     return res.json({
       online: false,
       error: lastError,
-      url: targetSupabase,
+      url: active.url,
+      testedCandidates: candidates
     });
   });
 
@@ -334,7 +478,7 @@ async function startServer() {
     try {
       const controller = new AbortController();
       const t = setTimeout(() => controller.abort(), 800);
-      const res = await fetch(`${targetSupabase}/auth/v1/health`, {
+      const res = await fetch(`${getTargetSupabase()}/auth/v1/health`, {
         headers: { apikey: SERVICE_ROLE_KEY },
         signal: controller.signal,
       });
@@ -475,7 +619,7 @@ async function startServer() {
               try {
                 for (const tk of incomingTokens) {
                   if (!tk || !tk.id) continue;
-                  fetch(`${targetSupabase}/rest/v1/tokens`, {
+                  fetch(`${getTargetSupabase()}/rest/v1/tokens`, {
                     method: "POST",
                     headers: {
                       apikey: SERVICE_ROLE_KEY,
@@ -503,7 +647,7 @@ async function startServer() {
               saveVttStore(currentStore);
 
               try {
-                fetch(`${targetSupabase}/rest/v1/tokens?id=eq.${encodeURIComponent(tokenId)}`, {
+                fetch(`${getTargetSupabase()}/rest/v1/tokens?id=eq.${encodeURIComponent(tokenId)}`, {
                   method: "DELETE",
                   headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` }
                 }).catch(() => {});
@@ -623,7 +767,7 @@ async function startServer() {
         try {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 1500);
-          const tokenRes = await fetch(`${targetSupabase}/rest/v1/tokens?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+          const tokenRes = await fetch(`${getTargetSupabase()}/rest/v1/tokens?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
             headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, Accept: "application/json" },
             signal: controller.signal
           });
@@ -698,7 +842,7 @@ async function startServer() {
     try {
       for (const tk of incoming) {
         if (!tk || !tk.id) continue;
-        fetch(`${targetSupabase}/rest/v1/tokens`, {
+        fetch(`${getTargetSupabase()}/rest/v1/tokens`, {
           method: "POST",
           headers: {
             apikey: SERVICE_ROLE_KEY,
@@ -733,7 +877,7 @@ async function startServer() {
     }
 
     try {
-      fetch(`${targetSupabase}/rest/v1/tokens?id=eq.${encodeURIComponent(tokenId)}`, {
+      fetch(`${getTargetSupabase()}/rest/v1/tokens?id=eq.${encodeURIComponent(tokenId)}`, {
         method: "DELETE",
         headers: {
           apikey: SERVICE_ROLE_KEY,
@@ -759,7 +903,7 @@ async function startServer() {
     }
 
     try {
-      fetch(`${targetSupabase}/rest/v1/tokens?campaign_id=eq.${encodeURIComponent(campaignId)}`, {
+      fetch(`${getTargetSupabase()}/rest/v1/tokens?campaign_id=eq.${encodeURIComponent(campaignId)}`, {
         method: "DELETE",
         headers: {
           apikey: SERVICE_ROLE_KEY,
@@ -790,7 +934,7 @@ async function startServer() {
 
     // Save map config to Supabase in background
     try {
-      fetch(`${targetSupabase}/rest/v1/campaign_configs`, {
+      fetch(`${getTargetSupabase()}/rest/v1/campaign_configs`, {
         method: "POST",
         headers: {
           apikey: SERVICE_ROLE_KEY,
@@ -836,7 +980,7 @@ async function startServer() {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 2000);
-        const campRes = await fetch(`${targetSupabase}/rest/v1/campaigns?select=*`, {
+        const campRes = await fetch(`${getTargetSupabase()}/rest/v1/campaigns?select=*`, {
           headers: {
             apikey: SERVICE_ROLE_KEY,
             Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
@@ -899,7 +1043,7 @@ async function startServer() {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 2000);
-        const campRes = await fetch(`${targetSupabase}/rest/v1/campaigns?invite_code=eq.${encodeURIComponent(inviteCode)}&select=*`, {
+        const campRes = await fetch(`${getTargetSupabase()}/rest/v1/campaigns?invite_code=eq.${encodeURIComponent(inviteCode)}&select=*`, {
           headers: {
             apikey: SERVICE_ROLE_KEY,
             Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
@@ -963,7 +1107,7 @@ async function startServer() {
     // Upsert to Supabase if online
     if (await isSupabaseReachable()) {
       try {
-        await fetch(`${targetSupabase}/rest/v1/campaigns`, {
+        await fetch(`${getTargetSupabase()}/rest/v1/campaigns`, {
           method: "POST",
           headers: {
             apikey: SERVICE_ROLE_KEY,
@@ -1007,7 +1151,7 @@ async function startServer() {
 
     if (await isSupabaseReachable()) {
       try {
-        await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
+        await fetch(`${getTargetSupabase()}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
           method: "PATCH",
           headers: {
             apikey: SERVICE_ROLE_KEY,
@@ -1063,7 +1207,7 @@ async function startServer() {
 
     if (await isSupabaseReachable()) {
       try {
-        await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
+        await fetch(`${getTargetSupabase()}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
           method: "DELETE",
           headers: {
             apikey: SERVICE_ROLE_KEY,
@@ -1119,7 +1263,7 @@ async function startServer() {
         const timeout = setTimeout(() => controller.abort(), 2000);
 
         // A. Fetch characters where campaign_id = campaignId
-        const charCampRes = await fetch(`${targetSupabase}/rest/v1/characters?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+        const charCampRes = await fetch(`${getTargetSupabase()}/rest/v1/characters?campaign_id=eq.${encodeURIComponent(campaignId)}&select=*`, {
           headers: {
             apikey: SERVICE_ROLE_KEY,
             Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
@@ -1140,7 +1284,7 @@ async function startServer() {
         }
 
         // B. Fetch campaign row in Supabase and check if playerCharacters has any character
-        const campRes = await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+        const campRes = await fetch(`${getTargetSupabase()}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
           headers: {
             apikey: SERVICE_ROLE_KEY,
             Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
@@ -1228,7 +1372,7 @@ async function startServer() {
         const userEmail = (cleanChar.userEmail || "").trim().toLowerCase();
 
         // Upsert into characters table
-        await fetch(`${targetSupabase}/rest/v1/characters`, {
+        await fetch(`${getTargetSupabase()}/rest/v1/characters`, {
           method: "POST",
           headers: {
             apikey: SERVICE_ROLE_KEY,
@@ -1247,7 +1391,7 @@ async function startServer() {
         });
 
         // Update campaign row data to include this character in playerCharacters list
-        const campGetRes = await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+        const campGetRes = await fetch(`${getTargetSupabase()}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
           headers: {
             apikey: SERVICE_ROLE_KEY,
             Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
@@ -1276,7 +1420,7 @@ async function startServer() {
               playerEmails
             };
 
-            await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
+            await fetch(`${getTargetSupabase()}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
               method: "PATCH",
               headers: {
                 apikey: SERVICE_ROLE_KEY,
@@ -1330,7 +1474,7 @@ async function startServer() {
     // 3. Remove campaign_id in Supabase only if reachable
     if (await isSupabaseReachable()) {
       try {
-        await fetch(`${targetSupabase}/rest/v1/characters?id=eq.${encodeURIComponent(characterId)}`, {
+        await fetch(`${getTargetSupabase()}/rest/v1/characters?id=eq.${encodeURIComponent(characterId)}`, {
           method: "PATCH",
           headers: {
             apikey: SERVICE_ROLE_KEY,
@@ -1344,7 +1488,7 @@ async function startServer() {
         });
 
         // Update campaign's playerCharacters array in Supabase
-        const campGetRes = await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
+        const campGetRes = await fetch(`${getTargetSupabase()}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}&select=*`, {
           headers: {
             apikey: SERVICE_ROLE_KEY,
             Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
@@ -1360,7 +1504,7 @@ async function startServer() {
             let playerCharacters = campData.playerCharacters || [];
             if (Array.isArray(playerCharacters)) {
               playerCharacters = playerCharacters.filter((c: any) => c.id !== characterId);
-              await fetch(`${targetSupabase}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
+              await fetch(`${getTargetSupabase()}/rest/v1/campaigns?id=eq.${encodeURIComponent(campaignId)}`, {
                 method: "PATCH",
                 headers: {
                   apikey: SERVICE_ROLE_KEY,
@@ -1681,7 +1825,7 @@ Escreva o relatório em português técnico, refinado, mas muito prático e pres
 
     if (url.startsWith('/realtime/v1') || url.startsWith('/supabase-proxy/realtime/v1')) {
       try {
-        const parsedTarget = new URL(targetSupabase);
+        const parsedTarget = new URL(getActiveSupabaseTarget().url);
         const isHttps = parsedTarget.protocol === 'https:';
         const clientLib = isHttps ? https : http;
         

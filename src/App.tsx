@@ -152,6 +152,7 @@ import { ItemLibrary } from "./components/ItemLibrary";
 import { SpellLibrary } from "./components/SpellLibrary";
 import { PrintSheetModal } from "./components/PrintSheetModal";
 import { EthnicitySelector } from "./components/EthnicitySelector";
+import { SupabaseConnectionModal } from "./components/SupabaseConnectionModal";
 import { applyEthnicityToCharacter, getEthnicityById } from "./rules/ethnicityRules";
 import { Section } from "./components/ui/Section";
 import { SubSection } from "./components/ui/SubSection";
@@ -850,6 +851,7 @@ function App() {
 
   // Email Auth Modal State
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'set_password' | 'reset'>('login');
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -4861,7 +4863,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.3</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.4</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4971,14 +4973,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.3</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.4</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.3</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.4</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -5056,15 +5058,7 @@ function App() {
             animate={{ opacity: 1 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => {
-              if (user) {
-                if (window.confirm(`Conectado como ${user.email || user.displayName || 'Usuário'}.\nDeseja sair da conta?`)) {
-                  logout();
-                  showToast("Você saiu da conta.", "info");
-                }
-              } else {
-                setModalAuthError(null);
-                setIsAuthModalOpen(true);
-              }
+              setIsSupabaseModalOpen(true);
             }}
             className={cn(
               "flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer",
@@ -5185,6 +5179,19 @@ function App() {
                 accept=".json"
               />
             </label>
+
+            <div className="pt-1 border-t border-zinc-800 mt-1">
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => {
+                  setIsSupabaseModalOpen(true);
+                  setIsMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-emerald-400 cursor-pointer"
+              >
+                <Database size={18} /> Conexão Supabase / Mobile
+              </motion.button>
+            </div>
 
             <div className="pt-1 border-t border-zinc-800 mt-1">
               <motion.button
@@ -12200,6 +12207,22 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                 onUpdateConfig={(cfg) => updateTableConfig(activeCampaignId, cfg)}
                 showToast={showToast}
                 onUpdateCharacter={updateChar}
+                onAddCharacter={(newChar: Character) => {
+                  setState(prev => {
+                    const existingIdx = (prev.characters || []).findIndex(c => c.id === newChar.id);
+                    const updatedChars = existingIdx >= 0 
+                      ? prev.characters.map((c, i) => i === existingIdx ? { ...c, ...newChar } : c)
+                      : [...(prev.characters || []), newChar];
+                    return {
+                      ...prev,
+                      characters: updatedChars,
+                      dirtyCharacterIds: Array.from(new Set([...(prev.dirtyCharacterIds || []), newChar.id]))
+                    };
+                  });
+                  if (user) {
+                    saveCharacterToFirestore(newChar).catch(() => {});
+                  }
+                }}
                 renderCharacterSheet={renderSheetContent}
                 renderDiceContent={renderDiceContent}
                 onRollResult={handleRollResult}
@@ -12675,11 +12698,33 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
             </button>
           </form>
 
+          <div className="border-t border-zinc-800/80 pt-3 flex items-center justify-between text-[11px] text-zinc-500">
+            <span>Problemas para conectar no celular?</span>
+            <button
+              type="button"
+              onClick={() => {
+                setIsAuthModalOpen(false);
+                setIsSupabaseModalOpen(true);
+              }}
+              className="text-amber-500 hover:text-amber-400 font-bold hover:underline cursor-pointer flex items-center gap-1"
+            >
+              <Database size={12} /> Configurar Supabase
+            </button>
+          </div>
 
         </motion.div>
       </div>
     )}
   </AnimatePresence>
+
+  {/* Modal de Conexão Supabase / Mobile */}
+  <SupabaseConnectionModal
+    isOpen={isSupabaseModalOpen}
+    onClose={() => setIsSupabaseModalOpen(false)}
+    isSupabaseConnected={isSupabaseConnected}
+    user={user}
+    onOpenAuthModal={() => setIsAuthModalOpen(true)}
+  />
 
   {/* Modal de Importar / Exportar Tudo (Backup Completo) */}
   <AnimatePresence>
