@@ -117,13 +117,9 @@ async function startServer() {
   function getActiveSupabaseTarget(): { url: string; anonKey: string; source: string; updatedAt?: string } {
     const stored = getStoredSupabaseConfig();
     if (stored && stored.targetUrl && stored.targetUrl.trim()) {
-      let cleanKey = (stored.anonKey || "").trim();
-      if (!cleanKey || cleanKey.startsWith("sb_publishable_")) {
-        cleanKey = STANDARD_LOCAL_JWT;
-      }
       return {
         url: stored.targetUrl.trim(),
-        anonKey: cleanKey,
+        anonKey: (stored.anonKey || "").trim() || (process.env.VITE_SUPABASE_ANON_KEY || "").trim() || STANDARD_LOCAL_JWT,
         source: "data/supabase_config.json",
         updatedAt: stored.updatedAt
       };
@@ -132,19 +128,14 @@ async function startServer() {
     if (process.env.SUPABASE_INTERNAL_URL && process.env.SUPABASE_INTERNAL_URL.trim()) {
       return {
         url: process.env.SUPABASE_INTERNAL_URL.trim(),
-        anonKey: STANDARD_LOCAL_JWT,
+        anonKey: (process.env.VITE_SUPABASE_ANON_KEY || "").trim() || STANDARD_LOCAL_JWT,
         source: "env:SUPABASE_INTERNAL_URL"
       };
     }
 
     const envUrl = (process.env.VITE_SUPABASE_URL || "").trim();
-    // Quick tunnels (*.trycloudflare.com) em env vars de contêineres expiram e falham no mobile.
-    // Ignora quick tunnel expirado a menos que explicitamente salvo pelo usuário no arquivo de config.
-    if (envUrl && !envUrl.includes(".trycloudflare.com") && envUrl !== "placeholder_url") {
-      let envKey = (process.env.VITE_SUPABASE_ANON_KEY || "").trim();
-      if (!envKey || envKey.startsWith("sb_publishable_")) {
-        envKey = STANDARD_LOCAL_JWT;
-      }
+    if (envUrl && envUrl !== "placeholder_url") {
+      const envKey = (process.env.VITE_SUPABASE_ANON_KEY || "").trim() || STANDARD_LOCAL_JWT;
       return {
         url: envUrl,
         anonKey: envKey,
@@ -154,7 +145,7 @@ async function startServer() {
 
     return {
       url: "http://127.0.0.1:54321",
-      anonKey: STANDARD_LOCAL_JWT,
+      anonKey: (process.env.VITE_SUPABASE_ANON_KEY || "").trim() || STANDARD_LOCAL_JWT,
       source: "default_localhost"
     };
   }
@@ -183,15 +174,15 @@ async function startServer() {
         };
         delete headers['content-length'];
 
-        // Garante que clientes mobile ou de túnel que enviem chave antiga ou vazia usem a anon key JWT padrão do Supabase local
+        // Repassa a anon key padrão caso o cliente não tenha enviado nenhuma chave
         const activeKey = activeTarget.anonKey || STANDARD_LOCAL_JWT;
         const clientApiKey = (headers['apikey'] as string) || '';
-        if (!clientApiKey || clientApiKey.startsWith('sb_publishable_')) {
+        if (!clientApiKey) {
           headers['apikey'] = activeKey;
-          const authHeader = (headers['authorization'] as string) || '';
-          if (!authHeader || authHeader.includes('sb_publishable_')) {
-            headers['authorization'] = `Bearer ${activeKey}`;
-          }
+        }
+        const authHeader = (headers['authorization'] as string) || '';
+        if (!authHeader) {
+          headers['authorization'] = `Bearer ${headers['apikey'] || activeKey}`;
         }
 
         const proxyReq = clientLib.request({
@@ -345,7 +336,7 @@ async function startServer() {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3000);
         const start = Date.now();
-        const headers: Record<string, string> = { "User-Agent": "DemonsDespair/1.15.4" };
+        const headers: Record<string, string> = { "User-Agent": "DemonsDespair/1.15.5" };
         if (anonKey) headers["apikey"] = anonKey;
 
         const healthRes = await fetch(`${testUrl}/auth/v1/health`, {

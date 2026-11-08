@@ -91,11 +91,19 @@ export const getSupabaseConfig = () => {
   const hostname = isBrowser ? (window.location.hostname || 'localhost') : 'localhost';
   const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1';
 
-  // If accessed outside localhost (e.g. cloudflared tunnel, mobile device, remote domain, LAN IP):
-  // Default to window.location.origin so requests go through the backend proxy on port 3000 to the host PC's Supabase!
+  // Read environment variable exposed by Vite if available
+  const envUrl = typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL 
+    ? String(import.meta.env.VITE_SUPABASE_URL).trim() 
+    : '';
+  const envKey = typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY
+    ? String(import.meta.env.VITE_SUPABASE_ANON_KEY).trim()
+    : '';
+
   let defaultUrl = "http://127.0.0.1:54321";
   if (isBrowser && !isLocalHost) {
     defaultUrl = window.location.origin;
+  } else if (envUrl && envUrl !== "placeholder_url") {
+    defaultUrl = envUrl;
   }
 
   let currentUrl = (savedUrl || defaultUrl).trim();
@@ -106,15 +114,9 @@ export const getSupabaseConfig = () => {
     currentUrl = window.location.origin;
   }
 
-  let currentKey = (savedKey || DEFAULT_LOCAL_ANON_KEY).trim();
-  // Se a chave no storage for a antiga chave 'sb_publishable_' ou estiver vazia, substitui pela chave oficial do Supabase local
-  if (!currentKey || currentKey.startsWith('sb_publishable_')) {
+  let currentKey = (savedKey || envKey || DEFAULT_LOCAL_ANON_KEY).trim();
+  if (!currentKey) {
     currentKey = STANDARD_LOCAL_ANON_KEY;
-    if (isBrowser) {
-      try {
-        localStorage.setItem('supabase_custom_anon_key', currentKey);
-      } catch (e) {}
-    }
   }
 
   return {
@@ -2287,16 +2289,27 @@ export const loginWithEmailOnly = async (email: string, displayName?: string, pa
       if (errMsg.toLowerCase().includes("email not confirmed") || errMsg.toLowerCase().includes("confirmar")) {
         throw new Error("E-mail não confirmado. No painel do Supabase, vá em 'Authentication' -> 'Users' e confirme seu usuário.");
       }
-      const isNetworkError = errMsg.includes('fetch') || 
-                             errMsg.includes('network') || 
-                             errMsg.includes('Failed to fetch') ||
-                             errMsg.includes('ENOTFOUND') ||
-                             errMsg.includes('timeout') ||
-                             authErr.name === 'TypeError';
-      if (isNetworkError) {
-        throw new Error(`Não foi possível conectar ao Supabase Local em "${currentConfig.url}". A URL está inacessível. Verifique sua conexão e se o Supabase está ativo.`);
+      const isNetErr = errMsg.includes('fetch') || 
+                       errMsg.includes('network') || 
+                       errMsg.includes('Failed to fetch') ||
+                       errMsg.includes('ENOTFOUND') ||
+                       errMsg.includes('timeout') ||
+                       errMsg.includes('PGRST_CONNECTION_REFUSED') ||
+                       errMsg.includes('502') ||
+                       errMsg.includes('504') ||
+                       authErr.name === 'TypeError';
+      if (isNetErr) {
+        console.warn(`⚡ [Supabase Local] Supabase em "${currentConfig.url}" inacessível. Prosseguindo com login local offline/cache.`);
+        setSupabaseConnectionState(false);
+        if (localPwdHash && atob(localPwdHash) !== typedPassword) {
+          throw new Error("Senha incorreta para esta conta.");
+        }
+        try {
+          localStorage.setItem('user_local_pwd_' + cleanEmail, btoa(typedPassword));
+        } catch (e) {}
+      } else {
+        throw authErr;
       }
-      throw authErr;
     }
   } else {
     // Offline mode: check local password
