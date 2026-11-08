@@ -4870,7 +4870,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.8</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.9</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4980,14 +4980,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.8</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.9</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.8</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.9</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -5060,48 +5060,64 @@ function App() {
 
 
           {/* Auth Status & Login Indicator */}
-          <motion.button
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => {
-              setIsSupabaseModalOpen(true);
-            }}
-            className={cn(
-              "flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer",
-              !isOnline
-                ? "bg-amber-500/20 border-amber-500/40 text-amber-500 hover:bg-amber-500/30"
-                : isSupabaseConnected
-                  ? (state.dirtyCharacterIds?.length > 0 
-                      ? "bg-amber-500/20 border-amber-500/50 text-amber-400" 
-                      : "bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20")
-                  : "bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20"
-            )}
-            title={
-              !isOnline
-                ? "Desconectado (Dispositivo sem internet)"
-                : isSupabaseConnected
-                  ? (state.dirtyCharacterIds?.length > 0
-                      ? `Conectado ao Supabase (Sincronizando ${state.dirtyCharacterIds.length} ficha(s)...)`
-                      : user 
-                        ? `Conectado ao Supabase: ${user.email}` 
-                        : "Conectado ao Supabase")
-                  : "Conectado à rede, mas sem acesso ao Supabase local"
+          {(() => {
+            const isNotAuth = !user;
+            const isOffline = !isOnline;
+            const isPendingSync = Boolean(user && (state.dirtyCharacterIds?.length > 0 || isLoadingSync));
+
+            let statusType: "amber" | "emerald" | "blue" = "amber";
+            let statusTooltip = "";
+
+            if (isOffline) {
+              statusType = "amber";
+              statusTooltip = "Desconectado (Dispositivo sem internet)";
+            } else if (isNotAuth) {
+              statusType = "amber";
+              statusTooltip = "Não autenticado (Faça login para sincronizar suas fichas com o Supabase)";
+            } else if (isPendingSync) {
+              statusType = "amber";
+              statusTooltip = `Conectado ao Supabase (Sincronizando ${state.dirtyCharacterIds?.length || 1} ficha(s)...)`;
+            } else if (isSupabaseConnected) {
+              statusType = "emerald";
+              statusTooltip = `Conectado com Supabase / Sincronizado: ${user?.email || ""}`;
+            } else {
+              statusType = "blue";
+              statusTooltip = "Conectado ao app / Modo offline (Sem acesso ao Supabase local)";
             }
-          >
-            {user && (state.dirtyCharacterIds?.length > 0 || isLoadingSync) ? (
-              <RefreshCwIcon size={14} className="text-amber-400 animate-spin" />
-            ) : (
-              <div className={cn(
-                "w-2.5 h-2.5 rounded-full transition-all",
-                !isOnline
-                  ? "bg-amber-500 animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.6)]"
-                  : isSupabaseConnected
-                    ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"
-                    : "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"
-              )} />
-            )}
-          </motion.button>
+
+            return (
+              <motion.button
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => {
+                  setIsSupabaseModalOpen(true);
+                }}
+                className={cn(
+                  "flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer",
+                  statusType === "amber"
+                    ? "bg-amber-500/20 border-amber-500/40 text-amber-500 hover:bg-amber-500/30"
+                    : statusType === "emerald"
+                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
+                      : "bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20"
+                )}
+                title={statusTooltip}
+              >
+                {isPendingSync ? (
+                  <RefreshCwIcon size={14} className="text-amber-400 animate-spin" />
+                ) : (
+                  <div className={cn(
+                    "w-2.5 h-2.5 rounded-full transition-all",
+                    statusType === "amber"
+                      ? cn("bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)]", isOffline && "animate-pulse")
+                      : statusType === "emerald"
+                        ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"
+                        : "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"
+                  )} />
+                )}
+              </motion.button>
+            );
+          })()}
 
           <motion.button
             whileTap={{ scale: 0.95 }}

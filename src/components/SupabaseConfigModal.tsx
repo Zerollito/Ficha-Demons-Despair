@@ -180,7 +180,7 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
 
           {/* Real-time Status Card */}
           <div className={`p-4 rounded-xl border flex flex-col gap-2.5 transition-all ${
-            !isOnline
+            !isOnline || !currentUser
               ? "bg-amber-950/20 border-amber-500/40 text-amber-400"
               : isSupabaseConnected
                 ? "bg-emerald-950/20 border-emerald-500/40 text-emerald-400"
@@ -193,20 +193,25 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
                     <WifiOff size={16} className="text-amber-400" />
                     <span>Dispositivo Desconectado (Sem Internet)</span>
                   </>
+                ) : !currentUser ? (
+                  <>
+                    <UserIcon size={16} className="text-amber-400" />
+                    <span>Não Autenticado (Modo Convidado)</span>
+                  </>
                 ) : isSupabaseConnected ? (
                   <>
                     <Wifi size={16} className="text-emerald-400" />
-                    <span>Conectado ao Supabase</span>
+                    <span>Conectado com Supabase / Sincronizado</span>
                   </>
                 ) : (
                   <>
                     <Database size={16} className="text-blue-400" />
-                    <span>Conectado à rede, mas sem acesso ao Supabase local</span>
+                    <span>Conectado ao app / Modo offline (Sem acesso ao Supabase local)</span>
                   </>
                 )}
               </div>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-black/40 border border-current">
-                {!isOnline ? "DESCONECTADO" : isSupabaseConnected ? "CONECTADO" : "LOCAL_CACHE"}
+                {!isOnline ? "DESCONECTADO" : !currentUser ? "NÃO AUTENTICADO" : isSupabaseConnected ? "CONECTADO" : "MODO OFFLINE"}
               </span>
             </div>
 

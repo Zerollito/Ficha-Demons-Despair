@@ -197,6 +197,7 @@ export const setSupabaseConnectionState = (connected: boolean, force = false, er
       lastSupabaseSyncError = errorMsg;
     }
     if (force) {
+      lastSuccessfulSupabaseOp = 0;
       if (connectionTimeout) {
         clearTimeout(connectionTimeout);
         connectionTimeout = null;
@@ -381,7 +382,7 @@ export const testSupabaseConnection = async (targetUrl?: string, targetKey?: str
     }
   }
 
-  setSupabaseConnectionState(false, false, "Servidor Supabase offline ou inacessível.");
+  setSupabaseConnectionState(false, true, "Servidor Supabase offline ou inacessível.");
   return { success: false, message: "Supabase Local offline ou inacessível no endereço configurado." };
 };
 
@@ -693,6 +694,7 @@ class ResilientQueryBuilder {
   private orderAscending: boolean = true;
   private limitCount: number | null = null;
   private isSingle: boolean = false;
+  public loadedFromCloud: boolean = false;
 
   constructor(table: string) {
     this.table = table;
@@ -938,6 +940,7 @@ class ResilientQueryBuilder {
   // Promise resolution method for querying
   async then(onfulfilled?: (value: any) => any, onrejected?: (reason: any) => any) {
     try {
+      this.loadedFromCloud = false;
       let rows: any[] = [];
       let loadedFromCloud = false;
 
@@ -1006,6 +1009,7 @@ class ResilientQueryBuilder {
             recordSuccessfulSupabaseOp();
             rows = Array.isArray(data) ? data : [data];
             loadedFromCloud = true;
+            this.loadedFromCloud = true;
             
             // Sync with local memory and storage cache (non-destructive preservation)
             const local = getLocalTable(this.table);
@@ -1136,8 +1140,8 @@ class ResilientQueryBuilder {
       }
 
       const result = this.isSingle 
-        ? { data: rows.length > 0 ? rows[0] : null, error: null }
-        : { data: rows, error: null };
+        ? { data: rows.length > 0 ? rows[0] : null, error: null, fromCache: !loadedFromCloud }
+        : { data: rows, error: null, fromCache: !loadedFromCloud };
 
       return onfulfilled ? onfulfilled(result) : result;
     } catch (err) {
@@ -1662,6 +1666,8 @@ export const syncLocalToCloud = async () => {
       }
     }
 
+    let totalUploaded = 0;
+
     if (localCharacters.length > 0) {
       const charactersToUpload = [];
       const updatedLocalCharacters = [];
@@ -1739,6 +1745,8 @@ export const syncLocalToCloud = async () => {
               console.error(`❌ [Sync] Error uploading character ${item.id} (${charData.nome}) to cloud:`, error);
             }
             checkSupabaseError(error, status);
+          } else {
+            totalUploaded++;
           }
         } catch (uploadErr) {
           anyUploadError = true;
@@ -1808,6 +1816,8 @@ export const syncLocalToCloud = async () => {
               console.error(`❌ [Sync] Error uploading campaign ${item.id} (${item.name || "Sem Nome"}) to cloud:`, error);
             }
             checkSupabaseError(error, status);
+          } else {
+            totalUploaded++;
           }
         } catch (uploadErr) {
           anyUploadError = true;
@@ -1823,15 +1833,20 @@ export const syncLocalToCloud = async () => {
 
     if (anyUploadError) {
       console.warn("⚠️ [Sync] Synchronization complete with some errors. Retaining CACHE_ONLY status.");
-      setSupabaseConnectionState(false);
+      setSupabaseConnectionState(false, true, "Falha ao sincronizar dados com o Supabase.");
+    } else if (totalUploaded > 0) {
+      console.log(`⚡ [Sync] Synchronization complete! ${totalUploaded} items pushed to cloud.`);
+      recordSuccessfulSupabaseOp();
     } else {
-      console.log("⚡ [Sync] Synchronization complete! All data pushed successfully.");
-      setSupabaseConnectionState(true);
+      // Nenhum item novo para upload; não força status conectado sem checagem
+      if (!isSupabaseConnected) {
+        testSupabaseConnection().catch(() => {});
+      }
     }
     window.dispatchEvent(new Event('supabase_local_change_characters'));
     window.dispatchEvent(new Event('supabase_local_change_campaigns'));
   } catch (err) {
-    setSupabaseConnectionState(false);
+    setSupabaseConnectionState(false, true, "Falha durante o processo de sincronização.");
     if (isNetworkError(err)) {
       console.warn("⚠️ [Sync] Network issue during synchronization (remaining offline):", err);
     } else {
@@ -1844,7 +1859,16 @@ export const syncLocalToCloud = async () => {
 
 // Auto sync and health check on module load
 if (typeof window !== 'undefined') {
-  testSupabaseConnection().catch(() => {});
+  fetchServerSupabaseConfig().then(cfg => {
+    if (cfg && cfg.url && cfg.url !== currentConfig.url && !cfg.isLocalhostTarget) {
+      setSupabaseConfig(cfg.url, cfg.anonKey).catch(() => {});
+    } else {
+      testSupabaseConnection().catch(() => {});
+    }
+  }).catch(() => {
+    testSupabaseConnection().catch(() => {});
+  });
+
   setTimeout(() => {
     syncLocalToCloud().catch(err => {
       if (isNetworkError(err)) {
@@ -1853,7 +1877,7 @@ if (typeof window !== 'undefined') {
         console.error("Error in auto syncLocalToCloud:", err);
       }
     });
-  }, 2000);
+  }, 2500);
 }
 
 if (realSupabaseClient) {
@@ -2844,7 +2868,9 @@ export const onSnapshot = (
         }
       }
 
-      const { data } = await builder;
+      const res = await builder;
+      const data = res?.data;
+      const isFromCache = Boolean(res?.fromCache ?? !builder.loadedFromCloud);
       
       if (!active || !data) return;
 
@@ -2892,6 +2918,10 @@ export const onSnapshot = (
 
       const mockSnapshot = {
         docs,
+        metadata: {
+          fromCache: isFromCache,
+          hasPendingWrites: false
+        },
         forEach: (callback: (doc: any) => void) => {
           docs.forEach(callback);
         }

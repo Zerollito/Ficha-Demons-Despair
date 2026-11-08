@@ -1,4 +1,4 @@
-import { supabase, auth, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, or, onSnapshot, isNetworkError, safeLocalStorageSetItem, safeLocalStorageGetItem, recordSuccessfulSupabaseOp } from '../lib/supabase';
+import { supabase, auth, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, or, onSnapshot, isNetworkError, safeLocalStorageSetItem, safeLocalStorageGetItem, recordSuccessfulSupabaseOp, isSupabaseConnected } from '../lib/supabase';
 import { Character } from '../types';
 
 const CHARACTERS_TABLE = 'characters';
@@ -261,7 +261,11 @@ export const subscribeToUserCharacters = (
           characters.push(char);
         }
       });
-      onUpdate(characters, { hasPendingWrites: false, fromCache: false });
+      const isFromCache = (snapshot as any)?.metadata?.fromCache !== undefined 
+        ? Boolean((snapshot as any).metadata.fromCache) 
+        : !isSupabaseConnected;
+      const hasPendingWrites = Boolean((snapshot as any)?.metadata?.hasPendingWrites);
+      onUpdate(characters, { hasPendingWrites, fromCache: isFromCache });
     } catch (e) {
       console.error("[subscribeToUserCharacters onSnapshot] Error:", e);
     }

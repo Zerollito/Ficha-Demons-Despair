@@ -615,7 +615,12 @@ export const optimizeCharactersForCache = (characters: Character[]): Character[]
 export const saveLocalCampaignCharacters = (campaignId: string, characters: Character[]) => {
   try {
     const optimized = optimizeCharactersForCache(characters);
-    safeLocalStorageSetItem(`campaign_characters_${campaignId}`, JSON.stringify(optimized));
+    const serialized = JSON.stringify(optimized);
+    const existing = safeLocalStorageGetItem(`campaign_characters_${campaignId}`);
+    if (existing === serialized) {
+      return;
+    }
+    safeLocalStorageSetItem(`campaign_characters_${campaignId}`, serialized);
   } catch (e) {
     console.warn("Warning saving local campaign characters:", e);
   }
@@ -869,11 +874,11 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
         }
       }
 
-      // 5. Salvar em cache local e notificar ouvintes
-      saveLocalCampaignCharacters(campaignId, matchedCharacters);
+      // 5. Salvar em cache local e notificar ouvintes apenas se houver mudança real
       const serialized = JSON.stringify(matchedCharacters);
       if (serialized !== lastSerialized) {
         lastSerialized = serialized;
+        saveLocalCampaignCharacters(campaignId, matchedCharacters);
         notifyCampaignCharListeners(campaignId, matchedCharacters);
       }
     } catch (e) {

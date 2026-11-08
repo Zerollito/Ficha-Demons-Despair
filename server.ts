@@ -431,7 +431,7 @@ async function startServer() {
         const timeout = setTimeout(() => controller.abort(), 2500);
         const start = Date.now();
         const headers: Record<string, string> = { 
-          "User-Agent": "DemonsDespair/1.15.8",
+          "User-Agent": "DemonsDespair/1.15.9",
           "apikey": anonKey,
           "Authorization": `Bearer ${anonKey}`
         };

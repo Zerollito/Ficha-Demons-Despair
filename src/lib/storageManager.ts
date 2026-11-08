@@ -144,6 +144,11 @@ export function stripHeavyDataForCache(data: any, maxBase64Len = 500000): any {
  * preserving all character avatars and user media without data loss.
  */
 export const safeLocalStorageSetItem = (key: string, value: string): boolean => {
+  // If memory cache already holds this exact value, avoid redundant localStorage writes and quota spam
+  if (memoryStore.get(key) === value) {
+    return true;
+  }
+
   // 1. Always update in-memory cache immediately
   memoryStore.set(key, value);
 
@@ -210,18 +215,22 @@ export const safeLocalStorageSetItem = (key: string, value: string): boolean => 
 };
 
 /**
- * Safely reads a value, checking localStorage first, then the in-memory fallback.
+ * Safely reads a value, checking in-memory cache first (ground truth), then localStorage.
  */
 export const safeLocalStorageGetItem = (key: string): string | null => {
+  if (memoryStore.has(key)) {
+    return memoryStore.get(key) || null;
+  }
   if (typeof localStorage !== 'undefined') {
     try {
       const val = localStorage.getItem(key);
       if (val !== null && val !== undefined) {
+        memoryStore.set(key, val);
         return val;
       }
     } catch (e) {}
   }
-  return memoryStore.get(key) || null;
+  return null;
 };
 
 /**
