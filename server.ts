@@ -459,8 +459,18 @@ async function startServer() {
               signal: controller.signal,
             });
             responseStatus = restRes.status;
-            if (restRes.ok || restRes.status === 401 || restRes.status === 200) {
+            if (restRes.ok || restRes.status === 200 || restRes.status === 204) {
               isRealSupabase = true;
+            } else if (restRes.status === 401 || restRes.status === 403) {
+              clearTimeout(timeout);
+              return res.json({
+                online: false,
+                status: restRes.status,
+                authorized: false,
+                latency: Date.now() - start,
+                url: testUrl,
+                error: "Servidor acessível, mas credenciais ou chave inválidas (401/403)."
+              });
             }
           } catch {}
         }

@@ -163,19 +163,22 @@ export let realSupabaseClient = createClient(currentConfig.url, currentConfig.an
 
 export let hasActiveRealSession = false;
 
-export let isSupabaseConnected = true;
+export let isSupabaseConnected = false;
+export let lastSupabaseSyncError: string | null = null;
 
-export let lastSuccessfulSupabaseOp = Date.now();
+export let lastSuccessfulSupabaseOp = 0;
 
 export const recordSuccessfulSupabaseOp = () => {
   lastSuccessfulSupabaseOp = Date.now();
+  lastSupabaseSyncError = null;
   setSupabaseConnectionState(true);
 };
 
 let connectionTimeout: any = null;
 
-export const setSupabaseConnectionState = (connected: boolean) => {
+export const setSupabaseConnectionState = (connected: boolean, force = false, errorMsg?: string) => {
   if (connected) {
+    lastSupabaseSyncError = null;
     if (connectionTimeout) {
       clearTimeout(connectionTimeout);
       connectionTimeout = null;
@@ -185,19 +188,41 @@ export const setSupabaseConnectionState = (connected: boolean) => {
       console.log(`📡 [Supabase Connection] State changed to: CONNECTED`);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('supabase_connection_status_changed', { 
-          detail: { connected: true } 
+          detail: { connected: true, error: null } 
         }));
       }
     }
   } else {
-    // If a database operation succeeded recently (< 25s), don't flick to disconnected
-    if (Date.now() - lastSuccessfulSupabaseOp < 25000) {
+    if (errorMsg) {
+      lastSupabaseSyncError = errorMsg;
+    }
+    if (force) {
+      if (connectionTimeout) {
+        clearTimeout(connectionTimeout);
+        connectionTimeout = null;
+      }
+      isSupabaseConnected = false;
+      console.warn(`📡 [Supabase Connection] Forced disconnect: ${errorMsg || 'Erro na nuvem'}`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('supabase_connection_status_changed', { 
+          detail: { connected: false, error: errorMsg || lastSupabaseSyncError } 
+        }));
+        if (errorMsg) {
+          window.dispatchEvent(new CustomEvent('supabase_sync_error', { 
+            detail: { message: errorMsg } 
+          }));
+        }
+      }
       return;
     }
-    // Only set to false after a 5 second delay to avoid flickering on transient timeouts
+    // If a database operation succeeded recently (< 15s), don't flick to disconnected unless forced
+    if (Date.now() - lastSuccessfulSupabaseOp < 15000) {
+      return;
+    }
+    // Only set to false after a 3 second delay to avoid flickering on transient timeouts
     if (!connectionTimeout) {
       connectionTimeout = setTimeout(() => {
-        if (Date.now() - lastSuccessfulSupabaseOp < 25000) {
+        if (Date.now() - lastSuccessfulSupabaseOp < 15000) {
           connectionTimeout = null;
           return;
         }
@@ -206,12 +231,12 @@ export const setSupabaseConnectionState = (connected: boolean) => {
           console.log(`📡 [Supabase Connection] State changed to: CACHE_ONLY`);
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('supabase_connection_status_changed', { 
-              detail: { connected: false } 
+              detail: { connected: false, error: lastSupabaseSyncError } 
             }));
           }
         }
         connectionTimeout = null;
-      }, 5000);
+      }, 3000);
     }
   }
 };
@@ -338,7 +363,7 @@ export const testSupabaseConnection = async (targetUrl?: string, targetKey?: str
         }).catch(() => null);
         clearTimeout(timeout);
 
-        if (res && (res.ok || res.status === 200 || res.status === 204 || res.status === 401)) {
+        if (res && (res.ok || res.status === 200 || res.status === 204)) {
           if (currentConfig.url !== testCandidate && testCandidate !== window.location.origin) {
             currentConfig.url = testCandidate;
             currentConfig.rawUrl = testCandidate;
@@ -348,18 +373,15 @@ export const testSupabaseConnection = async (targetUrl?: string, targetKey?: str
           }
           recordSuccessfulSupabaseOp();
           return { success: true, message: `Conectado em ${testCandidate} (${Date.now() - start}ms)`, latency: Date.now() - start };
+        } else if (res && (res.status === 401 || res.status === 403)) {
+          setSupabaseConnectionState(false, true, "Acesso Não Autorizado (401): Chave da API inválida ou sessão expirada.");
+          return { success: false, message: `Servidor encontrado em ${testCandidate}, mas o acesso foi REJEITADO (401/403). Faça login ou verifique a chave.` };
         }
       } catch (e) {}
     }
   }
 
-  // Se recentemente houve operação bem sucedida no Supabase (< 30s), mantém o status conectado
-  if (Date.now() - lastSuccessfulSupabaseOp < 30000) {
-    recordSuccessfulSupabaseOp();
-    return { success: true, message: "Conectado ao Supabase (operações recentes confirmadas)" };
-  }
-
-  setSupabaseConnectionState(false);
+  setSupabaseConnectionState(false, false, "Servidor Supabase offline ou inacessível.");
   return { success: false, message: "Supabase Local offline ou inacessível no endereço configurado." };
 };
 
@@ -721,6 +743,7 @@ class ResilientQueryBuilder {
     // Invalidate caches
     delete collectionMemoryCache[this.table];
 
+    let lastError: any = null;
     if (realSupabaseClient) {
       try {
         const { data, error, status } = (await withTimeout(
@@ -728,7 +751,11 @@ class ResilientQueryBuilder {
           8000
         )) as any;
         if (error) {
+          lastError = error;
           checkSupabaseError(error, status);
+          if (status === 401 || status === 403 || isNetworkError(error)) {
+            setSupabaseConnectionState(false, status === 401 || status === 403, error.message);
+          }
         }
         if (!error) {
           // Mirror to local table for offline robustness
@@ -743,13 +770,11 @@ class ResilientQueryBuilder {
           return { data, error: null };
         }
         console.log(`[Supabase Offline-First] Write Error, using local storage:`, error);
-        if (isNetworkError(error)) {
-          setSupabaseConnectionState(false);
-        }
-      } catch (err) {
+      } catch (err: any) {
+        lastError = err;
         console.log(`[Supabase Offline-First] Cloud Exception, using local storage:`, err);
         if (isNetworkError(err)) {
-          setSupabaseConnectionState(false);
+          setSupabaseConnectionState(false, false, err.message);
         }
       }
     }
@@ -769,7 +794,7 @@ class ResilientQueryBuilder {
       }
     }
     saveLocalTable(this.table, local);
-    return { data: values, error: null };
+    return { data: values, error: lastError, fromCache: !!lastError };
   }
 
   async upsert(values: any) {
@@ -2594,6 +2619,13 @@ export function checkSupabaseError(error: any, httpStatus?: number | string) {
   
   if (status === 401 || status === 403 || String(status).startsWith('PGRST3')) {
     console.warn("⚠️ [Supabase Notice] Aviso de permissão/acesso no Supabase (401/403):", errMsg || status);
+    const authMsg = "Sessão expirada ou não autorizada no banco de dados (401/403). Faça login novamente para sincronizar.";
+    setSupabaseConnectionState(false, true, authMsg);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('supabase_sync_error', {
+        detail: { status, message: authMsg }
+      }));
+    }
   }
 
   // Detect and handle TypeError: Failed to fetch (browser network block, mixed content HTTP/HTTPS)
@@ -2694,7 +2726,15 @@ export const updateDoc = async (docRef: any, updates: any) => {
     if (docRef.collection === 'characters') {
       const snap = await getDoc(docRef);
       const currentData = snap.exists() ? snap.data() : null;
-      const merged = { ...(currentData || {}), ...cleanUpdates };
+      const unflattenedUpdates: any = {};
+      Object.entries(cleanUpdates).forEach(([k, v]) => {
+        if (k.startsWith('data.')) {
+          unflattenedUpdates[k.substring(5)] = v;
+        } else {
+          unflattenedUpdates[k] = v;
+        }
+      });
+      const merged = { ...(currentData || {}), ...unflattenedUpdates };
       
       await supabase.from(docRef.collection).insert({
         id: docRef.id,

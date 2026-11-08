@@ -1180,12 +1180,14 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       onUpdateCharacter(updates, characterId);
     }
 
+    let mergedChar: Character | null = null;
     // Also update our locally cached fetchedCharacters in state immediately and unconditionally
     setFetchedCharacters(prev => {
       const existing = prev[characterId] || availableCharacters.find(c => c.id === characterId) || ({} as any);
+      mergedChar = { ...existing, ...updates, id: characterId, campaignId: campaignId || existing.campaignId };
       return {
         ...prev,
-        [characterId]: { ...existing, ...updates }
+        [characterId]: mergedChar
       };
     });
     
@@ -1207,32 +1209,19 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       }
     }
 
-    // 3. Save to Firestore if quota is NOT exceeded
-    if (!isFirebaseQuotaExceeded()) {
-      try {
-        const charRef = doc(db, 'characters', characterId);
-        const cleanUpdate = deepCleanData(updates);
-        const updateMap: any = {
-          updated_at: new Date().toISOString()
-        };
-        Object.entries(cleanUpdate).forEach(([key, val]) => {
-          updateMap[`data.${key}`] = val;
-        });
-        await updateDoc(charRef, updateMap);
-      } catch (error) {
-        try {
-          const charRef = doc(db, 'characters', characterId);
-          const cleanUpdate = deepCleanData(updates);
-          await setDoc(charRef, {
-            data: cleanUpdate,
-            updated_at: new Date().toISOString()
-          }, { merge: true });
-        } catch (e2) {
-          console.warn("[VTTBoard] Error updating character on Firestore:", e2);
-        }
-      }
-    } else {
-      console.log(`[VTTBoard] Firebase quota exceeded. Character ${characterId} updated purely locally (will sync later).`);
+    // 3. Persist character update to backend server and cloud
+    try {
+      const base = mergedChar || availableCharacters.find(c => c.id === characterId);
+      const fullChar: Character = {
+        ...(base || {}),
+        ...updates,
+        id: characterId,
+        campaignId: campaignId || base?.campaignId
+      } as Character;
+      
+      await saveCharacterToFirestore(fullChar);
+    } catch (err) {
+      console.warn("[VTTBoard] Error saving updated character:", err);
     }
   };
 
@@ -3232,21 +3221,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
       }
       scalingBonus = calculateWeaponDamageBonus(action as any, attackerChar.stats[statKey] || 0) || 0;
     }
+    if (isFirearm) {
+      scalingBonus = 0; // Armas de fogo não possuem bônus de escala de atributos!
+    }
 
     if (hitSucceeded) {
-      let effectiveDanoFormula = action.dano || "1d4";
-      if (isFirearm || isBow) {
-        if (actingBullet && actingBullet.dano && actingBullet.dano !== '0' && actingBullet.dano !== 'Sem Dano' && actingBullet.dano !== 'Falta Bala' && actingBullet.dano !== 'Falta Flecha') {
-          effectiveDanoFormula = actingBullet.dano;
-        } else if (action.magazineAmmo && action.magazineAmmo.length > 0 && action.magazineAmmo[0]?.dano && action.magazineAmmo[0].dano !== '0' && action.magazineAmmo[0].dano !== 'Sem Dano') {
-          effectiveDanoFormula = action.magazineAmmo[0].dano;
-        } else if (action.municaoDano && action.municaoDano !== '0' && action.municaoDano !== 'Sem Dano') {
-          effectiveDanoFormula = action.municaoDano;
-        } else if (action.dano && action.dano !== '0' && action.dano !== 'Sem Dano' && action.dano !== 'Falta Bala' && action.dano !== 'Falta Flecha') {
-          effectiveDanoFormula = action.dano;
-        } else {
-          effectiveDanoFormula = isBow ? "1d6" : "2d6";
-        }
+      // Balas e flechas não possuem dano por si próprias, o dano pertence à própria arma
+      let effectiveDanoFormula = action.dano || (isBow ? "1d6" : isFirearm ? "2d6" : "1d4");
+      if (!effectiveDanoFormula || effectiveDanoFormula === '0' || effectiveDanoFormula === 'Sem Dano' || effectiveDanoFormula === 'Falta Bala' || effectiveDanoFormula === 'Falta Flecha') {
+        effectiveDanoFormula = isBow ? "1d6" : isFirearm ? "2d6" : "1d4";
       }
 
       if (isCriticalHit) {
@@ -4797,12 +4780,15 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                       joias: []
                     };
 
+                    const monsterWithCamp = { ...monsterChar, campaignId };
+                    setFetchedCharacters(prev => ({ ...prev, [monsterChar.id]: monsterWithCamp }));
+
                     if (onAddCharacter) {
-                      onAddCharacter({ ...monsterChar, campaignId });
+                      onAddCharacter(monsterWithCamp);
                     }
 
                     // Direct Firestore redundancy write
-                    saveCharacterToFirestore({ ...monsterChar, campaignId }).catch(err => {
+                    saveCharacterToFirestore(monsterWithCamp).catch(err => {
                       console.error("Erro ao salvar personagem do Bestiário diretamente:", err);
                     });
 
@@ -6790,8 +6776,8 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
                                 perfuracao: Number(selectedOrLoadedAmmo?.perfuracao ?? ammoSelectWeapon.perfuracao) || 0,
                                 impacto: Number(selectedOrLoadedAmmo?.impacto ?? ammoSelectWeapon.impacto) || 0,
                                 resistencia: Number(selectedOrLoadedAmmo?.resistencia ?? ammoSelectWeapon.resistencia) || 0,
-                                dano: selectedOrLoadedAmmo?.dano || ammoSelectWeapon.dano || (isBowItem(ammoSelectWeapon) ? "1d6" : "2d6"),
-                                municaoDano: selectedOrLoadedAmmo?.dano || ammoSelectWeapon.municaoDano,
+                                dano: ammoSelectWeapon.dano || (isBowItem(ammoSelectWeapon) ? "1d6" : "2d6"),
+                                municaoDano: ammoSelectWeapon.dano,
                                 bulletId: isFirearmItem(ammoSelectWeapon) ? (selectedOrLoadedAmmo?.id || ammoSelectWeapon.bulletId) : undefined,
                                 arrowId: isBowItem(ammoSelectWeapon) ? (selectedOrLoadedAmmo?.id || ammoSelectWeapon.arrowId) : undefined
                               };

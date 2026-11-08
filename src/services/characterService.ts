@@ -79,6 +79,7 @@ export const saveCharacterToSupabase = async (character: Character) => {
     } else {
       console.error(`❌ [Supabase] Exception ao salvar ${character.nome}:`, error);
     }
+    throw error;
   }
 };
 

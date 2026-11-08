@@ -1213,6 +1213,7 @@ function App() {
 
   const [isOnline, setIsOnline] = useState(typeof window !== 'undefined' ? window.navigator.onLine : true);
   const [isSupabaseConnected, setIsSupabaseConnected] = useState(initialSupabaseConnected);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   // Monitorar conexão
   useEffect(() => {
@@ -1226,10 +1227,23 @@ function App() {
     
     const handleStatusChange = (e: any) => {
       if (e.detail) {
-        setIsSupabaseConnected(e.detail.connected);
+        setIsSupabaseConnected(Boolean(e.detail.connected));
+        if (e.detail.connected) {
+          setSyncError(null);
+        } else if (e.detail.error) {
+          setSyncError(e.detail.error);
+        }
       }
     };
     window.addEventListener('supabase_connection_status_changed', handleStatusChange);
+
+    const handleSyncErr = (e: any) => {
+      if (e.detail?.message) {
+        setSyncError(e.detail.message);
+        setIsSupabaseConnected(false);
+      }
+    };
+    window.addEventListener('supabase_sync_error', handleSyncErr);
 
     const handleMixedContentError = (e: any) => {
       if (e.detail?.message) {
@@ -1251,6 +1265,7 @@ function App() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('supabase_connection_status_changed', handleStatusChange);
+      window.removeEventListener('supabase_sync_error', handleSyncErr);
       window.removeEventListener('supabase_connection_mixed_content_error', handleMixedContentError);
     };
   }, [showToast]);
@@ -5056,30 +5071,34 @@ function App() {
               "flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer",
               !isOnline
                 ? "bg-amber-500/20 border-amber-500/40 text-amber-500 hover:bg-amber-500/30"
-                : (isSupabaseConnected 
-                    ? (state.dirtyCharacterIds?.length > 0 
-                        ? "bg-green-500/20 border-green-500/50" 
-                        : "bg-green-500/10 border-green-500/30")
-                    : "bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20")
+                : isSupabaseConnected
+                  ? (state.dirtyCharacterIds?.length > 0 
+                      ? "bg-amber-500/20 border-amber-500/50 text-amber-400" 
+                      : "bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20")
+                  : "bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20"
             )}
             title={
               !isOnline
-                ? "Desconectado"
-                : (isSupabaseConnected 
-                    ? (user ? (state.dirtyCharacterIds?.length > 0 ? "Sincronizando..." : `Conectado ao Supabase: ${user.email}`) : "Conectado ao Supabase Local")
-                    : "Conectado à rede, mas sem acesso ao Supabase local")
+                ? "Desconectado (Dispositivo sem internet)"
+                : isSupabaseConnected
+                  ? (state.dirtyCharacterIds?.length > 0
+                      ? `Conectado ao Supabase (Sincronizando ${state.dirtyCharacterIds.length} ficha(s)...)`
+                      : user 
+                        ? `Conectado ao Supabase: ${user.email}` 
+                        : "Conectado ao Supabase")
+                  : "Conectado à rede, mas sem acesso ao Supabase local"
             }
           >
-            {user && isSupabaseConnected && state.dirtyCharacterIds?.length > 0 ? (
-              <RefreshCwIcon size={16} className="text-green-500 animate-spin" />
+            {user && (state.dirtyCharacterIds?.length > 0 || isLoadingSync) ? (
+              <RefreshCwIcon size={14} className="text-amber-400 animate-spin" />
             ) : (
               <div className={cn(
-                "w-2.5 h-2.5 rounded-full",
+                "w-2.5 h-2.5 rounded-full transition-all",
                 !isOnline
                   ? "bg-amber-500 animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.6)]"
-                  : (isSupabaseConnected 
-                      ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" 
-                      : "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]")
+                  : isSupabaseConnected
+                    ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"
+                    : "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"
               )} />
             )}
           </motion.button>
@@ -12217,9 +12236,16 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
                       dirtyCharacterIds: Array.from(new Set([...(prev.dirtyCharacterIds || []), newChar.id]))
                     };
                   });
-                  if (user) {
-                    saveCharacterToFirestore(newChar).catch(() => {});
-                  }
+                  setCampaignCharacters(prev => {
+                    const existingIdx = prev.findIndex(c => c.id === newChar.id);
+                    if (existingIdx >= 0) {
+                      const next = [...prev];
+                      next[existingIdx] = { ...next[existingIdx], ...newChar };
+                      return next;
+                    }
+                    return [...prev, newChar];
+                  });
+                  saveCharacterToFirestore(newChar).catch(() => {});
                 }}
                 renderCharacterSheet={renderSheetContent}
                 renderDiceContent={renderDiceContent}
@@ -12267,6 +12293,7 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
     isOnline={isOnline}
     isSupabaseConnected={isSupabaseConnected}
     dirtyCount={state.dirtyCharacterIds?.length || 0}
+    syncError={syncError}
     showToast={showToast}
     onOpenAuthModal={() => setIsAuthModalOpen(true)}
   />

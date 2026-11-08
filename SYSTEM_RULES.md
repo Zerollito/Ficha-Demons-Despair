@@ -41,8 +41,9 @@ Este documento contém todas as regras lógicas e mecânicas do sistema para gar
   - `A`: 1.00x
 - **Dano Final**: `Roll(Dados da Arma) + floor(Bônus de Atributo * Multiplicador de Escala) + Bônus Manual`.
 - **Atributo de Escala**:
-  - Armas Físicas: Usam `FOR` ou `DEX` conforme definido na arma (`atributoBase`).
-  - Catalisadores/Spells: Geralmente usam `INT` ou `RIT`.
+  - **Armas Brancas e Arcos**: Usam `FOR` ou `DEX` conforme definido na arma (`atributoBase`).
+  - **Armas de Fogo**: **NÃO possuem escala de atributo** (bônus de escala = 0); o dano de armas de fogo depende exclusivamente do calibre/dano da arma e de seus modificadores fixos.
+  - **Catalisadores/Spells**: Geralmente usam `INT` ou `RIT`.
 
 ### Vantagem e Desvantagem
 - **Vantagem**: Role duas vezes (2x 3d8) e use o **maior** resultado total.
@@ -219,15 +220,16 @@ Certos materiais possuem propriedades que, embora úteis para jogadores em conte
 
 ---
 
-## 8. Munições e Níveis de Dano/Resistência (Arcos e Armas de Fogo)
+## 8. Munições e Níveis de Ataque/Resistência (Arcos e Armas de Fogo)
 
-Munições são consumíveis necessários para o uso de armas à distância (arcos, bestas, armas de fogo). 
+Munições são consumíveis necessários para o uso de armas à distância (arcos, bestas, armas de fogo).
 
-### Derivação de Níveis de Dano e Resistência
-- **Arcos (`categoria: 'Arco'`)**: Possuem um sistema de escolha de flechas. Os níveis de **Corte**, **Perfuração**, **Impacto**, **Resistência** e a fórmula de **Dano** são determinados pela **flecha selecionada/carregada**, e **não pelo próprio arco** (cujo dano base costuma ser 0).
-- **Armas de Fogo (`categoria: 'Arma de Fogo'`)**: Os níveis de **Corte**, **Perfuração**, **Impacto**, **Resistência** e a fórmula de **Dano** (ex: `3d8`, `4d8`) são determinados exclusivamente pelas **balas selecionadas/carregadas** (`magazineAmmo`, `bulletId` ou `municaoDano`), sobrepondo qualquer valor neutro/zero (`0`) configurado na arma.
-- **Armas Brancas (`categoria: 'Arma Branca'`)**: Mantêm seus próprios níveis de Corte, Perfuração, Impacto, Resistência e Dano configurados na própria arma, já que não utilizam projéteis.
-- **Caso sem Munição Selecionada/Carregada**: Caso nenhuma flecha ou bala esteja selecionada/carregada, os níveis de ataque físico e resistência derivados da munição são considerados 0, e o dano padrão recai para a base ou disparo sem efeito.
+### Dano Próprio da Arma vs. Níveis da Munição
+- **Dano pertence à Arma**: Balas e flechas **não possuem dano por si próprias**. O dano do disparo (ex: `2d6`, `3d6`, `1d6`) é **sempre o dano da própria arma**.
+- **Munição fornece Níveis e Efeitos**: A munição carregada (bala ou flecha) fornece os níveis físicos (**Corte**, **Perfuração**, **Impacto**), a **Resistência** e propriedades/efeitos de material (ex: Ponta Oca, Incendiária, etc.).
+- **Arcos (`categoria: 'Arco'`)**: Utilizam flechas/virotes para definir níveis de perfuração/corte e resistência, aplicando a fórmula de dano do arco e escalando com destreza/força.
+- **Armas de Fogo (`categoria: 'Arma de Fogo'`)**: Utilizam balas para definir níveis de perfuração/corte/impacto e resistência, disparando com o dano da própria arma, **sem escala de atributos**.
+- **Caso sem Munição Selecionada/Carregada**: Sem munição compatível carregada, o disparo não pode ser efetuado (arma descarregada).
 
 ### Propriedades Base de Munição
 | Tipo de Munição | Peso (Un) | Volume (Un) |

@@ -35,6 +35,7 @@ interface SupabaseConfigModalProps {
   isOnline: boolean;
   isSupabaseConnected: boolean;
   dirtyCount: number;
+  syncError?: string | null;
   showToast: (msg: string, type: "success" | "error" | "info" | "warning") => void;
   onOpenAuthModal: () => void;
 }
@@ -46,6 +47,7 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
   isOnline,
   isSupabaseConnected,
   dirtyCount,
+  syncError,
   showToast,
   onOpenAuthModal,
 }) => {
@@ -189,24 +191,46 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
                 {!isOnline ? (
                   <>
                     <WifiOff size={16} className="text-amber-400" />
-                    <span>Dispositivo Offline (Sem Internet)</span>
+                    <span>Dispositivo Desconectado (Sem Internet)</span>
                   </>
                 ) : isSupabaseConnected ? (
                   <>
                     <Wifi size={16} className="text-emerald-400" />
-                    <span>Supabase Conectado e Sincronizado</span>
+                    <span>Conectado ao Supabase</span>
                   </>
                 ) : (
                   <>
-                    <Radio size={16} className="text-blue-400 animate-pulse" />
-                    <span>Modo Local / Cache Resiliente (IndexedDB)</span>
+                    <Database size={16} className="text-blue-400" />
+                    <span>Conectado à rede, mas sem acesso ao Supabase local</span>
                   </>
                 )}
               </div>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-black/40 border border-current">
-                {isSupabaseConnected ? "ONLINE" : "CACHE_ONLY"}
+                {!isOnline ? "DESCONECTADO" : isSupabaseConnected ? "CONECTADO" : "LOCAL_CACHE"}
               </span>
             </div>
+
+            {syncError && (
+              <div className="text-[11px] bg-red-950/40 border border-red-500/30 text-red-300 p-2 rounded-lg">
+                <span className="font-bold">Aviso: </span>{syncError}
+              </div>
+            )}
+
+            {!currentUser && (
+              <div className="flex items-center justify-between text-[11px] bg-zinc-950/60 border border-zinc-800 p-2.5 rounded-lg text-zinc-400">
+                <span>Você não está logado. Suas fichas estão salvas apenas neste navegador.</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenAuthModal();
+                  }}
+                  className="px-2 py-1 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold rounded text-[10px] uppercase tracking-wider shrink-0 ml-2"
+                >
+                  Entrar
+                </button>
+              </div>
+            )}
 
             <div className="text-[11px] text-zinc-300 space-y-1 bg-black/30 p-2.5 rounded-lg border border-zinc-800/60 font-mono">
               <div className="flex justify-between">

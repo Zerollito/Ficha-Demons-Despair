@@ -50,6 +50,14 @@ export interface Catalyst {
 export const getStatBonus = (statValue: number) => Math.floor(statValue / CONFIG.bonuses.statDivisor);
 
 export const calculateWeaponDamageBonus = (weapon: Weapon | Catalyst, statValue: number) => {
+  if (!weapon) return 0;
+  // Armas de fogo não possuem bônus de escala de atributos (apenas armas brancas e arcos escalam)
+  const cat = String((weapon as any).categoria || (weapon as any).tipo || (weapon as any).subtipo || "").toLowerCase();
+  const nome = String((weapon as any).nome || (weapon as any).name || "").toLowerCase();
+  if (cat.includes('fogo') || nome.includes('pistola') || nome.includes('revólver') || nome.includes('revolver') || nome.includes('espingarda') || nome.includes('rifle') || nome.includes('fuzil') || nome.includes('bacamarte') || nome.includes('garrucha') || nome.includes('mosquete')) {
+    return 0;
+  }
+
   const baseBonus = getStatBonus(statValue || 0);
   const escala = weapon?.escala || '0';
   const scaleMult = CONFIG.scales[escala as keyof typeof CONFIG.scales] ?? 0;
