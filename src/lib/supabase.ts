@@ -99,14 +99,10 @@ export const getSupabaseConfig = () => {
     ? String(import.meta.env.VITE_SUPABASE_ANON_KEY).trim()
     : '';
 
-  // Clean invalid savedUrl (e.g. if savedUrl is the app's own origin, or 127.0.0.1 on a non-localhost mobile device)
+  // Clean invalid savedUrl only if it is the app's own origin
   if (savedUrl) {
     const cleanSaved = savedUrl.trim();
     if (isBrowser && (cleanSaved === window.location.origin || cleanSaved === normalizeSupabaseUrl(window.location.origin))) {
-      savedUrl = null;
-      try { localStorage.removeItem('supabase_custom_url'); } catch (e) {}
-    } else if (!isLocalHost && (cleanSaved.includes('127.0.0.1') || cleanSaved.includes('localhost'))) {
-      // 127.0.0.1 on a mobile device is the phone itself, not the PC!
       savedUrl = null;
       try { localStorage.removeItem('supabase_custom_url'); } catch (e) {}
     }
@@ -169,6 +165,13 @@ export let hasActiveRealSession = false;
 
 export let isSupabaseConnected = true;
 
+export let lastSuccessfulSupabaseOp = Date.now();
+
+export const recordSuccessfulSupabaseOp = () => {
+  lastSuccessfulSupabaseOp = Date.now();
+  setSupabaseConnectionState(true);
+};
+
 let connectionTimeout: any = null;
 
 export const setSupabaseConnectionState = (connected: boolean) => {
@@ -187,9 +190,17 @@ export const setSupabaseConnectionState = (connected: boolean) => {
       }
     }
   } else {
+    // If a database operation succeeded recently (< 25s), don't flick to disconnected
+    if (Date.now() - lastSuccessfulSupabaseOp < 25000) {
+      return;
+    }
     // Only set to false after a 5 second delay to avoid flickering on transient timeouts
     if (!connectionTimeout) {
       connectionTimeout = setTimeout(() => {
+        if (Date.now() - lastSuccessfulSupabaseOp < 25000) {
+          connectionTimeout = null;
+          return;
+        }
         if (isSupabaseConnected !== false) {
           isSupabaseConnected = false;
           console.log(`📡 [Supabase Connection] State changed to: CACHE_ONLY`);
@@ -281,13 +292,12 @@ export const testSupabaseConnection = async (targetUrl?: string, targetKey?: str
   const hostname = isBrowser ? (window.location.hostname || 'localhost') : 'localhost';
   const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1';
 
-  // 1. Tentar primeiro via ping do servidor Express (testa loopback 127.0.0.1:54321 e localhost:54321 no host)
+  // 1. Tentar primeiro via ping do servidor Express (testa o alvo dinâmico e a URL solicitada)
   try {
-    const sRes = await fetch(`/api/supabase/ping?key=${encodeURIComponent(keyToTest)}`);
+    const sRes = await fetch(`/api/supabase/ping?url=${encodeURIComponent(normUrl)}&key=${encodeURIComponent(keyToTest)}`);
     if (sRes.ok) {
       const sData = await sRes.json();
       if (sData.online) {
-        // Se estamos no PC rodando localmente e o servidor encontrou o Supabase em 127.0.0.1 ou localhost:
         if (isLocalHost && sData.activeUrl) {
           if (currentConfig.url !== sData.activeUrl) {
             currentConfig.url = sData.activeUrl;
@@ -297,16 +307,27 @@ export const testSupabaseConnection = async (targetUrl?: string, targetKey?: str
             });
           }
         }
-        setSupabaseConnectionState(true);
-        return { success: true, message: `Conectado ao Supabase Local (${sData.latency || 10}ms)`, latency: sData.latency };
+        recordSuccessfulSupabaseOp();
+        return { success: true, message: `Conectado ao Supabase (${sData.latency || 10}ms)`, latency: sData.latency };
       }
     }
   } catch (sErr: any) {}
 
-  // 2. Se estiver rodando no navegador do PC (localhost/127.0.0.1 em HTTP), testar diretamente na porta 54321
-  if (isBrowser && isLocalHost) {
-    const directCandidates = ["http://127.0.0.1:54321", "http://localhost:54321"];
-    for (const testCandidate of directCandidates) {
+  // 2. Tentar diretamente se estiver no browser
+  if (isBrowser) {
+    const candidates: string[] = [];
+    if (normUrl && !candidates.includes(normUrl)) candidates.push(normUrl);
+    if (isLocalHost) {
+      if (!candidates.includes("http://127.0.0.1:54321")) candidates.push("http://127.0.0.1:54321");
+      if (!candidates.includes("http://localhost:54321")) candidates.push("http://localhost:54321");
+    }
+    if (!candidates.includes(window.location.origin)) candidates.push(window.location.origin);
+
+    for (const testCandidate of candidates) {
+      // Don't test raw http loopback from https page directly (browser will throw Mixed Content)
+      if (window.location.protocol === 'https:' && testCandidate.startsWith('http://') && !testCandidate.includes('localhost') && !testCandidate.includes('127.0.0.1')) {
+        continue;
+      }
       try {
         const start = Date.now();
         const controller = new AbortController();
@@ -317,54 +338,29 @@ export const testSupabaseConnection = async (targetUrl?: string, targetKey?: str
         }).catch(() => null);
         clearTimeout(timeout);
 
-        if (res && res.ok) {
-          const contentType = res.headers.get("content-type") || "";
-          if (contentType.includes("application/json")) {
-            const data = await res.json().catch(() => null);
-            if (data && (data.name === "GoTrue" || data.version !== undefined || typeof data === "object")) {
-              if (currentConfig.url !== testCandidate) {
-                currentConfig.url = testCandidate;
-                currentConfig.rawUrl = testCandidate;
-                realSupabaseClient = createClient(testCandidate, keyToTest, {
-                  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
-                });
-              }
-              setSupabaseConnectionState(true);
-              return { success: true, message: `Conectado diretamente em ${testCandidate}`, latency: Date.now() - start };
-            }
+        if (res && (res.ok || res.status === 200 || res.status === 204 || res.status === 401)) {
+          if (currentConfig.url !== testCandidate && testCandidate !== window.location.origin) {
+            currentConfig.url = testCandidate;
+            currentConfig.rawUrl = testCandidate;
+            realSupabaseClient = createClient(testCandidate, keyToTest, {
+              auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+            });
           }
+          recordSuccessfulSupabaseOp();
+          return { success: true, message: `Conectado em ${testCandidate} (${Date.now() - start}ms)`, latency: Date.now() - start };
         }
       } catch (e) {}
     }
   }
 
-  // 3. Tentar rota proxy no origin atual (para mobile na mesma rede e túneis)
-  if (isBrowser) {
-    try {
-      const start = Date.now();
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2000);
-      const res = await fetch(`${window.location.origin}/auth/v1/health`, {
-        headers: { apikey: keyToTest },
-        signal: controller.signal
-      }).catch(() => null);
-      clearTimeout(timeout);
-
-      if (res && res.ok) {
-        const contentType = res.headers.get("content-type") || "";
-        if (contentType.includes("application/json")) {
-          const data = await res.json().catch(() => null);
-          if (data && (data.name === "GoTrue" || data.version !== undefined || typeof data === "object")) {
-            setSupabaseConnectionState(true);
-            return { success: true, message: `Conectado via proxy (${Date.now() - start}ms)`, latency: Date.now() - start };
-          }
-        }
-      }
-    } catch (e) {}
+  // Se recentemente houve operação bem sucedida no Supabase (< 30s), mantém o status conectado
+  if (Date.now() - lastSuccessfulSupabaseOp < 30000) {
+    recordSuccessfulSupabaseOp();
+    return { success: true, message: "Conectado ao Supabase (operações recentes confirmadas)" };
   }
 
   setSupabaseConnectionState(false);
-  return { success: false, message: "Supabase Local offline ou inacessível." };
+  return { success: false, message: "Supabase Local offline ou inacessível no endereço configurado." };
 };
 
 // Coletor e restaurador ultra-resiliente de fichas salvas no navegador
@@ -743,14 +739,18 @@ class ResilientQueryBuilder {
             else local.push(item);
           }
           saveLocalTable(this.table, local);
-          setSupabaseConnectionState(true);
+          recordSuccessfulSupabaseOp();
           return { data, error: null };
         }
         console.log(`[Supabase Offline-First] Write Error, using local storage:`, error);
-        setSupabaseConnectionState(false);
+        if (isNetworkError(error)) {
+          setSupabaseConnectionState(false);
+        }
       } catch (err) {
         console.log(`[Supabase Offline-First] Cloud Exception, using local storage:`, err);
-        setSupabaseConnectionState(false);
+        if (isNetworkError(err)) {
+          setSupabaseConnectionState(false);
+        }
       }
     }
 
@@ -809,15 +809,19 @@ class ResilientQueryBuilder {
                       return item;
                     });
                     saveLocalTable(this.table, updatedLocal);
-                    setSupabaseConnectionState(true);
+                    recordSuccessfulSupabaseOp();
                     const res = { data, error: null };
                     return onfulfilled ? onfulfilled(res) : res;
                   }
                   console.log(`[Supabase Offline-First] Update Error, using local:`, error);
-                  setSupabaseConnectionState(false);
+                  if (isNetworkError(error)) {
+                    setSupabaseConnectionState(false);
+                  }
                 } catch (err) {
                   console.log(`[Supabase Offline-First] Update Exception, using local:`, err);
-                  setSupabaseConnectionState(false);
+                  if (isNetworkError(err)) {
+                    setSupabaseConnectionState(false);
+                  }
                 }
               }
 
@@ -871,14 +875,18 @@ class ResilientQueryBuilder {
                       return true;
                     });
                     saveLocalTable(this.table, filtered);
-                    setSupabaseConnectionState(true);
+                    recordSuccessfulSupabaseOp();
                     const res = { data, error: null };
                     return onfulfilled ? onfulfilled(res) : res;
                   }
-                  setSupabaseConnectionState(false);
+                  if (isNetworkError(error)) {
+                    setSupabaseConnectionState(false);
+                  }
                 } catch (err) {
                   console.log(`[Supabase Offline-First] Delete Exception, using local:`, err);
-                  setSupabaseConnectionState(false);
+                  if (isNetworkError(err)) {
+                    setSupabaseConnectionState(false);
+                  }
                 }
               }
 
@@ -936,7 +944,9 @@ class ResilientQueryBuilder {
           let { data, error, status } = (await withTimeout(builder, 8000)) as any;
           if (error) {
             checkSupabaseError(error, status);
-            setSupabaseConnectionState(false);
+            if (isNetworkError(error)) {
+              setSupabaseConnectionState(false);
+            }
           }
 
           // If standard query failed or returned empty in local URL, try service_role admin client to bypass RLS
@@ -968,7 +978,7 @@ class ResilientQueryBuilder {
           }
 
           if (!error && data) {
-            setSupabaseConnectionState(true);
+            recordSuccessfulSupabaseOp();
             rows = Array.isArray(data) ? data : [data];
             loadedFromCloud = true;
             
@@ -2054,7 +2064,7 @@ export const auth = {
           if (parsed && Array.isArray(parsed.characters)) {
             const userOnly = parsed.characters.filter((c: any) => {
               const cEmail = (c.userEmail || c.user_email || '').trim().toLowerCase();
-              return cEmail === cleanEmail || c.userId === currentAuthUser.uid;
+              return cEmail === cleanEmail;
             });
             localStorage.setItem('rpg_chars_account_' + cleanEmail, JSON.stringify(userOnly));
           }
@@ -2074,8 +2084,7 @@ export const auth = {
         if (parsed && Array.isArray(parsed.characters)) {
           const guestOnly = parsed.characters.filter((c: any) => {
             const cEmail = (c.userEmail || c.user_email || '').trim().toLowerCase();
-            const cUid = c.userId || c.user_id || '';
-            return (!cEmail || cEmail.startsWith('guest_')) && (!cUid || String(cUid).startsWith('guest_'));
+            return !cEmail || cEmail.startsWith('guest_');
           });
           const cleanState = {
             ...parsed,

@@ -1,0 +1,270 @@
+characterService.ts:49 💾 [Supabase] Salvando ficha para zeroastrooliveira@gmail.com: Sakuraba Xanthe (Base) (c6e49460-12dd-44d6-b1cc-ca576b3bbb33)
+App.tsx:1505 🔍 [Sync] Merge: Local=9, Remote=9, PendingWrites=false, Dirty=1d74a2f2-6dba-4a4d-8bb6-8ed519285d72, lzoskyhkfo, 6815e75b-81ab-4299-a9a7-8dd4704708cd, jdrc9b60sy, q4g8vr1y5x, 57ou4dbs97, c6e49460-12dd-44d6-b1cc-ca576b3bbb33, 561dc1bd-620d-427e-b6c8-f5b8d55e1eb6
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Atsu
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Adanna Frostvale (Base)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Sir. Pathos
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Jack Landa 
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Erik Lehnsherr
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Himura Oakenmoor (Base)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Otto Mistmere (Base)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Sakuraba Xanthe (Base)
+App.tsx:1521 🔄 [Sync] Migrando Bonnie Smith para o UID ddab7c58-8d33-4bc5-b15a-f86da4c66098 (vincular por email)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Bonnie Smith
+App.tsx:1505 🔍 [Sync] Merge: Local=9, Remote=9, PendingWrites=false, Dirty=1d74a2f2-6dba-4a4d-8bb6-8ed519285d72, lzoskyhkfo, 6815e75b-81ab-4299-a9a7-8dd4704708cd, jdrc9b60sy, q4g8vr1y5x, 57ou4dbs97, c6e49460-12dd-44d6-b1cc-ca576b3bbb33, 561dc1bd-620d-427e-b6c8-f5b8d55e1eb6
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Atsu
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Adanna Frostvale (Base)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Sir. Pathos
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Jack Landa 
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Erik Lehnsherr
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Himura Oakenmoor (Base)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Otto Mistmere (Base)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Sakuraba Xanthe (Base)
+App.tsx:1521 🔄 [Sync] Migrando Bonnie Smith para o UID ddab7c58-8d33-4bc5-b15a-f86da4c66098 (vincular por email)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Bonnie Smith
+proficiencyRules.ts:141 Proficiency: Clima, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Clima, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Intimidação, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Vigor, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Furtividade, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Atletismo, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Intuição, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Comunicação, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Conhecimento, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Percepção, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Acurácia, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Esquiva, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Mentalidade, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Ritualismo, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Fome, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Clima Quente, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Clima Frio, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Resistência, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Adaptabilidade, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Forja manual, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Forja rústica, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Intimidação, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Vigor, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Furtividade, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Atletismo, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Intuição, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Comunicação, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Conhecimento, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Percepção, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Acurácia, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Esquiva, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Mentalidade, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Ritualismo, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Fome, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Clima Quente, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Clima Frio, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Resistência, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Adaptabilidade, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Forja manual, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Forja rústica, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+storageManager.ts:203 ⚠️ [Storage] Stored "campaign_characters_camp_uu3i63t2d" in Memory & IndexedDB fallback (localStorage quota preserved).
+(anônimo) @ storageManager.ts:203
+(anônimo) @ campaignService.ts:618
+(anônimo) @ campaignService.ts:875
+App.tsx:1722 [Campaign] Loaded 9 characters for campaign camp_uu3i63t2d
+App.tsx:1724 [Campaign] Sample IDs: 561dc1bd-620d-427e-b6c8-f5b8d55e1eb6, 57ou4dbs97, lzoskyhkfo
+storageManager.ts:203 ⚠️ [Storage] Stored "campaign_characters_camp_uu3i63t2d" in Memory & IndexedDB fallback (localStorage quota preserved).
+(anônimo) @ storageManager.ts:203
+(anônimo) @ campaignService.ts:618
+(anônimo) @ campaignService.ts:875
+proficiencyRules.ts:141 Proficiency: Clima, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Clima, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Intimidação, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Vigor, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Furtividade, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Atletismo, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Intuição, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Comunicação, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Conhecimento, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Percepção, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Acurácia, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Esquiva, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Mentalidade, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Ritualismo, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Fome, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Clima Quente, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Clima Frio, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Resistência, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Adaptabilidade, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Forja manual, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Forja rústica, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Intimidação, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Vigor, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Furtividade, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Atletismo, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Intuição, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Comunicação, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Conhecimento, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Percepção, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Acurácia, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Esquiva, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Mentalidade, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Ritualismo, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Fome, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Clima Quente, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Clima Frio, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Resistência, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Adaptabilidade, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Forja manual, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Forja rústica, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+App.tsx:3950 📡 [Sync] Enviando Jack Landa  para nuvem...
+characterService.ts:75 ✅ [Supabase] Ficha Erik Lehnsherr CONFIRMADA pelo servidor.
+characterService.ts:75 ✅ [Supabase] Ficha Himura Oakenmoor (Base) CONFIRMADA pelo servidor.
+characterService.ts:75 ✅ [Supabase] Ficha Atsu CONFIRMADA pelo servidor.
+characterService.ts:75 ✅ [Supabase] Ficha Sakuraba Xanthe (Base) CONFIRMADA pelo servidor.
+storageManager.ts:203 ⚠️ [Storage] Stored "campaign_characters_camp_uu3i63t2d" in Memory & IndexedDB fallback (localStorage quota preserved).
+(anônimo) @ storageManager.ts:203
+(anônimo) @ campaignService.ts:618
+(anônimo) @ campaignService.ts:875
+App.tsx:1722 [Campaign] Loaded 9 characters for campaign camp_uu3i63t2d
+App.tsx:1724 [Campaign] Sample IDs: 561dc1bd-620d-427e-b6c8-f5b8d55e1eb6, jdrc9b60sy, 1d74a2f2-6dba-4a4d-8bb6-8ed519285d72
+App.tsx:1477 📡 [Sync] 9 personagens carregados (Servidor). Pendentes: false
+App.tsx:1505 🔍 [Sync] Merge: Local=9, Remote=9, PendingWrites=false, Dirty=1d74a2f2-6dba-4a4d-8bb6-8ed519285d72, lzoskyhkfo, 561dc1bd-620d-427e-b6c8-f5b8d55e1eb6, v8mioko6be
+App.tsx:1521 🔄 [Sync] Migrando Atsu para o UID ddab7c58-8d33-4bc5-b15a-f86da4c66098 (vincular por email)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Atsu
+App.tsx:1521 🔄 [Sync] Migrando Jack Landa  para o UID ddab7c58-8d33-4bc5-b15a-f86da4c66098 (vincular por email)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Jack Landa 
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Adanna Frostvale (Base)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Sir. Pathos
+App.tsx:1521 🔄 [Sync] Migrando Erik Lehnsherr para o UID ddab7c58-8d33-4bc5-b15a-f86da4c66098 (vincular por email)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Erik Lehnsherr
+App.tsx:1521 🔄 [Sync] Migrando Himura Oakenmoor (Base) para o UID ddab7c58-8d33-4bc5-b15a-f86da4c66098 (vincular por email)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Himura Oakenmoor (Base)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Otto Mistmere (Base)
+App.tsx:1521 🔄 [Sync] Migrando Sakuraba Xanthe (Base) para o UID ddab7c58-8d33-4bc5-b15a-f86da4c66098 (vincular por email)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Sakuraba Xanthe (Base)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Bonnie Smith
+App.tsx:1505 🔍 [Sync] Merge: Local=9, Remote=9, PendingWrites=false, Dirty=1d74a2f2-6dba-4a4d-8bb6-8ed519285d72, lzoskyhkfo, 561dc1bd-620d-427e-b6c8-f5b8d55e1eb6, v8mioko6be
+App.tsx:1521 🔄 [Sync] Migrando Atsu para o UID ddab7c58-8d33-4bc5-b15a-f86da4c66098 (vincular por email)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Atsu
+App.tsx:1521 🔄 [Sync] Migrando Jack Landa  para o UID ddab7c58-8d33-4bc5-b15a-f86da4c66098 (vincular por email)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Jack Landa 
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Adanna Frostvale (Base)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Sir. Pathos
+App.tsx:1521 🔄 [Sync] Migrando Erik Lehnsherr para o UID ddab7c58-8d33-4bc5-b15a-f86da4c66098 (vincular por email)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Erik Lehnsherr
+App.tsx:1521 🔄 [Sync] Migrando Himura Oakenmoor (Base) para o UID ddab7c58-8d33-4bc5-b15a-f86da4c66098 (vincular por email)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Himura Oakenmoor (Base)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Otto Mistmere (Base)
+App.tsx:1521 🔄 [Sync] Migrando Sakuraba Xanthe (Base) para o UID ddab7c58-8d33-4bc5-b15a-f86da4c66098 (vincular por email)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Sakuraba Xanthe (Base)
+App.tsx:1541 ⚠️ [Sync] Preservando alteração local de Bonnie Smith
+proficiencyRules.ts:141 Proficiency: Clima, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Clima, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Intimidação, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Vigor, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Furtividade, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Atletismo, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Intuição, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Comunicação, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Conhecimento, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Percepção, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Acurácia, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Esquiva, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Mentalidade, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Ritualismo, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Fome, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Clima Quente, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Clima Frio, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Resistência, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Adaptabilidade, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Forja manual, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Forja rústica, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Intimidação, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Vigor, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Furtividade, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Atletismo, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Intuição, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Comunicação, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Conhecimento, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Percepção, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Acurácia, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Esquiva, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Mentalidade, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Ritualismo, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Fome, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Clima Quente, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Clima Frio, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Resistência, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Adaptabilidade, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Forja manual, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Forja rústica, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Intimidação, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Vigor, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Furtividade, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Atletismo, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Intuição, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Comunicação, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Conhecimento, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Percepção, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Acurácia, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Esquiva, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Mentalidade, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Ritualismo, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Fome, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Clima Quente, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Clima Frio, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Resistência, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Adaptabilidade, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Forja manual, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Forja rústica, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Intimidação, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Vigor, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Furtividade, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Atletismo, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Intuição, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Comunicação, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Conhecimento, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Percepção, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Acurácia, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Esquiva, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Mentalidade, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Ritualismo, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Fome, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Clima Quente, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Clima Frio, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Resistência, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Adaptabilidade, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Forja manual, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Forja rústica, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+storageManager.ts:203 ⚠️ [Storage] Stored "campaign_characters_camp_uu3i63t2d" in Memory & IndexedDB fallback (localStorage quota preserved).
+(anônimo) @ storageManager.ts:203
+(anônimo) @ campaignService.ts:618
+(anônimo) @ characterService.ts:30
+App.tsx:1722 [Campaign] Loaded 9 characters for campaign camp_uu3i63t2d
+App.tsx:1724 [Campaign] Sample IDs: 561dc1bd-620d-427e-b6c8-f5b8d55e1eb6, jdrc9b60sy, 1d74a2f2-6dba-4a4d-8bb6-8ed519285d72
+characterService.ts:49 💾 [Supabase] Salvando ficha para zeroastrooliveira@gmail.com: Jack Landa  (q4g8vr1y5x)
+storageManager.ts:203 ⚠️ [Storage] Stored "campaign_characters_camp_uu3i63t2d" in Memory & IndexedDB fallback (localStorage quota preserved).
+(anônimo) @ storageManager.ts:203
+(anônimo) @ campaignService.ts:618
+(anônimo) @ campaignService.ts:875
+App.tsx:1722 [Campaign] Loaded 9 characters for campaign camp_uu3i63t2d
+App.tsx:1724 [Campaign] Sample IDs: 561dc1bd-620d-427e-b6c8-f5b8d55e1eb6, jdrc9b60sy, 1d74a2f2-6dba-4a4d-8bb6-8ed519285d72
+4storageManager.ts:203 ⚠️ [Storage] Stored "campaign_characters_camp_uu3i63t2d" in Memory & IndexedDB fallback (localStorage quota preserved).
+(anônimo) @ storageManager.ts:203
+(anônimo) @ campaignService.ts:618
+(anônimo) @ campaignService.ts:875
+App.tsx:3950 📡 [Sync] Enviando Atsu para nuvem...
+App.tsx:3950 📡 [Sync] Enviando Erik Lehnsherr para nuvem...
+App.tsx:3950 📡 [Sync] Enviando Himura Oakenmoor (Base) para nuvem...
+App.tsx:3950 📡 [Sync] Enviando Sakuraba Xanthe (Base) para nuvem...
+proficiencyRules.ts:141 Proficiency: Clima, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Clima, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Intimidação, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Vigor, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Furtividade, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Atletismo, base: 2, penalty: 0, manual: 0, etnia: 0, total: 2
+proficiencyRules.ts:141 Proficiency: Intuição, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Comunicação, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Conhecimento, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Percepção, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Acurácia, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Esquiva, base: 1, penalty: 0, manual: 0, etnia: 0, total: 1
+proficiencyRules.ts:141 Proficiency: Mentalidade, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Ritualismo, base: 0, penalty: 0, manual: 0, etnia: 0, total: 0
+proficiencyRules.ts:141 Proficiency: Fome, base: 3, penalty: 0, manual: 0, etnia: 0, total: 3
+proficiencyRules.ts:141 Proficiency: Clima Quente, base: 0, penalty: 0, ma

@@ -684,14 +684,13 @@ export const linkCharacterToCampaign = async (campaignId: string, character: Cha
 
   // 3. Atualizar no banco Supabase
   try {
-    const targetUserId = linkedChar.userId || auth.currentUser?.uid || linkedChar.userEmail || "anonymous";
     const userEmail = (linkedChar.userEmail || auth.currentUser?.email || "").trim().toLowerCase();
 
     await supabase
       .from(CHARACTERS_TABLE)
       .upsert({
         id: linkedChar.id,
-        user_id: targetUserId,
+        user_id: userEmail,
         user_email: userEmail,
         campaign_id: campaignId,
         data: linkedChar,
@@ -836,8 +835,7 @@ export const subscribeToCampaignCharacters = (campaignId: string, onUpdate: (cha
             }
 
             const char = { ...docData, ...charData } as Character;
-            if (!char.userId && docData.user_id) char.userId = docData.user_id;
-            if (!char.userEmail && docData.user_email) char.userEmail = docData.user_email;
+            char.userEmail = (docData.user_email || char.userEmail || "").trim().toLowerCase();
 
             if (!char.id || blacklist.has(char.id) || seenIds.has(char.id)) continue;
 

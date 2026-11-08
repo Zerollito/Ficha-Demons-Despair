@@ -4,6 +4,7 @@ import { INITIAL_KNOWLEDGES } from '../rules/knowledgeRules';
 export const createEmptyCharacter = (): Character => ({
   id: crypto.randomUUID(),
   userId: '',
+  userEmail: '',
   nome: 'Novo Personagem',
   etnia: '',
   dinheiro: { C: 0, B: 0, P: 0, O: 0 },
@@ -41,6 +42,7 @@ export const createEmptyCharacter = (): Character => ({
 export const createEmptyCreature = (isBestiary = false): Character => ({
   id: crypto.randomUUID(),
   userId: '',
+  userEmail: '',
   nome: isBestiary ? 'Novo Demônio' : 'Novo Companheiro',
   etnia: '',
   dinheiro: { C: 0, B: 0, P: 0, O: 0 },

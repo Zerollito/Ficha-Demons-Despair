@@ -446,14 +446,8 @@ async function startServer() {
             signal: controller.signal,
           });
           responseStatus = healthRes.status;
-          if (healthRes.ok && healthRes.status === 200) {
-            const ct = healthRes.headers.get("content-type") || "";
-            if (ct.includes("application/json")) {
-              const data = await healthRes.json().catch(() => null);
-              if (data && (data.name === "GoTrue" || data.version !== undefined || typeof data === "object")) {
-                isRealSupabase = true;
-              }
-            }
+          if (healthRes.ok && (healthRes.status === 200 || healthRes.status === 204)) {
+            isRealSupabase = true;
           }
         } catch {}
 
@@ -465,11 +459,8 @@ async function startServer() {
               signal: controller.signal,
             });
             responseStatus = restRes.status;
-            if (restRes.ok || restRes.status === 401) {
-              const ct = restRes.headers.get("content-type") || "";
-              if (ct.includes("application/json") || ct.includes("openapi")) {
-                isRealSupabase = true;
-              }
+            if (restRes.ok || restRes.status === 401 || restRes.status === 200) {
+              isRealSupabase = true;
             }
           } catch {}
         }

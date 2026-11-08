@@ -6175,7 +6175,9 @@ export const VTTBoard: React.FC<VTTBoardProps> = React.memo(({
             const currentHp = char ? (char.vidaAtual ?? 0) : (token.hp ?? 0);
             const maxHp = char && char.etnia !== 'Monstro' ? getVidaMaxima(char.stats.CON) : (token.maxHp ?? 10);
             const isDead = currentHp <= 0;
-            const isMasterOrOwner = isMaster || token.type === 'character' || (token.userId === auth.currentUser?.uid || (char && (char.userId === auth.currentUser?.uid || char.userEmail === auth.currentUser?.email)));
+            const currentUserEmail = (auth.currentUser?.email || '').trim().toLowerCase();
+            const charEmail = (char?.userEmail || '').trim().toLowerCase();
+            const isMasterOrOwner = isMaster || token.type === 'character' || (char && charEmail === currentUserEmail) || (token.userId && token.userId.toLowerCase() === currentUserEmail);
             // Loot button should show for enemies or if the token is dead
             const isEnemy = token.type === 'creature' || (token.type === 'character' && !isMasterOrOwner);
             const tokenDeslocamento = char 

@@ -1,4 +1,4 @@
-import { supabase, auth, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, or, onSnapshot, isNetworkError, safeLocalStorageSetItem, safeLocalStorageGetItem } from '../lib/supabase';
+import { supabase, auth, db, isFirebaseQuotaExceeded, handleFirestoreError, collection, query, where, or, onSnapshot, isNetworkError, safeLocalStorageSetItem, safeLocalStorageGetItem, recordSuccessfulSupabaseOp } from '../lib/supabase';
 import { Character } from '../types';
 
 const CHARACTERS_TABLE = 'characters';
@@ -50,7 +50,6 @@ export const saveCharacterToSupabase = async (character: Character) => {
 
   try {
     const cleanCharacter = deepClean(character);
-    delete (cleanCharacter as any).userId;
     cleanCharacter.userEmail = userEmail;
 
     const { error } = await supabase
@@ -73,6 +72,7 @@ export const saveCharacterToSupabase = async (character: Character) => {
       throw error;
     }
     console.log(`✅ [Supabase] Ficha ${character.nome} CONFIRMADA pelo servidor.`);
+    recordSuccessfulSupabaseOp();
   } catch (error: any) {
     if (isNetworkError(error)) {
       console.warn(`⚠️ [Supabase] Problema de rede ao salvar ${character.nome} (mantendo em modo offline):`, error.message || error);
@@ -254,8 +254,7 @@ export const subscribeToUserCharacters = (
         }
 
         const char = { ...docData, ...charData } as Character;
-        if (!char.userEmail && docData.user_email) char.userEmail = docData.user_email;
-        delete (char as any).userId;
+        char.userEmail = (docData.user_email || char.userEmail || cleanEmail).trim().toLowerCase();
 
         if (char.id && !blacklist.has(char.id) && (char.nome !== undefined || (char as any).atributos !== undefined)) {
           characters.push(char);

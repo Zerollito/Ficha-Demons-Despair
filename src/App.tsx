@@ -151,6 +151,7 @@ import { MaterialManagement } from "./components/MaterialManagement";
 import { ItemLibrary } from "./components/ItemLibrary";
 import { SpellLibrary } from "./components/SpellLibrary";
 import { PrintSheetModal } from "./components/PrintSheetModal";
+import { SupabaseConfigModal } from "./components/SupabaseConfigModal";
 import { EthnicitySelector } from "./components/EthnicitySelector";
 import { applyEthnicityToCharacter, getEthnicityById } from "./rules/ethnicityRules";
 import { Section } from "./components/ui/Section";
@@ -307,6 +308,7 @@ const parseAndRollDice = (formula: string) => {
 const createEmptyCharacter = (): Character => ({
   id: generateId(),
   userId: "",
+  userEmail: "",
   nome: "Novo Personagem",
   etnia: "",
   dinheiro: { C: 0, B: 0, P: 0, O: 0 },
@@ -357,6 +359,7 @@ const createEmptyCharacter = (): Character => ({
 const createEmptyCreature = (isBestiary = false): Character => ({
   id: generateId(),
   userId: "",
+  userEmail: "",
   nome: isBestiary ? "Novo Demônio" : "Novo Companheiro",
   etnia: "",
   dinheiro: { C: 0, B: 0, P: 0, O: 0 },
@@ -443,6 +446,7 @@ const getGhostTemplate = (): Character => ({
   imagens: [],
   itens: [],
   userId: "",
+  userEmail: "",
 });
 
 const MenuButton = ({ active, onClick, icon, label, color }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string, color: string }) => {
@@ -848,7 +852,8 @@ function App() {
   const [pasteFullBackupText, setPasteFullBackupText] = useState("");
   const [isImportingAll, setIsImportingAll] = useState(false);
 
-  // Email Auth Modal State
+  // Supabase & Email Auth Modal State
+  const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'set_password' | 'reset'>('login');
   const [authEmail, setAuthEmail] = useState("");
@@ -1088,8 +1093,7 @@ function App() {
       for (const r of rescued) {
         const sanitized = sanitizeCharacter({
           ...r,
-          userId: user?.uid || r.userId,
-          userEmail: user?.email || r.userEmail
+          userEmail: (user?.email || r.userEmail || "").trim().toLowerCase()
         });
         
         if (existingMap.has(sanitized.id)) {
@@ -1171,8 +1175,7 @@ function App() {
     setState(prev => {
       const sanitized = sanitizeCharacter({
         ...char,
-        userId: user?.uid || char.userId,
-        userEmail: user?.email || char.userEmail
+        userEmail: (user?.email || char.userEmail || "").trim().toLowerCase()
       });
       const exists = prev.characters.some(c => c.id === sanitized.id);
       let updatedChars = exists 
@@ -1371,12 +1374,11 @@ function App() {
           return isCharacterOwnedByCurrentUser(char, user);
         }).map(char => {
           const charEmailLower = (char.userEmail || '').trim().toLowerCase();
-          const isUnownedGuest = (!charEmailLower || charEmailLower.startsWith('guest_')) && (!char.userId || char.userId.startsWith('guest_'));
+          const isUnownedGuest = !charEmailLower || charEmailLower.startsWith('guest_');
           if (isUnownedGuest) {
             return {
               ...char,
-              userId: user.uid,
-              userEmail: user.email || char.userEmail
+              userEmail: userEmailLower
             };
           }
           return char;
@@ -1403,22 +1405,19 @@ function App() {
           const rescued = rescueAllLocalCharacters();
           const ownRescued = rescued.filter(c => {
             const cEmail = (c.userEmail || c.user_email || c.email || '').trim().toLowerCase();
-            const cUid = c.userId || c.user_id;
             const isSameEmail = Boolean(userEmailLower && cEmail && userEmailLower === cEmail);
-            const isSameUid = Boolean(cUid && cUid === user.uid);
-            const isUnownedGuest = (!cEmail || cEmail.startsWith('guest_')) && (!cUid || String(cUid).startsWith('guest_'));
-            return isSameEmail || isSameUid || isUnownedGuest;
+            const isUnownedGuest = !cEmail || cEmail.startsWith('guest_');
+            return isSameEmail || isUnownedGuest;
           });
 
           if (ownRescued.length > 0) {
             console.log(`⚡ [Rescue on Login] Resgatadas ${ownRescued.length} fichas do usuário!`);
             finalChars = ownRescued.map(c => {
               const cEmail = (c.userEmail || c.user_email || c.email || '').trim().toLowerCase();
-              const isUnownedGuest = (!cEmail || cEmail.startsWith('guest_')) && (!c.userId || String(c.userId).startsWith('guest_'));
+              const isUnownedGuest = !cEmail || cEmail.startsWith('guest_');
               return {
                 ...sanitizeCharacter(c),
-                userId: isUnownedGuest ? user.uid : (c.userId || user.uid),
-                userEmail: isUnownedGuest ? (user.email || c.userEmail) : (c.userEmail || user.email)
+                userEmail: isUnownedGuest ? userEmailLower : (cEmail || userEmailLower)
               };
             });
           }
@@ -1504,54 +1503,46 @@ function App() {
 
         console.log(`🔍 [Sync] Merge: Local=${localCharacters.length}, Remote=${sanitizedFireChars.length}, PendingWrites=${metadata.hasPendingWrites}, Dirty=${Array.from(dirtyIds).join(', ')}`);
         
+        const userEmailLower = (user.email || '').trim().toLowerCase();
+
         // Map Firestore characters to our state
         const mergedCharacters = sanitizedFireChars.map(fChar => {
           const charJson = getSyncJson(fChar);
           const localMatch = localCharacters.find(lc => lc.id === fChar.id);
-          
-          // Migração: Se a ficha vinda do servidor tem o email correto mas o UID está faltando ou é diferente do atual,
-          // vamos marcar como dirty para forçar a atualização com o UID correto do usuário logado.
-          const needsMigration = fChar.userEmail === user.email && (!fChar.userId || fChar.userId !== user.uid);
-          
-          const migratedFChar = needsMigration
-            ? { ...fChar, userId: user.uid, userEmail: user.email || fChar.userEmail }
-            : fChar;
-
-          if (needsMigration && !dirtyIds.has(fChar.id)) {
-            console.log(`🔄 [Sync] Migrando ${fChar.nome} para o UID ${user.uid} (vincular por email)`);
-            dirtyIds.add(fChar.id);
-          }
+          const activeFChar = {
+            ...fChar,
+            userEmail: userEmailLower || fChar.userEmail || ""
+          };
 
           if (localMatch) {
             const localJson = getSyncJson(localMatch);
-            const localMigrated = needsMigration
-              ? { ...localMatch, userId: user.uid, userEmail: user.email || localMatch.userEmail }
-              : localMatch;
             
-            // Se a ficha local é exatamente igual à do servidor ou não está "suja" (dirty), usamos a do servidor
+            // Se o servidor retornou os dados e não há writes pendentes, remove o status dirty
+            if (!metadata.hasPendingWrites && dirtyIds.has(localMatch.id)) {
+              console.log(`✅ [Sync] Ficha ${fChar.nome} confirmada pelo servidor. Limpando flag dirty.`);
+              dirtyIds.delete(localMatch.id);
+            }
+
             if (localJson === charJson || !dirtyIds.has(localMatch.id)) {
-              if (localJson === charJson && dirtyIds.has(localMatch.id) && !metadata.hasPendingWrites) {
-                console.log(`✅ [Sync] Dados coincidem para ${fChar.nome}. Limpando flag dirty.`);
-                dirtyIds.delete(localMatch.id);
-              }
               lastSyncedRef.current[fChar.id] = charJson;
-              return { ...migratedFChar, isRemoteSynced: true };
+              return { ...activeFChar, isRemoteSynced: true };
             } else {
-              // Se a local está suja (tem alteração não salva), preservamos a local por enquanto
+              // Se a local tem alteração não salva, preservamos a local por enquanto
               console.log(`⚠️ [Sync] Preservando alteração local de ${fChar.nome}`);
-              return { ...localMigrated, isRemoteSynced: true };
+              return { ...localMatch, isRemoteSynced: true };
             }
           }
           
           // Nova ficha vinda do servidor
           lastSyncedRef.current[fChar.id] = charJson;
-          return { ...migratedFChar, isRemoteSynced: true };
+          return { ...activeFChar, isRemoteSynced: true };
         });
 
         // Adicionar fichas que só existem localmente (novas criadas off-line ou em processamento)
         const localOnly = localCharacters.filter(lc => {
           const isRemote = sanitizedFireChars.some(fc => fc.id === lc.id);
-          const isOwn = lc.userId === user.uid || (lc.userEmail && lc.userEmail === user.email);
+          const lcEmail = (lc.userEmail || '').trim().toLowerCase();
+          const isOwn = lcEmail === userEmailLower;
 
           // Se não é nossa ficha (por exemplo, pertence a outro jogador ou é uma criatura na campanha),
           // não devemos aplicar a lógica de remoção/sincronização de ficha própria privada.
@@ -1575,7 +1566,8 @@ function App() {
 
         // Se estamos logados, queremos que as fichas locais (novas e nunca sincronizadas) subam para o servidor
         localOnly.forEach(lc => {
-          const isOwn = lc.userId === user.uid || (lc.userEmail && lc.userEmail === user.email) || (!lc.userId && !lc.userEmail);
+          const lcEmail = (lc.userEmail || '').trim().toLowerCase();
+          const isOwn = lcEmail === userEmailLower || !lcEmail;
           if (!isOwn) return; // Não tenta subir fichas de outros usuários
 
           const wasPreviouslySynced = lc.isRemoteSynced || !!lastSyncedRef.current[lc.id];
@@ -1602,8 +1594,7 @@ function App() {
             console.log(`🛡️ [Auto-Rescue] Restaurando automaticamente ${validRescued.length} fichas do cache local.`);
             finalCharacters = validRescued.map(r => ({
               ...sanitizeCharacter(r),
-              userId: user.uid,
-              userEmail: user.email || r.userEmail || ""
+              userEmail: userEmailLower || r.userEmail || ""
             }));
             finalCharacters.forEach(c => dirtyIds.add(c.id));
           }
@@ -1955,9 +1946,8 @@ function App() {
   useEffect(() => {
     if (state.characters.length === 0 && !authLoading && !isLoadingSync) {
       const newChar = createEmptyCharacter();
-      if (user) {
-        newChar.userId = user.uid;
-        newChar.userEmail = user.email || "";
+      if (user && user.email) {
+        newChar.userEmail = user.email.trim().toLowerCase();
       }
       setState(prev => ({
         ...prev,
@@ -2368,7 +2358,8 @@ function App() {
 
       // 1. Filtrar e fazer upload apenas das fichas que pertencem a nós ou que somos o mestre da campanha ativa
       const allowedCharacters = state.characters.filter(char => {
-        const isOwn = (char.userEmail && char.userEmail.toLowerCase() === userEmailLower) || char.userId === user.uid || (!char.userId && !char.userEmail);
+        const charEmailLower = (char.userEmail || "").trim().toLowerCase();
+        const isOwn = charEmailLower === userEmailLower || !charEmailLower;
         const isCampaignNPC = isMasterOfCampaign && char.campaignId === activeCampaignId;
         return isOwn || isCampaignNPC;
       });
@@ -2376,8 +2367,6 @@ function App() {
       const uploadPromises = allowedCharacters.map(char => {
         const charToSave = { 
           ...char, 
-          // Preserve ownership if it exists, otherwise claim it
-          userId: char.userId || user.uid, 
           userEmail: char.userEmail || user.email || ""
         };
         return saveCharacterToFirestore(charToSave);
@@ -3782,14 +3771,10 @@ function App() {
       const charToUpdate = characters[charIndex];
       const updates = typeof updatesOrFn === 'function' ? updatesOrFn(charToUpdate) : updatesOrFn;
       
-      // Auto-assign userId if logged in and missing - Use a local check for the user to avoid stale closure
-      // but we need to know the current user. Since this is a callback, 
-      // we should ideally have user in dependencies or use auth.currentUser
+      // Auto-assign userEmail if logged in and missing
       const currentUser = auth.currentUser;
-      const uidFromUpdates = (updates as any).userId;
-      if (currentUser && !charToUpdate.userId && !uidFromUpdates) {
-        (updates as any).userId = currentUser.uid;
-        (updates as any).userEmail = currentUser.email || "";
+      if (currentUser && currentUser.email && !charToUpdate.userEmail && !(updates as any).userEmail) {
+        (updates as any).userEmail = currentUser.email.trim().toLowerCase();
       }
 
       const hasChanges = Object.entries(updates).some(([key, value]) => {
@@ -3909,9 +3894,10 @@ function App() {
     
     characters.forEach(char => {
       if (dirtyIds.has(char.id)) {
-        const userEmailLower = user.email?.toLowerCase();
-        const isMasterOfCharCampaign = char.campaignId && campaigns.some(c => c.id === char.campaignId && ((c.masterEmail && c.masterEmail.toLowerCase() === userEmailLower) || c.masterId === user.uid));
-        const isOwn = (char.userEmail && char.userEmail.toLowerCase() === userEmailLower) || char.userId === user.uid || (!char.userId && !char.userEmail) || isMasterOfCharCampaign;
+        const userEmailLower = (user.email || "").trim().toLowerCase();
+        const charEmailLower = (char.userEmail || "").trim().toLowerCase();
+        const isMasterOfCharCampaign = Boolean(char.campaignId && campaigns.some(c => c.id === char.campaignId && (c.masterEmail && c.masterEmail.trim().toLowerCase() === userEmailLower)));
+        const isOwn = (charEmailLower && charEmailLower === userEmailLower) || !charEmailLower || isMasterOfCharCampaign;
         
         if (!isOwn) {
           // Se não é nossa ficha (e.g. criatura do mestre na campanha ou ficha de outro jogador),
@@ -4004,7 +3990,7 @@ function App() {
 
   // Sync userEmail if missing
   useEffect(() => {
-    if (user && activeChar && !activeChar.userEmail && activeChar.userId === user.uid) {
+    if (user && user.email && activeChar && !activeChar.userEmail) {
       const isDefaultPlaceholder = activeChar.nome === "Novo Personagem" && 
         (!activeChar.armas || activeChar.armas.length === 0) && 
         (!activeChar.magias || activeChar.magias.length === 0) &&
@@ -4012,13 +3998,11 @@ function App() {
 
       if (isDefaultPlaceholder) return;
 
-      const email = user.email || "";
-      if (activeChar.userEmail !== email) {
-        console.log("Auto-sync: Atualizando email do usuário na ficha.");
-        updateChar({ userEmail: email });
-      }
+      const email = user.email.trim().toLowerCase();
+      console.log("Auto-sync: Atualizando email do usuário na ficha.");
+      updateChar({ userEmail: email });
     }
-  }, [user?.email, activeChar?.id, activeChar?.userEmail, activeChar?.userId, updateChar]);
+  }, [user?.email, activeChar?.id, activeChar?.userEmail, updateChar]);
 
   const allAvailableCharacters = useMemo(() => {
     const map = new Map<string, Character>();
@@ -4324,9 +4308,8 @@ function App() {
       if (rawChars.length > 0) {
         const sanitizedChars = rawChars.map((c: any) => {
           const sc = sanitizeCharacter(c);
-          if (user) {
-            sc.userId = user.uid;
-            sc.userEmail = user.email || "";
+          if (user && user.email) {
+            sc.userEmail = user.email.trim().toLowerCase();
           }
           return sc;
         });
@@ -4547,9 +4530,8 @@ function App() {
           sanitized.id = generateId(); // New ID for safety
           
           // Assign ownership to the importing user
-          if (user) {
-            sanitized.userId = user.uid;
-            sanitized.userEmail = user.email || "";
+          if (user && user.email) {
+            sanitized.userEmail = user.email.trim().toLowerCase();
           }
           
           return sanitized;
@@ -5068,15 +5050,7 @@ function App() {
             animate={{ opacity: 1 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => {
-              if (user) {
-                if (window.confirm(`Conectado como ${user.email || user.displayName || 'Usuário'}.\nDeseja sair da conta?`)) {
-                  logout();
-                  showToast("Você saiu da conta.", "info");
-                }
-              } else {
-                setModalAuthError(null);
-                setIsAuthModalOpen(true);
-              }
+              setIsSupabaseModalOpen(true);
             }}
             className={cn(
               "flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer",
@@ -5205,6 +5179,17 @@ function App() {
                 accept=".json"
               />
             </label>
+
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => {
+                setIsSupabaseModalOpen(true);
+                setIsMenuOpen(false);
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-emerald-400 cursor-pointer"
+            >
+              <Database size={18} className="text-emerald-400" /> Conexão Supabase
+            </motion.button>
 
             <div className="pt-1 border-t border-zinc-800 mt-1">
               <motion.button
@@ -12273,6 +12258,17 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
     deslocamentoFinal={deslocamentoFinal}
     pesoTotal={pesoTotal}
     climateProficiency={climateProficiency}
+  />
+
+  <SupabaseConfigModal
+    isOpen={isSupabaseModalOpen}
+    onClose={() => setIsSupabaseModalOpen(false)}
+    currentUser={user}
+    isOnline={isOnline}
+    isSupabaseConnected={isSupabaseConnected}
+    dirtyCount={state.dirtyCharacterIds?.length || 0}
+    showToast={showToast}
+    onOpenAuthModal={() => setIsAuthModalOpen(true)}
   />
 
   {activeNoteImageModal && (
