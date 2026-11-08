@@ -152,7 +152,6 @@ import { ItemLibrary } from "./components/ItemLibrary";
 import { SpellLibrary } from "./components/SpellLibrary";
 import { PrintSheetModal } from "./components/PrintSheetModal";
 import { EthnicitySelector } from "./components/EthnicitySelector";
-import { SupabaseConnectionModal } from "./components/SupabaseConnectionModal";
 import { applyEthnicityToCharacter, getEthnicityById } from "./rules/ethnicityRules";
 import { Section } from "./components/ui/Section";
 import { SubSection } from "./components/ui/SubSection";
@@ -851,7 +850,6 @@ function App() {
 
   // Email Auth Modal State
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'set_password' | 'reset'>('login');
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -1215,7 +1213,10 @@ function App() {
 
   // Monitorar conexão
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
+    const handleOnline = () => {
+      setIsOnline(true);
+      testSupabaseConnection().catch(() => {});
+    };
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -1234,7 +1235,16 @@ function App() {
     };
     window.addEventListener('supabase_connection_mixed_content_error', handleMixedContentError);
 
+    // Initial and periodic verification of local Supabase reachability
+    testSupabaseConnection().catch(() => {});
+    const interval = setInterval(() => {
+      if (typeof window !== 'undefined' && window.navigator.onLine) {
+        testSupabaseConnection().catch(() => {});
+      }
+    }, 20000);
+
     return () => {
+      clearInterval(interval);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('supabase_connection_status_changed', handleStatusChange);
@@ -4863,7 +4873,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.5</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.6</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4973,14 +4983,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.5</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.6</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.5</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.6</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
@@ -5070,24 +5080,32 @@ function App() {
             }}
             className={cn(
               "flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer",
-              user 
-                ? (isSupabaseConnected 
+              !isOnline
+                ? "bg-amber-500/20 border-amber-500/40 text-amber-500 hover:bg-amber-500/30"
+                : (isSupabaseConnected 
                     ? (state.dirtyCharacterIds?.length > 0 
                         ? "bg-green-500/20 border-green-500/50" 
                         : "bg-green-500/10 border-green-500/30")
-                    : "bg-blue-500/10 border-blue-500/30")
-                : "bg-amber-500/20 border-amber-500/40 text-amber-500 hover:bg-amber-500/30"
+                    : "bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20")
             )}
-            title={user ? (isSupabaseConnected ? (state.dirtyCharacterIds?.length > 0 ? "Sincronizando..." : `Conectado: ${user.email}`) : "Offline (Local Only)") : "Entrar ou Criar Conta"}
+            title={
+              !isOnline
+                ? "Desconectado"
+                : (isSupabaseConnected 
+                    ? (user ? (state.dirtyCharacterIds?.length > 0 ? "Sincronizando..." : `Conectado ao Supabase: ${user.email}`) : "Conectado ao Supabase Local")
+                    : "Conectado à rede, mas sem acesso ao Supabase local")
+            }
           >
             {user && isSupabaseConnected && state.dirtyCharacterIds?.length > 0 ? (
               <RefreshCwIcon size={16} className="text-green-500 animate-spin" />
             ) : (
               <div className={cn(
                 "w-2.5 h-2.5 rounded-full",
-                user 
-                  ? (isSupabaseConnected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]")
-                  : "bg-amber-500 animate-pulse"
+                !isOnline
+                  ? "bg-amber-500 animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.6)]"
+                  : (isSupabaseConnected 
+                      ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" 
+                      : "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]")
               )} />
             )}
           </motion.button>
@@ -5187,19 +5205,6 @@ function App() {
                 accept=".json"
               />
             </label>
-
-            <div className="pt-1 border-t border-zinc-800 mt-1">
-              <motion.button
-                whileTap={{ scale: 0.95 }}
-                onClick={() => {
-                  setIsSupabaseModalOpen(true);
-                  setIsMenuOpen(false);
-                }}
-                className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-800 rounded-lg transition-colors text-sm font-medium text-emerald-400 cursor-pointer"
-              >
-                <Database size={18} /> Conexão Supabase / Mobile
-              </motion.button>
-            </div>
 
             <div className="pt-1 border-t border-zinc-800 mt-1">
               <motion.button
@@ -12706,33 +12711,10 @@ itens: (c.itens || []).map(it => it.id === item.id ? { ...it, resistencia: val }
             </button>
           </form>
 
-          <div className="border-t border-zinc-800/80 pt-3 flex items-center justify-between text-[11px] text-zinc-500">
-            <span>Problemas para conectar no celular?</span>
-            <button
-              type="button"
-              onClick={() => {
-                setIsAuthModalOpen(false);
-                setIsSupabaseModalOpen(true);
-              }}
-              className="text-amber-500 hover:text-amber-400 font-bold hover:underline cursor-pointer flex items-center gap-1"
-            >
-              <Database size={12} /> Configurar Supabase
-            </button>
-          </div>
-
         </motion.div>
       </div>
     )}
   </AnimatePresence>
-
-  {/* Modal de Conexão Supabase / Mobile */}
-  <SupabaseConnectionModal
-    isOpen={isSupabaseModalOpen}
-    onClose={() => setIsSupabaseModalOpen(false)}
-    isSupabaseConnected={isSupabaseConnected}
-    user={user}
-    onOpenAuthModal={() => setIsAuthModalOpen(true)}
-  />
 
   {/* Modal de Importar / Exportar Tudo (Backup Completo) */}
   <AnimatePresence>

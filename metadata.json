@@ -1,7 +1,7 @@
 {
   "name": "Ficha RPG Demons Despair",
   "description": "Ficha automatizada para jogar o RPG Demons Despair.",
-  "version": "1.15.5",
+  "version": "1.15.6",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

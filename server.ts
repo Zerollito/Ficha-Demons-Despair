@@ -114,7 +114,17 @@ async function startServer() {
     }
   }
 
+  let verifiedWorkingSupabaseUrl: string | null = null;
+
   function getActiveSupabaseTarget(): { url: string; anonKey: string; source: string; updatedAt?: string } {
+    if (verifiedWorkingSupabaseUrl) {
+      return {
+        url: verifiedWorkingSupabaseUrl,
+        anonKey: (process.env.VITE_SUPABASE_ANON_KEY || "").trim() || STANDARD_LOCAL_JWT,
+        source: "verified_working_url"
+      };
+    }
+
     const stored = getStoredSupabaseConfig();
     if (stored && stored.targetUrl && stored.targetUrl.trim()) {
       return {
@@ -172,7 +182,9 @@ async function startServer() {
           ...req.headers,
           host: parsedTarget.host,
         };
-        delete headers['content-length'];
+
+        // Enforce active origin so Kong/GoTrue will not reject cross-origin mobile/tunnel requests
+        headers['origin'] = activeTarget.url;
 
         // Repassa a anon key padrão caso o cliente não tenha enviado nenhuma chave
         const activeKey = activeTarget.anonKey || STANDARD_LOCAL_JWT;
@@ -193,7 +205,14 @@ async function startServer() {
           headers: headers,
           timeout: 10000,
         }, (proxyRes) => {
-          res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+          const proxyResHeaders = { ...proxyRes.headers };
+          // Strip duplicated CORS headers to prevent browser rejection from multiple values
+          delete proxyResHeaders['access-control-allow-origin'];
+          delete proxyResHeaders['access-control-allow-credentials'];
+          delete proxyResHeaders['access-control-allow-methods'];
+          delete proxyResHeaders['access-control-allow-headers'];
+
+          res.writeHead(proxyRes.statusCode || 200, proxyResHeaders);
           proxyRes.pipe(res);
         });
 
@@ -315,7 +334,7 @@ async function startServer() {
     const active = getActiveSupabaseTarget();
     const anonKey = (req.query.key as string) || active.anonKey || STANDARD_LOCAL_JWT;
     
-    // Tenta primeiro testar a URL solicitada (se fornecida) ou o alvo ativo
+    // Test requested URL, active target, and standard loopback candidates
     let candidates: string[] = [];
     if (rawUrl && rawUrl.trim()) {
       let clean = rawUrl.trim();
@@ -329,35 +348,55 @@ async function startServer() {
     if (!candidates.includes("http://127.0.0.1:54321")) {
       candidates.push("http://127.0.0.1:54321");
     }
+    if (!candidates.includes("http://localhost:54321")) {
+      candidates.push("http://localhost:54321");
+    }
+    if (!candidates.includes("http://host.docker.internal:54321")) {
+      candidates.push("http://host.docker.internal:54321");
+    }
 
     let lastError = "Erro ao conectar com Supabase";
     for (const testUrl of candidates) {
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000);
+        const timeout = setTimeout(() => controller.abort(), 2500);
         const start = Date.now();
-        const headers: Record<string, string> = { "User-Agent": "DemonsDespair/1.15.5" };
-        if (anonKey) headers["apikey"] = anonKey;
+        const headers: Record<string, string> = { 
+          "User-Agent": "DemonsDespair/1.15.6",
+          "apikey": anonKey,
+          "Authorization": `Bearer ${anonKey}`
+        };
 
-        const healthRes = await fetch(`${testUrl}/auth/v1/health`, {
+        // 1. Try GoTrue auth health
+        let healthRes = await fetch(`${testUrl}/auth/v1/health`, {
           headers,
           signal: controller.signal,
-        });
+        }).catch(() => null);
+
+        // 2. If auth health is not responding, try PostgREST rest/v1 root
+        if (!healthRes || (!healthRes.ok && healthRes.status >= 500)) {
+          healthRes = await fetch(`${testUrl}/rest/v1/`, {
+            headers,
+            signal: controller.signal,
+          }).catch(() => null);
+        }
+
         clearTimeout(timeout);
         const latency = Date.now() - start;
 
-        if (healthRes.ok || healthRes.status < 500) {
+        if (healthRes && (healthRes.ok || healthRes.status < 500)) {
+          verifiedWorkingSupabaseUrl = testUrl;
           return res.json({
             online: true,
             status: healthRes.status,
             latency,
             url: testUrl,
-            activeUrl: active.url,
-            isCurrentTarget: testUrl === active.url
+            activeUrl: testUrl,
+            isCurrentTarget: true
           });
         }
       } catch (err: any) {
-        lastError = err.name === "AbortError" ? "Tempo limite esgotado (timeout 3s)" : (err.message || "Erro de rede");
+        lastError = err.name === "AbortError" ? "Tempo limite esgotado (timeout 2.5s)" : (err.message || "Erro de rede");
       }
     }
 
