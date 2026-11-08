@@ -1393,6 +1393,38 @@ export const forceSyncAndRestoreByEmail = async (
     }
   }
 
+  // 1.5 TENTAR BUSCA NA API DIRETA DO SERVIDOR EXPRESS (/api/characters?email=...)
+  try {
+    const srvRes = await fetch(`/api/characters?email=${encodeURIComponent(activeEmail)}`);
+    if (srvRes.ok) {
+      const srvData = await srvRes.json();
+      if (srvData && Array.isArray(srvData.characters) && srvData.characters.length > 0) {
+        console.log(`🌐 [ForceSync] Recuperadas ${srvData.characters.length} fichas diretamente do servidor Express!`);
+        const blacklist = (() => {
+          try {
+            const raw = typeof localStorage !== 'undefined' ? (localStorage.getItem('deleted_characters_blacklist') || localStorage.getItem('demons_despair_deleted_chars')) : null;
+            return raw ? new Set(JSON.parse(raw)) : new Set();
+          } catch (e) {
+            return new Set();
+          }
+        })();
+
+        for (const c of srvData.characters) {
+          if (c && c.id && !seenCharIds.has(c.id) && !blacklist.has(c.id)) {
+            seenCharIds.add(c.id);
+            restoredCharacters.push({
+              ...c,
+              userId: activeUserId || activeEmail,
+              userEmail: activeEmail,
+              isRemoteSynced: true
+            });
+            countCloud++;
+          }
+        }
+      }
+    }
+  } catch (srvErr) {}
+
   // 2. TENTAR BUSCA NA TABELA 'campaigns' DO SUPABASE
   if (realSupabaseClient) {
     try {

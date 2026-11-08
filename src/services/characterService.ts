@@ -52,6 +52,15 @@ export const saveCharacterToSupabase = async (character: Character) => {
     const cleanCharacter = deepClean(character);
     cleanCharacter.userEmail = userEmail;
 
+    // Instant Express server store sync (cross-device PC <-> Mobile)
+    fetch('/api/characters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character: cleanCharacter })
+    }).catch(err => {
+      console.warn("⚠️ [Character API] Server save warning:", err);
+    });
+
     const { error } = await supabase
       .from(CHARACTERS_TABLE)
       .upsert({
@@ -194,6 +203,11 @@ export const deleteCharacterFromSupabase = async (characterId: string) => {
     window.dispatchEvent(new CustomEvent('supabase_local_change_characters'));
   }
 
+  // 5.1 Delete from persistent Express characters store (PC <-> Mobile sync)
+  fetch(`/api/characters/${encodeURIComponent(characterId)}`, {
+    method: 'DELETE'
+  }).catch(() => {});
+
   // 6. Always invoke supabase.from(CHARACTERS_TABLE).delete() to purge from local Supabase table and remote
   try {
     const { error } = await supabase
@@ -278,8 +292,34 @@ export const subscribeToUserCharacters = (
     }
   });
 
+  // Direct Express server store polling (guarantees cross-device sync even without external Supabase)
+  let lastServerSerialized = '';
+  const fetchFromServer = async () => {
+    if (!active) return;
+    try {
+      const res = await fetch(`/api/characters?email=${encodeURIComponent(cleanEmail)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.characters && Array.isArray(json.characters)) {
+          const blacklist = getDeletedCharactersBlacklist();
+          const valid = json.characters.filter((c: any) => c && c.id && !blacklist.has(c.id));
+          const serialized = JSON.stringify(valid);
+          if (serialized !== lastServerSerialized) {
+            lastServerSerialized = serialized;
+            console.log(`📡 [subscribeToUserCharacters API] ${valid.length} fichas recebidas do servidor para ${cleanEmail}`);
+            onUpdate(valid, { hasPendingWrites: false, fromCache: false });
+          }
+        }
+      }
+    } catch (e) {}
+  };
+
+  fetchFromServer();
+  const serverPollInterval = setInterval(fetchFromServer, 3000);
+
   return () => {
     active = false;
+    clearInterval(serverPollInterval);
     unsubscribe();
   };
 };

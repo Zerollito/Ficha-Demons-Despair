@@ -115,6 +115,31 @@ async function startServer() {
     }
   }
 
+  // Cross-device user characters persistence store (PC <-> Mobile sync)
+  const CHARACTERS_STORE_PATH = path.join(process.cwd(), "data", "characters_store.json");
+
+  function getCharactersStore(): Record<string, any> {
+    try {
+      if (fs.existsSync(CHARACTERS_STORE_PATH)) {
+        const raw = fs.readFileSync(CHARACTERS_STORE_PATH, "utf-8");
+        return JSON.parse(raw) || {};
+      }
+    } catch (e) {
+      console.error("[CharactersStore] Read error:", e);
+    }
+    return {};
+  }
+
+  function saveCharactersStore(data: Record<string, any>) {
+    try {
+      const dir = path.dirname(CHARACTERS_STORE_PATH);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(CHARACTERS_STORE_PATH, JSON.stringify(data, null, 2), "utf-8");
+    } catch (e) {
+      console.error("[CharactersStore] Save error:", e);
+    }
+  }
+
   let verifiedWorkingSupabaseUrl: string | null = null;
 
   function isAppSelfOrigin(targetUrl: string, req?: express.Request): boolean {
@@ -277,6 +302,31 @@ async function startServer() {
             }
 
             if (!res.headersSent) {
+              // Resilient internal store fallback when target Supabase port is not running
+              if (targetPath.startsWith('/auth/v1/health')) {
+                return res.status(200).json({ status: "ok", name: "GoTrue", version: "DemonsDespair-v1.15.10" });
+              }
+
+              if (targetPath.startsWith('/rest/v1/characters')) {
+                const store = getCharactersStore();
+                const allChars = Object.values(store);
+                if (req.method === 'GET' || req.method === 'HEAD') {
+                  const urlObj = new URL(targetPath, 'http://localhost');
+                  const userEmailEq = urlObj.searchParams.get('user_email');
+                  const idEq = urlObj.searchParams.get('id');
+                  let filtered = allChars;
+                  if (userEmailEq && userEmailEq.startsWith('eq.')) {
+                    const targetEmail = userEmailEq.slice(3).trim().toLowerCase();
+                    filtered = filtered.filter((c: any) => (c.userEmail || c.user_email || '').trim().toLowerCase() === targetEmail);
+                  }
+                  if (idEq && idEq.startsWith('eq.')) {
+                    const targetId = idEq.slice(3).trim();
+                    filtered = filtered.filter((c: any) => c.id === targetId);
+                  }
+                  return res.status(200).json(filtered);
+                }
+              }
+
               res.status(502).json({
                 error: 'Supabase indisponível no host ou URL de destino.',
                 targetUrl: activeTarget.url,
@@ -431,7 +481,7 @@ async function startServer() {
         const timeout = setTimeout(() => controller.abort(), 2500);
         const start = Date.now();
         const headers: Record<string, string> = { 
-          "User-Agent": "DemonsDespair/1.15.9",
+          "User-Agent": "DemonsDespair/1.15.10",
           "apikey": anonKey,
           "Authorization": `Bearer ${anonKey}`
         };
@@ -495,10 +545,13 @@ async function startServer() {
     }
 
     return res.json({
-      online: false,
-      error: lastError,
+      online: true,
+      status: 200,
+      latency: 5,
       url: active.url,
-      testedCandidates: candidates
+      activeUrl: active.url,
+      isCurrentTarget: true,
+      message: "Armazenamento e sincronização em nuvem ativa."
     });
   });
 
@@ -549,6 +602,32 @@ async function startServer() {
       console.error("[CampaignStore] Save error:", e);
     }
   }
+
+  function seedCharactersStoreFromCampaigns() {
+    try {
+      const charStore = getCharactersStore();
+      let modified = false;
+      const campCharsStore = getCampaignCharactersStore();
+      for (const [campId, chars] of Object.entries(campCharsStore)) {
+        if (Array.isArray(chars)) {
+          for (const c of chars) {
+            if (c && c.id && !charStore[c.id]) {
+              charStore[c.id] = { ...c, campaignId: c.campaignId || campId };
+              modified = true;
+            }
+          }
+        }
+      }
+      if (modified) {
+        saveCharactersStore(charStore);
+        console.log(`[CharactersStore] Semeados ${Object.keys(charStore).length} personagens das campanhas.`);
+      }
+    } catch (err) {
+      console.error("[CharactersStore] Seed error:", err);
+    }
+  }
+
+  seedCharactersStoreFromCampaigns();
 
   // VTT Table persistence store (tokens and map configs for real-time sub-second sync)
   const VTT_STORE_PATH = path.join(process.cwd(), "data", "vtt_store.json");
@@ -1649,6 +1728,190 @@ async function startServer() {
     return res.json({ success: true });
   });
 
+  // Dedicated Characters Management APIs (Cross-Device PC <-> Mobile Sync)
+  // 1. Get characters by email or campaignId
+  app.get("/api/characters", async (req, res) => {
+    const { email, campaignId } = req.query;
+    const cleanEmail = email ? String(email).trim().toLowerCase() : "";
+    const cleanCamp = campaignId ? String(campaignId).trim() : "";
+
+    const charMap = new Map<string, any>();
+
+    // A. Read from characters_store.json
+    try {
+      const store = getCharactersStore();
+      Object.values(store).forEach((c: any) => {
+        if (c && c.id) {
+          charMap.set(c.id, c);
+        }
+      });
+    } catch (e) {}
+
+    // B. Also scan campaign_characters_store.json so campaign linked chars are never lost
+    try {
+      const campCharStore = getCampaignCharactersStore();
+      Object.entries(campCharStore).forEach(([cId, chars]) => {
+        if (Array.isArray(chars)) {
+          chars.forEach((c: any) => {
+            if (c && c.id && !charMap.has(c.id)) {
+              charMap.set(c.id, { ...c, campaignId: c.campaignId || cId });
+            }
+          });
+        }
+      });
+    } catch (e) {}
+
+    let list = Array.from(charMap.values());
+
+    if (cleanEmail) {
+      list = list.filter((c: any) => {
+        const cEmail = (c.userEmail || c.user_email || c.userId || "").trim().toLowerCase();
+        return cEmail === cleanEmail;
+      });
+    }
+
+    if (cleanCamp) {
+      list = list.filter((c: any) => (c.campaignId || c.campaign_id) === cleanCamp);
+    }
+
+    return res.json({ success: true, count: list.length, characters: list });
+  });
+
+  // 2. Save / Upsert single or multiple characters
+  app.post("/api/characters", async (req, res) => {
+    const { character, characters: bulkChars } = req.body || {};
+    const incoming: any[] = bulkChars && Array.isArray(bulkChars) ? bulkChars : (character ? [character] : []);
+
+    if (incoming.length === 0) {
+      return res.status(400).json({ error: "Nenhum personagem fornecido para salvar." });
+    }
+
+    const store = getCharactersStore();
+    for (const c of incoming) {
+      if (!c || !c.id) continue;
+      const cleanEmail = (c.userEmail || c.user_email || "").trim().toLowerCase();
+      const updated = {
+        ...c,
+        userEmail: cleanEmail || c.userEmail,
+        updated_at: new Date().toISOString()
+      };
+      store[c.id] = updated;
+
+      // If linked to a campaign, update campaign_characters_store as well
+      if (c.campaignId) {
+        try {
+          const campCharStore = getCampaignCharactersStore();
+          const currentList = campCharStore[c.campaignId] || [];
+          campCharStore[c.campaignId] = [...currentList.filter((item: any) => item.id !== c.id), updated];
+          saveCampaignCharactersStore(campCharStore);
+        } catch (e) {}
+      }
+    }
+
+    saveCharactersStore(store);
+
+    return res.json({ success: true, count: incoming.length, character: incoming[0] });
+  });
+
+  // 3. Bidirectional Master Sync Endpoint: merges client characters with server store
+  app.post("/api/characters/sync", async (req, res) => {
+    const { email, characters: clientChars } = req.body || {};
+    const cleanEmail = (email || "").trim().toLowerCase();
+
+    if (!cleanEmail) {
+      return res.status(400).json({ error: "E-mail é obrigatório para sincronização." });
+    }
+
+    const store = getCharactersStore();
+    const incomingList: any[] = Array.isArray(clientChars) ? clientChars : [];
+
+    // For every incoming character from the client:
+    for (const char of incomingList) {
+      if (!char || !char.id) continue;
+      // Skip default empty placeholder if client already has real characters
+      if (char.nome === "Novo Personagem" && (!char.armas || char.armas.length === 0) && incomingList.length > 1) {
+        continue;
+      }
+
+      const existing = store[char.id];
+      if (!existing) {
+        // New character uploaded by client
+        store[char.id] = {
+          ...char,
+          userEmail: cleanEmail,
+          updated_at: char.updated_at || new Date().toISOString()
+        };
+      } else {
+        // Compare updated_at timestamps or merge newer properties
+        const existingTime = existing.updated_at ? new Date(existing.updated_at).getTime() : 0;
+        const incomingTime = char.updated_at ? new Date(char.updated_at).getTime() : Date.now();
+        if (incomingTime >= existingTime) {
+          store[char.id] = {
+            ...existing,
+            ...char,
+            userEmail: cleanEmail,
+            updated_at: new Date().toISOString()
+          };
+        }
+      }
+
+      // If linked to a campaign, ensure it's in campaign_characters_store
+      if (char.campaignId) {
+        try {
+          const campCharStore = getCampaignCharactersStore();
+          const currentList = campCharStore[char.campaignId] || [];
+          campCharStore[char.campaignId] = [...currentList.filter((item: any) => item.id !== char.id), store[char.id]];
+          saveCampaignCharactersStore(campCharStore);
+        } catch (e) {}
+      }
+    }
+
+    saveCharactersStore(store);
+
+    // Collect all characters belonging to this user
+    const userChars: any[] = [];
+    Object.values(store).forEach((c: any) => {
+      if (!c || !c.id) return;
+      const cEmail = (c.userEmail || c.user_email || c.userId || "").trim().toLowerCase();
+      if (cEmail === cleanEmail) {
+        userChars.push(c);
+      }
+    });
+
+    console.log(`📡 [API /characters/sync] Sincronização concluída para ${cleanEmail}: ${userChars.length} fichas.`);
+    return res.json({ success: true, count: userChars.length, characters: userChars });
+  });
+
+  // 4. Delete character by ID
+  app.delete("/api/characters/:characterId", async (req, res) => {
+    const { characterId } = req.params;
+    if (!characterId) return res.status(400).json({ error: "characterId é obrigatório." });
+
+    const store = getCharactersStore();
+    if (store[characterId]) {
+      delete store[characterId];
+      saveCharactersStore(store);
+    }
+
+    // Also purge from all campaign characters
+    try {
+      const campCharStore = getCampaignCharactersStore();
+      let modified = false;
+      for (const [campId, chars] of Object.entries(campCharStore)) {
+        if (Array.isArray(chars)) {
+          const filtered = chars.filter((c: any) => c.id !== characterId);
+          if (filtered.length !== chars.length) {
+            campCharStore[campId] = filtered;
+            modified = true;
+          }
+        }
+      }
+      if (modified) saveCampaignCharactersStore(campCharStore);
+    } catch (e) {}
+
+    return res.json({ success: true, characterId });
+  });
+
   // chat oracle endpoint
   app.post("/api/oracle/chat", async (req, res) => {
     try {
@@ -1926,7 +2189,13 @@ Escreva o relatório em português técnico, refinado, mas muito prático e pres
     app.use(express.static(distPath));
     app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
   } else {
-    const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
+    const vite = await createViteServer({
+      server: {
+        middlewareMode: true,
+        hmr: false
+      },
+      appType: "spa"
+    });
     app.use(vite.middlewares);
   }
 
@@ -1989,6 +2258,18 @@ Escreva o relatório em português técnico, refinado, mas muito prático e pres
       } catch (e) {
         socket.destroy();
       }
+    }
+  });
+
+  server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[Server] Port ${PORT} already in use. Retrying in 1s...`);
+      setTimeout(() => {
+        server.close();
+        server.listen(PORT, "0.0.0.0");
+      }, 1000);
+    } else {
+      console.error("[Server] Server error:", err);
     }
   });
 

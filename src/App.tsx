@@ -1485,6 +1485,20 @@ function App() {
       forceSyncAndRestoreByEmail(user.email, user.uid).catch(e => {
         console.warn("⚠️ [Sync] Auto-restauração por e-mail em background:", e);
       });
+
+      // Sincronização mestre com backend persistente (PC <-> Mobile)
+      fetch("/api/characters/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: user.email,
+          characters: (state.characters || []).filter(c => c.nome !== "Novo Personagem" || (c.armas && c.armas.length > 0))
+        })
+      }).then(r => r.json()).then(data => {
+        if (data.characters && Array.isArray(data.characters) && data.characters.length > 0) {
+          console.log(`📡 [App Master Sync] ${data.characters.length} fichas sincronizadas com o servidor para ${user.email}`);
+        }
+      }).catch(() => {});
     }
 
     const unsubscribe = subscribeToUserCharacters(user.uid, user.email || "", (fireChars, metadata) => {
@@ -4870,7 +4884,7 @@ function App() {
                   >
                     <div className="px-2 pb-2 mb-2 border-b border-zinc-800/50 flex items-center justify-between">
                       <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Navegação</span>
-                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.9</span>
+                      <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tighter opacity-50">v1.15.10</span>
                     </div>
 
                     <div className="grid grid-cols-1 gap-1">
@@ -4980,14 +4994,14 @@ function App() {
            <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-950/50 border border-zinc-800/80 rounded-xl">
              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Demons Despair</span>
              <div className="w-[1px] h-3 bg-zinc-800" />
-             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.9</span>
+             <span className="text-[10px] font-black text-zinc-400 font-mono leading-none">v1.15.10</span>
            </div>
 
            {/* Quick Active Page Status - desktop only */}
            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-zinc-950/50 border border-zinc-800 rounded-2xl min-w-[140px]">
                <div className="flex flex-col">
                  <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none">Página Atual</span>
-                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.9</span>
+                 <span className="text-[9px] font-bold text-zinc-800 uppercase tracking-tighter mt-0.5">v1.15.10</span>
               </div>
               <div className="flex items-center gap-2 ml-1">
                 <div className={cn(
