@@ -79,6 +79,7 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(cors({ origin: true, credentials: true }));
+  app.options('*', cors({ origin: true, credentials: true }));
 
   // Standard local Supabase JWT anon key
   const STANDARD_LOCAL_JWT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNRebZhBc_4bXn6U";
@@ -116,8 +117,26 @@ async function startServer() {
 
   let verifiedWorkingSupabaseUrl: string | null = null;
 
+  function isAppSelfOrigin(targetUrl: string, req?: express.Request): boolean {
+    try {
+      const u = new URL(targetUrl);
+      if (req) {
+        const reqHost = req.headers.host || '';
+        if (u.host === reqHost) return true;
+        const xHost = (req.headers['x-forwarded-host'] as string) || '';
+        if (xHost && u.host === xHost) return true;
+      }
+      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '0.0.0.0') {
+        if (String(u.port) === '3000' || !u.port) return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
   function getActiveSupabaseTarget(): { url: string; anonKey: string; source: string; updatedAt?: string } {
-    if (verifiedWorkingSupabaseUrl) {
+    if (verifiedWorkingSupabaseUrl && !isAppSelfOrigin(verifiedWorkingSupabaseUrl)) {
       return {
         url: verifiedWorkingSupabaseUrl,
         anonKey: (process.env.VITE_SUPABASE_ANON_KEY || "").trim() || STANDARD_LOCAL_JWT,
@@ -126,7 +145,7 @@ async function startServer() {
     }
 
     const stored = getStoredSupabaseConfig();
-    if (stored && stored.targetUrl && stored.targetUrl.trim()) {
+    if (stored && stored.targetUrl && stored.targetUrl.trim() && !isAppSelfOrigin(stored.targetUrl.trim())) {
       return {
         url: stored.targetUrl.trim(),
         anonKey: (stored.anonKey || "").trim() || (process.env.VITE_SUPABASE_ANON_KEY || "").trim() || STANDARD_LOCAL_JWT,
@@ -136,15 +155,18 @@ async function startServer() {
     }
 
     if (process.env.SUPABASE_INTERNAL_URL && process.env.SUPABASE_INTERNAL_URL.trim()) {
-      return {
-        url: process.env.SUPABASE_INTERNAL_URL.trim(),
-        anonKey: (process.env.VITE_SUPABASE_ANON_KEY || "").trim() || STANDARD_LOCAL_JWT,
-        source: "env:SUPABASE_INTERNAL_URL"
-      };
+      const internalUrl = process.env.SUPABASE_INTERNAL_URL.trim();
+      if (!isAppSelfOrigin(internalUrl)) {
+        return {
+          url: internalUrl,
+          anonKey: (process.env.VITE_SUPABASE_ANON_KEY || "").trim() || STANDARD_LOCAL_JWT,
+          source: "env:SUPABASE_INTERNAL_URL"
+        };
+      }
     }
 
     const envUrl = (process.env.VITE_SUPABASE_URL || "").trim();
-    if (envUrl && envUrl !== "placeholder_url") {
+    if (envUrl && envUrl !== "placeholder_url" && !isAppSelfOrigin(envUrl)) {
       const envKey = (process.env.VITE_SUPABASE_ANON_KEY || "").trim() || STANDARD_LOCAL_JWT;
       return {
         url: envUrl,
@@ -170,6 +192,16 @@ async function startServer() {
       try {
         const activeTarget = getActiveSupabaseTarget();
         const parsedTarget = new URL(activeTarget.url);
+
+        // Never proxy to self
+        if (isAppSelfOrigin(activeTarget.url, req)) {
+          return res.status(502).json({
+            error: 'Alvo do Supabase inválido (não é possível apontar para a própria aplicação).',
+            targetUrl: activeTarget.url,
+            code: 'PGRST_SELF_TARGET_LOOP'
+          });
+        }
+
         const isHttps = parsedTarget.protocol === 'https:';
         const clientLib = isHttps ? https : http;
 
@@ -182,6 +214,13 @@ async function startServer() {
           ...req.headers,
           host: parsedTarget.host,
         };
+
+        // Remove hop-by-hop headers that break proxy pooling or cause hangs
+        delete headers['connection'];
+        delete headers['transfer-encoding'];
+        if (req.method === 'GET' || req.method === 'HEAD') {
+          delete headers['content-length'];
+        }
 
         // Enforce active origin so Kong/GoTrue will not reject cross-origin mobile/tunnel requests
         headers['origin'] = activeTarget.url;
@@ -197,48 +236,75 @@ async function startServer() {
           headers['authorization'] = `Bearer ${headers['apikey'] || activeKey}`;
         }
 
-        const proxyReq = clientLib.request({
-          hostname: parsedTarget.hostname,
-          port: parsedTarget.port || (isHttps ? 443 : 80),
-          path: targetPath,
-          method: req.method,
-          headers: headers,
-          timeout: 10000,
-        }, (proxyRes) => {
-          const proxyResHeaders = { ...proxyRes.headers };
-          // Strip duplicated CORS headers to prevent browser rejection from multiple values
-          delete proxyResHeaders['access-control-allow-origin'];
-          delete proxyResHeaders['access-control-allow-credentials'];
-          delete proxyResHeaders['access-control-allow-methods'];
-          delete proxyResHeaders['access-control-allow-headers'];
+        const triedHosts = new Set<string>();
 
-          res.writeHead(proxyRes.statusCode || 200, proxyResHeaders);
-          proxyRes.pipe(res);
-        });
+        const sendProxyRequest = (hostname: string) => {
+          triedHosts.add(hostname);
 
-        proxyReq.on('error', (err: any) => {
-          if (!res.headersSent) {
-            res.status(502).json({
-              error: 'Supabase indisponível no host ou URL de destino.',
-              targetUrl: activeTarget.url,
-              details: err.message,
-              code: 'PGRST_CONNECTION_REFUSED'
-            });
+          const proxyReq = clientLib.request({
+            hostname: hostname,
+            port: parsedTarget.port || (isHttps ? 443 : 80),
+            path: targetPath,
+            method: req.method,
+            headers: headers,
+            timeout: 8000,
+          }, (proxyRes) => {
+            const contentType = proxyRes.headers['content-type'] || '';
+            // Only verify URL if it returned valid JSON or expected Supabase response
+            if (proxyRes.statusCode && proxyRes.statusCode < 400 && contentType.includes('json')) {
+              verifiedWorkingSupabaseUrl = `${parsedTarget.protocol}//${hostname}:${parsedTarget.port || (isHttps ? 443 : 80)}`;
+            }
+
+            const proxyResHeaders = { ...proxyRes.headers };
+            // Strip duplicated CORS headers to prevent browser rejection from multiple values
+            delete proxyResHeaders['access-control-allow-origin'];
+            delete proxyResHeaders['access-control-allow-credentials'];
+            delete proxyResHeaders['access-control-allow-methods'];
+            delete proxyResHeaders['access-control-allow-headers'];
+
+            res.writeHead(proxyRes.statusCode || 200, proxyResHeaders);
+            proxyRes.pipe(res);
+          });
+
+          proxyReq.on('error', (err: any) => {
+            // Auto fallback between 127.0.0.1 and localhost if loopback refused, once each
+            if (err.code === 'ECONNREFUSED') {
+              const fallbackHost = hostname === '127.0.0.1' ? 'localhost' : (hostname === 'localhost' ? '127.0.0.1' : null);
+              if (fallbackHost && !triedHosts.has(fallbackHost)) {
+                sendProxyRequest(fallbackHost);
+                return;
+              }
+            }
+
+            if (!res.headersSent) {
+              res.status(502).json({
+                error: 'Supabase indisponível no host ou URL de destino.',
+                targetUrl: activeTarget.url,
+                details: err.message,
+                code: 'PGRST_CONNECTION_REFUSED'
+              });
+            }
+          });
+
+          proxyReq.on('timeout', () => {
+            proxyReq.destroy();
+            if (!res.headersSent) {
+              res.status(504).json({
+                error: 'Gateway Timeout ao conectar com Supabase.',
+                targetUrl: activeTarget.url,
+                code: 'PGRST_GATEWAY_TIMEOUT'
+              });
+            }
+          });
+
+          if (req.method === 'GET' || req.method === 'HEAD') {
+            proxyReq.end();
+          } else {
+            req.pipe(proxyReq);
           }
-        });
+        };
 
-        proxyReq.on('timeout', () => {
-          proxyReq.destroy();
-          if (!res.headersSent) {
-            res.status(504).json({
-              error: 'Gateway Timeout ao conectar com Supabase.',
-              targetUrl: activeTarget.url,
-              code: 'PGRST_GATEWAY_TIMEOUT'
-            });
-          }
-        });
-
-        req.pipe(proxyReq);
+        sendProxyRequest(parsedTarget.hostname);
       } catch (err: any) {
         if (!res.headersSent) {
           res.status(502).json({ error: 'Erro no proxy do Supabase', details: err.message });
@@ -335,60 +401,87 @@ async function startServer() {
     const anonKey = (req.query.key as string) || active.anonKey || STANDARD_LOCAL_JWT;
     
     // Test requested URL, active target, and standard loopback candidates
-    let candidates: string[] = [];
+    let rawCandidates: string[] = [];
     if (rawUrl && rawUrl.trim()) {
       let clean = rawUrl.trim();
       if (clean.endsWith("/")) clean = clean.slice(0, -1);
       if (!clean.startsWith("http://") && !clean.startsWith("https://")) clean = "http://" + clean;
-      candidates.push(clean);
+      rawCandidates.push(clean);
     }
-    if (!candidates.includes(active.url)) {
-      candidates.push(active.url);
+    if (!rawCandidates.includes(active.url)) {
+      rawCandidates.push(active.url);
     }
-    if (!candidates.includes("http://127.0.0.1:54321")) {
-      candidates.push("http://127.0.0.1:54321");
+    if (!rawCandidates.includes("http://127.0.0.1:54321")) {
+      rawCandidates.push("http://127.0.0.1:54321");
     }
-    if (!candidates.includes("http://localhost:54321")) {
-      candidates.push("http://localhost:54321");
+    if (!rawCandidates.includes("http://localhost:54321")) {
+      rawCandidates.push("http://localhost:54321");
     }
-    if (!candidates.includes("http://host.docker.internal:54321")) {
-      candidates.push("http://host.docker.internal:54321");
+    if (!rawCandidates.includes("http://host.docker.internal:54321")) {
+      rawCandidates.push("http://host.docker.internal:54321");
     }
 
-    let lastError = "Erro ao conectar com Supabase";
+    // Filter out self-origin to avoid loops
+    const candidates = rawCandidates.filter(c => !isAppSelfOrigin(c, req));
+
+    let lastError = "Nenhum servidor Supabase ativo encontrado";
     for (const testUrl of candidates) {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 2500);
         const start = Date.now();
         const headers: Record<string, string> = { 
-          "User-Agent": "DemonsDespair/1.15.6",
+          "User-Agent": "DemonsDespair/1.15.8",
           "apikey": anonKey,
           "Authorization": `Bearer ${anonKey}`
         };
 
-        // 1. Try GoTrue auth health
-        let healthRes = await fetch(`${testUrl}/auth/v1/health`, {
-          headers,
-          signal: controller.signal,
-        }).catch(() => null);
+        let isRealSupabase = false;
+        let responseStatus = 0;
 
-        // 2. If auth health is not responding, try PostgREST rest/v1 root
-        if (!healthRes || (!healthRes.ok && healthRes.status >= 500)) {
-          healthRes = await fetch(`${testUrl}/rest/v1/`, {
+        // 1. Try GoTrue auth health
+        try {
+          const healthRes = await fetch(`${testUrl}/auth/v1/health`, {
             headers,
             signal: controller.signal,
-          }).catch(() => null);
+          });
+          responseStatus = healthRes.status;
+          if (healthRes.ok && healthRes.status === 200) {
+            const ct = healthRes.headers.get("content-type") || "";
+            if (ct.includes("application/json")) {
+              const data = await healthRes.json().catch(() => null);
+              if (data && (data.name === "GoTrue" || data.version !== undefined || typeof data === "object")) {
+                isRealSupabase = true;
+              }
+            }
+          }
+        } catch {}
+
+        // 2. If auth health did not verify, try PostgREST rest/v1 root
+        if (!isRealSupabase && !controller.signal.aborted) {
+          try {
+            const restRes = await fetch(`${testUrl}/rest/v1/`, {
+              headers,
+              signal: controller.signal,
+            });
+            responseStatus = restRes.status;
+            if (restRes.ok || restRes.status === 401) {
+              const ct = restRes.headers.get("content-type") || "";
+              if (ct.includes("application/json") || ct.includes("openapi")) {
+                isRealSupabase = true;
+              }
+            }
+          } catch {}
         }
 
         clearTimeout(timeout);
         const latency = Date.now() - start;
 
-        if (healthRes && (healthRes.ok || healthRes.status < 500)) {
+        if (isRealSupabase) {
           verifiedWorkingSupabaseUrl = testUrl;
           return res.json({
             online: true,
-            status: healthRes.status,
+            status: responseStatus || 200,
             latency,
             url: testUrl,
             activeUrl: testUrl,

@@ -88,6 +88,8 @@ export const getSupabaseConfig = () => {
   let savedKey = typeof window !== 'undefined' ? localStorage.getItem('supabase_custom_anon_key') : null;
 
   const isBrowser = typeof window !== 'undefined';
+  const hostname = isBrowser ? (window.location.hostname || 'localhost') : 'localhost';
+  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1';
 
   // Read environment variable exposed by Vite if available
   const envUrl = typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL 
@@ -97,21 +99,31 @@ export const getSupabaseConfig = () => {
     ? String(import.meta.env.VITE_SUPABASE_ANON_KEY).trim()
     : '';
 
-  // By default in browser, route through window.location.origin so both PC (localhost:3000) and Mobile (LAN/tunnel)
-  // transparently communicate through the server proxy without CORS, PNA blocks, or Mixed Content.
-  let defaultUrl = isBrowser ? window.location.origin : "http://127.0.0.1:54321";
-  if (envUrl && !envUrl.includes('127.0.0.1') && !envUrl.includes('localhost') && envUrl !== "placeholder_url") {
-    defaultUrl = envUrl;
+  // Clean invalid savedUrl (e.g. if savedUrl is the app's own origin, or 127.0.0.1 on a non-localhost mobile device)
+  if (savedUrl) {
+    const cleanSaved = savedUrl.trim();
+    if (isBrowser && (cleanSaved === window.location.origin || cleanSaved === normalizeSupabaseUrl(window.location.origin))) {
+      savedUrl = null;
+      try { localStorage.removeItem('supabase_custom_url'); } catch (e) {}
+    } else if (!isLocalHost && (cleanSaved.includes('127.0.0.1') || cleanSaved.includes('localhost'))) {
+      // 127.0.0.1 on a mobile device is the phone itself, not the PC!
+      savedUrl = null;
+      try { localStorage.removeItem('supabase_custom_url'); } catch (e) {}
+    }
+  }
+
+  let defaultUrl = "http://127.0.0.1:54321";
+  if (isBrowser) {
+    if (envUrl && !envUrl.includes('127.0.0.1') && !envUrl.includes('localhost') && envUrl !== "placeholder_url") {
+      defaultUrl = envUrl;
+    } else if (isLocalHost) {
+      defaultUrl = "http://127.0.0.1:54321";
+    } else {
+      defaultUrl = window.location.origin;
+    }
   }
 
   let currentUrl = (savedUrl || defaultUrl).trim();
-  
-  // If stored custom URL is pointing to a raw localhost/127.0.0.1 loopback address,
-  // normalize it through window.location.origin so the app's proxy handles local routing reliably on all devices
-  if (isBrowser && (currentUrl.includes('127.0.0.1') || currentUrl.includes('localhost') || currentUrl.includes('::1'))) {
-    currentUrl = window.location.origin;
-  }
-
   let currentKey = (savedKey || envKey || DEFAULT_LOCAL_ANON_KEY).trim();
   if (!currentKey) {
     currentKey = STANDARD_LOCAL_ANON_KEY;
@@ -263,48 +275,93 @@ export const setSupabaseConfig = async (newUrl: string, newAnonKey?: string): Pr
 };
 
 export const testSupabaseConnection = async (targetUrl?: string, targetKey?: string): Promise<{ success: boolean; message: string; latency?: number }> => {
-  const urlToTest = normalizeSupabaseUrl(targetUrl || currentConfig.url);
+  const normUrl = normalizeSupabaseUrl(targetUrl || currentConfig.url);
   const keyToTest = (targetKey || currentConfig.anonKey || STANDARD_LOCAL_ANON_KEY).trim();
-  
-  // 1. Tentar primeiro via proxy de diagnóstico do servidor Express (testa loopback local da máquina host sem bloqueio de navegador)
+  const isBrowser = typeof window !== 'undefined';
+  const hostname = isBrowser ? (window.location.hostname || 'localhost') : 'localhost';
+  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1';
+
+  // 1. Tentar primeiro via ping do servidor Express (testa loopback 127.0.0.1:54321 e localhost:54321 no host)
   try {
-    const pingUrl = `/api/supabase/ping?url=${encodeURIComponent(urlToTest)}&key=${encodeURIComponent(keyToTest)}`;
-    const sRes = await fetch(pingUrl);
+    const sRes = await fetch(`/api/supabase/ping?key=${encodeURIComponent(keyToTest)}`);
     if (sRes.ok) {
       const sData = await sRes.json();
       if (sData.online) {
+        // Se estamos no PC rodando localmente e o servidor encontrou o Supabase em 127.0.0.1 ou localhost:
+        if (isLocalHost && sData.activeUrl) {
+          if (currentConfig.url !== sData.activeUrl) {
+            currentConfig.url = sData.activeUrl;
+            currentConfig.rawUrl = sData.activeUrl;
+            realSupabaseClient = createClient(sData.activeUrl, keyToTest, {
+              auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+            });
+          }
+        }
         setSupabaseConnectionState(true);
         return { success: true, message: `Conectado ao Supabase Local (${sData.latency || 10}ms)`, latency: sData.latency };
       }
     }
   } catch (sErr: any) {}
 
-  // 2. Tentar via browser fetch direto (caso o app esteja acessando diretamente o Supabase em porta aberta ou cloud)
-  try {
-    const start = Date.now();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
-    const headers: Record<string, string> = { apikey: keyToTest, Authorization: `Bearer ${keyToTest}` };
-    
-    let res = await fetch(`${urlToTest}/auth/v1/health`, {
-      headers,
-      signal: controller.signal
-    }).catch(() => null);
+  // 2. Se estiver rodando no navegador do PC (localhost/127.0.0.1 em HTTP), testar diretamente na porta 54321
+  if (isBrowser && isLocalHost) {
+    const directCandidates = ["http://127.0.0.1:54321", "http://localhost:54321"];
+    for (const testCandidate of directCandidates) {
+      try {
+        const start = Date.now();
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2000);
+        const res = await fetch(`${testCandidate}/auth/v1/health`, {
+          headers: { apikey: keyToTest },
+          signal: controller.signal
+        }).catch(() => null);
+        clearTimeout(timeout);
 
-    if (!res || (!res.ok && res.status >= 500)) {
-      res = await fetch(`${urlToTest}/rest/v1/`, {
-        headers,
+        if (res && res.ok) {
+          const contentType = res.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const data = await res.json().catch(() => null);
+            if (data && (data.name === "GoTrue" || data.version !== undefined || typeof data === "object")) {
+              if (currentConfig.url !== testCandidate) {
+                currentConfig.url = testCandidate;
+                currentConfig.rawUrl = testCandidate;
+                realSupabaseClient = createClient(testCandidate, keyToTest, {
+                  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+                });
+              }
+              setSupabaseConnectionState(true);
+              return { success: true, message: `Conectado diretamente em ${testCandidate}`, latency: Date.now() - start };
+            }
+          }
+        }
+      } catch (e) {}
+    }
+  }
+
+  // 3. Tentar rota proxy no origin atual (para mobile na mesma rede e túneis)
+  if (isBrowser) {
+    try {
+      const start = Date.now();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch(`${window.location.origin}/auth/v1/health`, {
+        headers: { apikey: keyToTest },
         signal: controller.signal
       }).catch(() => null);
-    }
+      clearTimeout(timeout);
 
-    clearTimeout(timeout);
-    if (res && (res.ok || res.status < 500)) {
-      const lat = Date.now() - start;
-      setSupabaseConnectionState(true);
-      return { success: true, message: `Conectado com sucesso (${lat}ms)`, latency: lat };
-    }
-  } catch (err: any) {}
+      if (res && res.ok) {
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          const data = await res.json().catch(() => null);
+          if (data && (data.name === "GoTrue" || data.version !== undefined || typeof data === "object")) {
+            setSupabaseConnectionState(true);
+            return { success: true, message: `Conectado via proxy (${Date.now() - start}ms)`, latency: Date.now() - start };
+          }
+        }
+      }
+    } catch (e) {}
+  }
 
   setSupabaseConnectionState(false);
   return { success: false, message: "Supabase Local offline ou inacessível." };
@@ -566,7 +623,7 @@ function saveLocalTable(table: string, data: any[], skipDispatch = false) {
 }
 
 // Helper to wrap promises with a timeout to avoid hanging UI
-function withTimeout(promise: any, ms: number = 2000): Promise<any> {
+function withTimeout(promise: any, ms: number = 8000): Promise<any> {
   return new Promise<any>((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new Error("Timeout de conexão com o banco de dados."));
@@ -672,7 +729,7 @@ class ResilientQueryBuilder {
       try {
         const { data, error, status } = (await withTimeout(
           realSupabaseClient.from(this.table).upsert(values),
-          2000
+          8000
         )) as any;
         if (error) {
           checkSupabaseError(error, status);
@@ -737,7 +794,7 @@ class ResilientQueryBuilder {
                       .from(this.table)
                       .update(cleanValues)
                       .eq(column, value),
-                    2000
+                    8000
                   )) as any;
                   if (error) {
                     checkSupabaseError(error, status);
@@ -799,7 +856,7 @@ class ResilientQueryBuilder {
                       .from(this.table)
                       .delete()
                       .eq(column, value),
-                    2000
+                    8000
                   )) as any;
                   if (error) {
                     checkSupabaseError(error, status);
@@ -876,7 +933,7 @@ class ResilientQueryBuilder {
             builder = builder.single();
           }
 
-          let { data, error, status } = (await withTimeout(builder, 2000)) as any;
+          let { data, error, status } = (await withTimeout(builder, 8000)) as any;
           if (error) {
             checkSupabaseError(error, status);
             setSupabaseConnectionState(false);
@@ -902,7 +959,7 @@ class ResilientQueryBuilder {
               if (this.limitCount !== null) adminBuilder = adminBuilder.limit(this.limitCount);
               if (this.isSingle) adminBuilder = adminBuilder.single();
 
-              const { data: adminData, error: adminErr } = (await withTimeout(adminBuilder, 2000)) as any;
+              const { data: adminData, error: adminErr } = (await withTimeout(adminBuilder, 8000)) as any;
               if (!adminErr && adminData && (!Array.isArray(adminData) || adminData.length > 0)) {
                 data = adminData;
                 error = null;
