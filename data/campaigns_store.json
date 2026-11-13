@@ -9,7 +9,661 @@
       "evelynmelosantana@gmail.com",
       "zeroastrooliveira@gmail.com"
     ],
-    "playerCharacters": [],
+    "playerCharacters": [
+      {
+        "id": "57ou4dbs97",
+        "nome": "Erik Lehnsherr",
+        "etnia": "Judeu",
+        "dinheiro": {
+          "C": 0,
+          "B": 0,
+          "P": 0,
+          "O": 0
+        },
+        "vidaAtual": 20,
+        "manaAtual": 0,
+        "sanidadeAtual": 20,
+        "fome": 100,
+        "sede": 100,
+        "cansaco": 8,
+        "defesa": {
+          "Cabeça": 0,
+          "Tronco": 0,
+          "Braço Esquerdo": 0,
+          "Braço Direito": 0,
+          "Pernas": 0
+        },
+        "clima": 0,
+        "stats": {
+          "CON": 10,
+          "RES": 5,
+          "ADP": 0,
+          "MEN": 10,
+          "APR": 0,
+          "FOR": 10,
+          "DEX": 10,
+          "INT": 0,
+          "RIT": 0
+        },
+        "statsXP": {
+          "CON": 0,
+          "RES": 0,
+          "ADP": 0,
+          "MEN": 0,
+          "APR": 0,
+          "FOR": 0,
+          "DEX": 0,
+          "INT": 0,
+          "RIT": 0
+        },
+        "bonusProficiencias": {
+          "Atletismo": 1,
+          "Mentalidade": 7
+        },
+        "joias": [],
+        "imagem": "",
+        "armas": [
+          {
+            "id": "2ppzvsthvw",
+            "dano": "0",
+            "nome": "Revolver cal .38",
+            "peso": 20,
+            "tipo": "Arma",
+            "corte": 0,
+            "acerto": 13,
+            "escala": "0",
+            "volume": 3,
+            "impacto": 0,
+            "bulletId": "o9nenhr4b3",
+            "categoria": "Arma de Fogo",
+            "perfuracao": 0,
+            "resistencia": 0,
+            "atributoBase": "Destreza",
+            "durabilidade": 100,
+            "magazineAmmo": [
+              {
+                "id": "0g5m4c2bq3",
+                "dano": "4d8",
+                "nome": "cal .38 ogival",
+                "impacto": 1,
+                "perfuracao": 1,
+                "resistencia": 0
+              },
+              {
+                "id": "bsyqzz63qr",
+                "dano": "4d8",
+                "nome": "cal .38 ogival",
+                "impacto": 1,
+                "perfuracao": 1,
+                "resistencia": 0
+              },
+              {
+                "id": "7k6e1zgql5",
+                "dano": "4d8",
+                "nome": "cal .38 ogival",
+                "impacto": 1,
+                "perfuracao": 1,
+                "resistencia": 0
+              },
+              {
+                "id": "6aepct1qae",
+                "dano": "4d8",
+                "nome": "cal .38 ogival",
+                "impacto": 1,
+                "perfuracao": 1,
+                "resistencia": 0
+              },
+              {
+                "id": "2p94r81gos",
+                "dano": "4d8",
+                "nome": "cal .38 ogival",
+                "impacto": 1,
+                "perfuracao": 1,
+                "resistencia": 0
+              },
+              {
+                "id": "27hqlq4rnf",
+                "dano": "4d8",
+                "nome": "cal .38 ogival",
+                "impacto": 1,
+                "perfuracao": 1,
+                "resistencia": 0
+              }
+            ],
+            "municaoTotal": 6,
+            "maxDurabilidade": 100,
+            "municaoCarregada": 6,
+            "durabilidadeMaxUtil": 100
+          }
+        ],
+        "catalisadores": [],
+        "habilidades": [],
+        "magias": [],
+        "armaduras": [],
+        "acessorios": [],
+        "compartimentos": [
+          {
+            "id": "z799etqnly",
+            "nome": "Mochila de Viagem",
+            "itens": [
+              {
+                "id": "6dfz2c4q3h",
+                "nome": "dados",
+                "peso": 0.1,
+                "tipo": "Geral",
+                "volume": 0.1,
+                "descricao": "Dados viciados.",
+                "quantidade": 2,
+                "durabilidade": 0,
+                "maxDurabilidade": 0
+              },
+              {
+                "id": "q2b6kd50jv",
+                "nome": "Relógio de pulso",
+                "peso": 0.5,
+                "tipo": "Geral",
+                "volume": 0.5,
+                "descricao": "",
+                "quantidade": 1,
+                "durabilidade": 0,
+                "maxDurabilidade": 0
+              }
+            ],
+            "externo": false,
+            "volumeMax": 50
+          },
+          {
+            "id": "2nx59o6t12",
+            "nome": "Bolsa de Cinto",
+            "itens": [
+              {
+                "id": "o9nenhr4b3",
+                "dano": "4d8",
+                "nome": "cal .38 ogival",
+                "peso": 0.3,
+                "tipo": "Munição",
+                "efeito": "",
+                "volume": 0.1,
+                "impacto": 1,
+                "descricao": "",
+                "perfuracao": 1,
+                "quantidade": 0,
+                "resistencia": 0,
+                "durabilidade": 0,
+                "maxDurabilidade": 0
+              }
+            ],
+            "externo": false,
+            "volumeMax": 3
+          }
+        ],
+        "conhecimentos": [
+          {
+            "xp": 0,
+            "name": "Flora",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Minerais",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Magia",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Forja artesanal",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Forja comum",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Geografia",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Navegação",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Mecânica",
+            "nivel": 2,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "história",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Religião",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Medicina",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Fauna",
+            "nivel": -1,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Alquimia",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Armas de fogo",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Arqueologia",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Sobrevivência",
+            "nivel": 1,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Demônios",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Culinária",
+            "nivel": 0,
+            "limite": 5
+          },
+          {
+            "xp": 0,
+            "name": "Clima",
+            "nivel": 0,
+            "limite": 5
+          }
+        ],
+        "escalas": [],
+        "efeitosNegativos": [],
+        "anotacoes": [
+          {
+            "id": "382asq9r7x",
+            "titulo": "Traumas",
+            "conteudo": ""
+          },
+          {
+            "id": "zvj6oufubc",
+            "titulo": "Vícios",
+            "conteudo": ""
+          }
+        ],
+        "dadosCustomizados": [],
+        "imagens": [],
+        "itens": [],
+        "userId": "ddab7c58-8d33-4bc5-b15a-f86da4c66098",
+        "userEmail": "zeroastrooliveira@gmail.com",
+        "user_id": "6c553e2e-b65e-409a-b3b2-b716217af04e",
+        "user_email": "zeroastrooliveira@gmail.com",
+        "campaign_id": null,
+        "data": {
+          "id": "57ou4dbs97",
+          "fome": 100,
+          "nome": "Erik Lehnsherr",
+          "sede": 100,
+          "armas": [
+            {
+              "id": "2ppzvsthvw",
+              "dano": "0",
+              "nome": "Revolver cal .38",
+              "peso": 20,
+              "tipo": "Arma",
+              "corte": 0,
+              "acerto": 13,
+              "escala": "0",
+              "volume": 3,
+              "impacto": 0,
+              "bulletId": "o9nenhr4b3",
+              "categoria": "Arma de Fogo",
+              "perfuracao": 0,
+              "resistencia": 0,
+              "atributoBase": "Destreza",
+              "durabilidade": 100,
+              "magazineAmmo": [
+                {
+                  "id": "0g5m4c2bq3",
+                  "dano": "4d8",
+                  "nome": "cal .38 ogival",
+                  "impacto": 1,
+                  "perfuracao": 1,
+                  "resistencia": 0
+                },
+                {
+                  "id": "bsyqzz63qr",
+                  "dano": "4d8",
+                  "nome": "cal .38 ogival",
+                  "impacto": 1,
+                  "perfuracao": 1,
+                  "resistencia": 0
+                },
+                {
+                  "id": "7k6e1zgql5",
+                  "dano": "4d8",
+                  "nome": "cal .38 ogival",
+                  "impacto": 1,
+                  "perfuracao": 1,
+                  "resistencia": 0
+                },
+                {
+                  "id": "6aepct1qae",
+                  "dano": "4d8",
+                  "nome": "cal .38 ogival",
+                  "impacto": 1,
+                  "perfuracao": 1,
+                  "resistencia": 0
+                },
+                {
+                  "id": "2p94r81gos",
+                  "dano": "4d8",
+                  "nome": "cal .38 ogival",
+                  "impacto": 1,
+                  "perfuracao": 1,
+                  "resistencia": 0
+                },
+                {
+                  "id": "27hqlq4rnf",
+                  "dano": "4d8",
+                  "nome": "cal .38 ogival",
+                  "impacto": 1,
+                  "perfuracao": 1,
+                  "resistencia": 0
+                }
+              ],
+              "municaoTotal": 6,
+              "maxDurabilidade": 100,
+              "municaoCarregada": 6,
+              "durabilidadeMaxUtil": 100
+            }
+          ],
+          "clima": 0,
+          "etnia": "Judeu",
+          "itens": [],
+          "joias": [],
+          "stats": {
+            "ADP": 0,
+            "APR": 0,
+            "CON": 10,
+            "DEX": 10,
+            "FOR": 10,
+            "INT": 0,
+            "MEN": 10,
+            "RES": 5,
+            "RIT": 0
+          },
+          "defesa": {
+            "Pernas": 0,
+            "Tronco": 0,
+            "Cabeça": 0,
+            "Braço Direito": 0,
+            "Braço Esquerdo": 0
+          },
+          "imagem": "",
+          "magias": [],
+          "userId": "6c553e2e-b65e-409a-b3b2-b716217af04e",
+          "cansaco": 8,
+          "escalas": [],
+          "imagens": [],
+          "statsXP": {
+            "ADP": 0,
+            "APR": 0,
+            "CON": 0,
+            "DEX": 0,
+            "FOR": 0,
+            "INT": 0,
+            "MEN": 0,
+            "RES": 0,
+            "RIT": 0
+          },
+          "dinheiro": {
+            "B": 10,
+            "C": 0,
+            "O": 0,
+            "P": 2
+          },
+          "anotacoes": [
+            {
+              "id": "7laxnsgact",
+              "titulo": "Anotações Gerais",
+              "conteudo": ""
+            }
+          ],
+          "armaduras": [],
+          "manaAtual": 0,
+          "userEmail": "zeroastrooliveira@gmail.com",
+          "vidaAtual": 20,
+          "acessorios": [],
+          "habilidades": [],
+          "catalisadores": [],
+          "conhecimentos": [
+            {
+              "xp": 0,
+              "name": "Flora",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Minerais",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Magia",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Forja artesanal",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Forja comum",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Geografia",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Navegação",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Mecânica",
+              "nivel": 2,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "história",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Religião",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Medicina",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Fauna",
+              "nivel": -1,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Alquimia",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Armas de fogo",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Arqueologia",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Sobrevivência",
+              "nivel": 1,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Demônios",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Culinária",
+              "nivel": 0,
+              "limite": 5
+            },
+            {
+              "xp": 0,
+              "name": "Clima",
+              "nivel": 0,
+              "limite": 5
+            }
+          ],
+          "sanidadeAtual": 20,
+          "compartimentos": [
+            {
+              "id": "z799etqnly",
+              "nome": "Mochila de Viagem",
+              "itens": [
+                {
+                  "id": "6dfz2c4q3h",
+                  "nome": "dados",
+                  "peso": 0.1,
+                  "tipo": "Geral",
+                  "volume": 0.1,
+                  "descricao": "Dados viciados.",
+                  "quantidade": 2,
+                  "durabilidade": 0,
+                  "maxDurabilidade": 0
+                },
+                {
+                  "id": "q2b6kd50jv",
+                  "nome": "Relógio de pulso",
+                  "peso": 0.5,
+                  "tipo": "Geral",
+                  "volume": 0.5,
+                  "descricao": "",
+                  "quantidade": 1,
+                  "durabilidade": 0,
+                  "maxDurabilidade": 0
+                }
+              ],
+              "externo": false,
+              "volumeMax": 50
+            },
+            {
+              "id": "2nx59o6t12",
+              "nome": "Bolsa de Cinto",
+              "itens": [
+                {
+                  "id": "o9nenhr4b3",
+                  "dano": "4d8",
+                  "nome": "cal .38 ogival",
+                  "peso": 0.3,
+                  "tipo": "Munição",
+                  "efeito": "",
+                  "volume": 0.1,
+                  "impacto": 1,
+                  "descricao": "",
+                  "perfuracao": 1,
+                  "quantidade": 0,
+                  "resistencia": 0,
+                  "durabilidade": 0,
+                  "maxDurabilidade": 0
+                }
+              ],
+              "externo": false,
+              "volumeMax": 3
+            }
+          ],
+          "isRemoteSynced": true,
+          "efeitosNegativos": [],
+          "dadosCustomizados": [],
+          "bonusProficiencias": {
+            "Atletismo": 1,
+            "Mentalidade": 7
+          }
+        },
+        "updated_at": "2026-10-12T19:31:37.005+00:00",
+        "is_remote_synced": true,
+        "campaignId": "camp_uu3i63t2d",
+        "defenseType": null,
+        "isDefending": false,
+        "defenseRounds": 0,
+        "isRemoteSynced": true,
+        "defenseWeaponId": null
+      }
+    ],
     "updated_at": "2026-11-08T15:20:32.979Z"
   }
 }

@@ -213,7 +213,7 @@
       "lastCombatRoll": {
         "isCombat": true,
         "attackerName": "Clair Le'Blanc",
-        "targetName": "Baku / Pã",
+        "targetName": "Armis aranea / aranha gigante",
         "armaNome": "Rifle de vibrite lever action com luneta",
         "combatNote": " (Efeito Falhou Resistência: 1d100[13] + 0 RES = 13 < 70)",
         "hitResult": 19,
@@ -279,7 +279,278 @@
     }
   },
   "camp_uu3i63t2d": {
-    "tokens": [],
+    "tokens": [
+      {
+        "id": "eea983nvm3",
+        "name": "Otto Mistmere (Base)",
+        "x": 466.0714285714283,
+        "y": 507.557142857143,
+        "size": 1,
+        "type": "creature",
+        "characterId": "561dc1bd-620d-427e-b6c8-f5b8d55e1eb6",
+        "hp": 28,
+        "maxHp": 28,
+        "imageUrl": "https://images.unsplash.com/photo-1599508704512-2f19efd1e35f?w=128&h=128&fit=crop",
+        "deslocamento": 6,
+        "isDefending": false,
+        "stats": {
+          "acuracia": 3,
+          "esquiva": 0,
+          "ataque": {
+            "corte": 2,
+            "perfuracao": 4,
+            "impacto": 2,
+            "resistencia": 0,
+            "feitico": 0,
+            "elemental": 0,
+            "magiaNegra": 0,
+            "potencial": 0
+          },
+          "defesa": {
+            "corte": 0,
+            "perfuracao": 0,
+            "impacto": 0,
+            "feitico": 0,
+            "elemental": 0,
+            "magiaNegra": 0
+          }
+        },
+        "acoes": [
+          {
+            "id": "5cecbec8-4ce4-4e25-b20d-c2d051600222",
+            "nome": "Arco longo de Cortosis",
+            "dano": "2d6",
+            "acerto": 10,
+            "tipo": "Arco longo",
+            "escala": "C",
+            "atributoBase": "Destreza",
+            "peso": 23,
+            "volume": 19,
+            "durabilidade": 1,
+            "maxDurabilidade": 1,
+            "corte": 4,
+            "impacto": 4,
+            "perfuracao": 4,
+            "resistencia": 2,
+            "efeito": "Imune a magia, tóxico quando bruto",
+            "categoria": "Arco",
+            "municaoTotal": 1,
+            "municaoCarregada": 1,
+            "durabilidadeMaxUtil": 1,
+            "quantidade": 1,
+            "municaoDano": "2d6",
+            "arrowId": "0c11c1d3-aa76-4dde-84d0-2a0961b89738",
+            "magazineAmmo": [
+              {
+                "id": "0c11c1d3-aa76-4dde-84d0-2a0961b89738",
+                "nome": "Flechas de Cobalto",
+                "dano": "2d6",
+                "corte": 4,
+                "perfuracao": 4,
+                "impacto": 4,
+                "resistencia": 2,
+                "efeito": ""
+              }
+            ],
+            "name": "Arco longo de Cortosis",
+            "type": "Major",
+            "description": "Imune a magia, tóxico quando bruto"
+          },
+          {
+            "id": "12a5c41a-5c56-45ab-b30a-d562e68881e4",
+            "nome": "Pilum de Couro",
+            "dano": "2d8",
+            "acerto": 14,
+            "tipo": "Pilum",
+            "escala": "C",
+            "atributoBase": "Força",
+            "peso": 8,
+            "volume": 13,
+            "durabilidade": 1,
+            "maxDurabilidade": 1,
+            "corte": 0,
+            "impacto": 0,
+            "perfuracao": 4,
+            "resistencia": 0,
+            "efeito": "Leve, Orgânico",
+            "categoria": "Arma Branca",
+            "quantidade": 12,
+            "name": "Pilum de Couro",
+            "type": "Major",
+            "description": "Leve, Orgânico"
+          }
+        ],
+        "efeitosNegativos": [],
+        "prevX": 250,
+        "prevY": 250
+      },
+      {
+        "id": "cis7bft0u5",
+        "name": "Himura Oakenmoor (Base)",
+        "x": 607.8142857142858,
+        "y": 391.7428571428572,
+        "size": 1,
+        "type": "creature",
+        "characterId": "6815e75b-81ab-4299-a9a7-8dd4704708cd",
+        "hp": 10,
+        "maxHp": 20,
+        "imageUrl": "https://images.unsplash.com/photo-1599508704512-2f19efd1e35f?w=128&h=128&fit=crop",
+        "deslocamento": 6,
+        "isDefending": false,
+        "stats": {
+          "acuracia": 3,
+          "esquiva": 0,
+          "ataque": {
+            "corte": 2,
+            "perfuracao": 4,
+            "impacto": 2,
+            "resistencia": 0,
+            "feitico": 0,
+            "elemental": 0,
+            "magiaNegra": 0,
+            "potencial": 0
+          },
+          "defesa": {
+            "corte": 0,
+            "perfuracao": 0,
+            "impacto": 0,
+            "feitico": 0,
+            "elemental": 0,
+            "magiaNegra": 0
+          }
+        },
+        "acoes": [
+          {
+            "id": "722bd4d3-1293-4e10-85ab-a6a2376e0eb9",
+            "nome": "Espingarda dupla de Escama de dragão",
+            "dano": "5d8",
+            "acerto": 12,
+            "tipo": "Espingarda dupla",
+            "escala": "0",
+            "atributoBase": "Destreza",
+            "peso": 30,
+            "volume": 13,
+            "durabilidade": 6,
+            "maxDurabilidade": 6,
+            "corte": 2,
+            "impacto": 2,
+            "perfuracao": 2,
+            "resistencia": 0,
+            "efeito": "Incendeia o ferimento, causando dano e cauterizando. +4 de dano de fogo",
+            "categoria": "Arma de Fogo",
+            "municaoTotal": 12,
+            "municaoCarregada": 6,
+            "durabilidadeMaxUtil": 6,
+            "quantidade": 1,
+            "municaoDano": "5d8",
+            "bulletId": "18df8072-946a-4465-bcd9-2724e6e9ed9a",
+            "magazineAmmo": [
+              {
+                "id": "18df8072-946a-4465-bcd9-2724e6e9ed9a",
+                "nome": "Balas de Couro",
+                "dano": "5d8",
+                "corte": 2,
+                "perfuracao": 2,
+                "impacto": 2,
+                "resistencia": 0,
+                "efeito": "Leve, Orgânico"
+              },
+              {
+                "id": "18df8072-946a-4465-bcd9-2724e6e9ed9a",
+                "nome": "Balas de Couro",
+                "dano": "5d8",
+                "corte": 2,
+                "perfuracao": 2,
+                "impacto": 2,
+                "resistencia": 0,
+                "efeito": "Leve, Orgânico"
+              },
+              {
+                "id": "18df8072-946a-4465-bcd9-2724e6e9ed9a",
+                "nome": "Balas de Couro",
+                "dano": "5d8",
+                "corte": 2,
+                "perfuracao": 2,
+                "impacto": 2,
+                "resistencia": 0,
+                "efeito": "Leve, Orgânico"
+              },
+              {
+                "id": "18df8072-946a-4465-bcd9-2724e6e9ed9a",
+                "nome": "Balas de Couro",
+                "dano": "5d8",
+                "corte": 2,
+                "perfuracao": 2,
+                "impacto": 2,
+                "resistencia": 0,
+                "efeito": "Leve, Orgânico"
+              },
+              {
+                "id": "18df8072-946a-4465-bcd9-2724e6e9ed9a",
+                "nome": "Balas de Couro",
+                "dano": "5d8",
+                "corte": 2,
+                "perfuracao": 2,
+                "impacto": 2,
+                "resistencia": 0,
+                "efeito": "Leve, Orgânico"
+              },
+              {
+                "id": "18df8072-946a-4465-bcd9-2724e6e9ed9a",
+                "nome": "Balas de Couro",
+                "dano": "5d8",
+                "corte": 2,
+                "perfuracao": 2,
+                "impacto": 2,
+                "resistencia": 0,
+                "efeito": "Leve, Orgânico"
+              }
+            ],
+            "name": "Espingarda dupla de Escama de dragão",
+            "type": "Major",
+            "description": "Incendeia o ferimento, causando dano e cauterizando. +4 de dano de fogo"
+          },
+          {
+            "id": "f33f8a08-181b-4337-9ef9-c3eaaafd099f",
+            "nome": "Faca de arremesso de Couro",
+            "dano": "1d4",
+            "acerto": 12,
+            "tipo": "Faca de arremesso",
+            "escala": "C",
+            "atributoBase": "Destreza",
+            "peso": 0.4,
+            "volume": 0.8,
+            "durabilidade": 2,
+            "maxDurabilidade": 2,
+            "corte": 1,
+            "impacto": 0,
+            "perfuracao": 1,
+            "resistencia": 0,
+            "efeito": "Leve, Orgânico",
+            "categoria": "Arma Branca",
+            "quantidade": 14,
+            "name": "Faca de arremesso de Couro",
+            "type": "Major",
+            "description": "Leve, Orgânico"
+          }
+        ],
+        "efeitosNegativos": [
+          {
+            "id": "xtfptt5piz",
+            "type": "Hemorragia",
+            "location": "Tronco",
+            "stacks": 1,
+            "treated": false,
+            "daysRemaining": 3
+          }
+        ],
+        "prevX": 250,
+        "prevY": 250,
+        "defenseType": null,
+        "defenseWeaponId": null,
+        "defenseRounds": 0
+      }
+    ],
     "config": {
       "gridSize": 30,
       "showGrid": true,
@@ -296,37 +567,37 @@
         "year": 1516
       },
       "weather": "Céu limpo",
-      "updatedAt": "2026-11-01T03:54:56.166Z",
+      "updatedAt": "2026-11-05T02:53:48.949Z",
       "lastCombatRoll": {
         "isCombat": true,
-        "attackerName": "Nephele Harrowmere (Base)",
-        "targetName": "Alwine Vaelmont (Base)",
-        "armaNome": "Espingarda dupla de Vibrite+",
-        "combatNote": "BLOQUEADO!  (Bloqueio por Nível - Nível 0+0 vs 2)",
-        "hitResult": 18,
-        "hitFormula": "16 (dados) + 3 (bônus) - 1 (esquiva) [vs 12]",
+        "attackerName": "Himura Oakenmoor (Base)",
+        "targetName": "Otto Mistmere (Base)",
+        "armaNome": "Espingarda dupla de Escama de dragão",
+        "combatNote": "BLOQUEADO!  (Bloqueio por Nível - Nível 2+0 vs 4)",
+        "hitResult": 20,
+        "hitFormula": "17 (dados) + 3 (bônus) - 0 (esquiva) [vs 12]",
         "hitRolls": [
-          2,
-          8,
-          6
+          3,
+          7,
+          7
         ],
-        "hitBonus": 2,
-        "hitLocation": "Perna Direita",
-        "locationRoll": 4,
+        "hitBonus": 3,
+        "hitLocation": "Braço Esquerdo",
+        "locationRoll": 1,
         "hitSucceeded": false,
         "damage": 0,
         "dmgResult": 0,
         "defenseRolls": [],
         "defenseResult": 0,
-        "attackType": "Perfuração",
-        "attackLevel": 0,
-        "targetDefenseLevel": 2,
+        "attackType": "Impacto",
+        "attackLevel": 2,
+        "targetDefenseLevel": 4,
         "isRangedOrMagic": true,
         "combatStatus": "armor_blocked",
         "effectType": "",
         "detailedTitle": "Armadura defendeu",
-        "rollId": "buypf4g4mg",
-        "timestamp": 1793505295694
+        "rollId": "er4lin2c4o",
+        "timestamp": 1793847228568
       }
     }
   }
