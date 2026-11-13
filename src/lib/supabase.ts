@@ -1288,11 +1288,6 @@ export const forceSyncAndRestoreByEmail = async (
   let countLocal = 0;
   let remoteError: string | null = null;
 
-  const isLocalUrl = (url: string) => {
-    const u = (url || '').toLowerCase();
-    return u.includes('127.0.0.1') || u.includes('localhost') || u.includes('::1') || u.includes('0.0.0.0');
-  };
-
   const LOCAL_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM7JyUXp7fZ83VvlN-BRwsPIgtcqbyUTR21s-TqF4";
 
   // 1. TENTAR BUSCA NA TABELA 'characters' DO SUPABASE (COM CLIENTE ATUAL OU FALLBACK SERVICE ROLE)
@@ -2373,16 +2368,6 @@ export const loginWithEmailOnly = async (email: string, displayName?: string, pa
         localStorage.setItem('account_google_uid_' + cleanEmail, authJson.user.id);
         localStorage.setItem('user_local_pwd_' + cleanEmail, btoa(typedPassword));
       } catch (e) {}
-
-      currentAuthUser = userObj;
-      localStorage.setItem('supabase_auth_user', JSON.stringify(userObj));
-      window.dispatchEvent(new Event('supabase_auth_state_change_local'));
-
-      // Sincronização imediata de dados
-      forceSyncAndRestoreByEmail(cleanEmail, userObj.uid).catch(() => {});
-      syncLocalToCloud().catch(() => {});
-
-      return userObj;
     } else if (authRes.status === 401) {
       throw new Error(authJson.error || "Senha incorreta para esta conta.");
     }

@@ -403,7 +403,7 @@ async function startServer() {
             if (!res.headersSent) {
               // Resilient internal store fallback when target Supabase port is not running
               if (targetPath.startsWith('/auth/v1/health')) {
-                return res.status(200).json({ status: "ok", name: "GoTrue", version: "DemonsDespair-v1.15.11" });
+                return res.status(200).json({ status: "ok", name: "GoTrue", version: "DemonsDespair-v1.15.12" });
               }
 
               if (targetPath.startsWith('/rest/v1/characters')) {
@@ -773,7 +773,7 @@ async function startServer() {
         const timeout = setTimeout(() => controller.abort(), 2500);
         const start = Date.now();
         const headers: Record<string, string> = { 
-          "User-Agent": "DemonsDespair/1.15.11",
+          "User-Agent": "DemonsDespair/1.15.12",
           "apikey": anonKey,
           "Authorization": `Bearer ${anonKey}`
         };
@@ -2053,6 +2053,36 @@ async function startServer() {
       });
     } catch (e) {}
 
+    // C. Also query Supabase Local if online
+    if (await isSupabaseReachable()) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2000);
+        const url = cleanEmail 
+          ? `${getTargetSupabase()}/rest/v1/characters?user_email=eq.${encodeURIComponent(cleanEmail)}&select=*`
+          : `${getTargetSupabase()}/rest/v1/characters?select=*`;
+        const sbRes = await fetch(url, {
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            Accept: "application/json"
+          },
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        if (sbRes.ok) {
+          const rows = await sbRes.json();
+          if (Array.isArray(rows)) {
+            rows.forEach((r: any) => {
+              const rData = typeof r.data === 'string' ? JSON.parse(r.data) : (r.data || {});
+              const charObj = { ...r, ...rData, id: r.id };
+              charMap.set(r.id, charObj);
+            });
+          }
+        }
+      } catch (e) {}
+    }
+
     let list = Array.from(charMap.values());
 
     if (cleanEmail) {
@@ -2156,6 +2186,57 @@ async function startServer() {
           saveCampaignCharactersStore(campCharStore);
         } catch (e) {}
       }
+    }
+
+    // If Supabase Local is reachable, fetch any characters stored in Supabase table
+    if (await isSupabaseReachable()) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2000);
+        const sbRes = await fetch(`${getTargetSupabase()}/rest/v1/characters?user_email=eq.${encodeURIComponent(cleanEmail)}&select=*`, {
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            Accept: "application/json"
+          },
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        if (sbRes.ok) {
+          const rows = await sbRes.json();
+          if (Array.isArray(rows)) {
+            rows.forEach((r: any) => {
+              const rData = typeof r.data === 'string' ? JSON.parse(r.data) : (r.data || {});
+              const charObj = { ...r, ...rData, id: r.id, userEmail: cleanEmail };
+              if (!store[r.id]) {
+                store[r.id] = charObj;
+              }
+            });
+          }
+        }
+
+        // Also push client characters to Supabase Local
+        for (const char of incomingList) {
+          if (!char || !char.id) continue;
+          await fetch(`${getTargetSupabase()}/rest/v1/characters`, {
+            method: "POST",
+            headers: {
+              apikey: SERVICE_ROLE_KEY,
+              Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+              "Content-Type": "application/json",
+              Prefer: "resolution=merge-duplicates"
+            },
+            body: JSON.stringify({
+              id: char.id,
+              user_id: char.userId || char.user_id || cleanEmail,
+              user_email: cleanEmail,
+              campaign_id: char.campaignId || char.campaign_id || null,
+              data: char,
+              updated_at: new Date().toISOString()
+            })
+          }).catch(() => {});
+        }
+      } catch (e) {}
     }
 
     saveCharactersStore(store);
