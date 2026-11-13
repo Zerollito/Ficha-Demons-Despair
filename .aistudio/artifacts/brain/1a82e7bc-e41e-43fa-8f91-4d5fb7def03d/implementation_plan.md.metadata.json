@@ -1,6 +1,0 @@
-{
-  "summary": "Added combat targeting cancellation and token unmarking in the VTT board. Users can now easily cancel combat and clear token rings via the floating banner, the weapon select modal, the limb targeting view, the token popup, clicking on empty canvas space, clicking the attacker token again, the sidebar combat tab, or pressing Escape. Bumped version to v1.14.35.",
-  "updatedAt": "2026-11-02T14:29:37.876326786Z",
-  "requestFeedback": true,
-  "userFacing": true
-}
